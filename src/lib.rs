@@ -32,8 +32,12 @@ pub enum GBlock {
     },
 
     /// G04 Command
-    /// Dwell, blocking further code execution.
+    /// Dwell (sec) blocking further code execution.
     Dwell(f64),
+
+    /// G09 Command
+    /// Exact Stop for improving accuracy by checking for completion.
+    ExactStop(),
 }
 
 /// Circular Interpolation helper
