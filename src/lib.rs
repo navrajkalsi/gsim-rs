@@ -15,13 +15,21 @@ pub struct Point {
 
 /// Represents a **G-Code block**.
 pub enum GBlock {
+    Empty,
+
+    /// The block only contains coordinates.
+    Point(Point),
+
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
     RapidMove(Point),
 
     /// G01
     /// Linear Interpolate to new coordinates using provided feed rate.
-    FeedMove { point: Point, f: Option<f64> },
+    FeedMove {
+        point: Point,
+        f: Option<f64>,
+    },
 
     /// G02/G03
     /// Circular Interpolate to new coordinates using provided feed rate.
@@ -36,25 +44,17 @@ pub enum GBlock {
     /// Dwell (sec) blocking further code execution.
     Dwell(f64),
 
-    /// G17
-    /// Select plane parallel to both X and Y axes (**default for mills**).
-    XYPlane(),
-
-    /// G18
-    /// Select plane parallel to both X and Z axes.
-    XZPlane(),
-
-    /// G19
-    /// Select plane parallel to both Y and Z axes.
-    YZPlane(),
+    /// G17-G19
+    /// Select plane parallel to axes specified in the plane.
+    Plane(Plane),
 
     /// G20
     /// Use **imperial** units.
-    ImperialMode(),
+    ImperialMode,
 
     /// G21
     /// Use **metric** units
-    MetricMode(),
+    MetricMode,
 
     /// G28
     /// Return to Machine Zero point.
@@ -66,19 +66,25 @@ pub enum GBlock {
 
     /// G40
     /// Cancel cutter compensation (G41/G42).
-    CancelCutterComp(),
+    CancelCutterComp,
 
     /// G41/G42
     /// 2D cutter compensation, left or right.
-    CutterComp { side: Side, d: u32 },
+    CutterComp {
+        side: Side,
+        d: u32,
+    },
 
     /// G43/G44
     /// Tool length compensation, add or subtract.
-    ToolLenComp { sign: Sign, h: u32 },
+    ToolLenComp {
+        sign: Sign,
+        h: u32,
+    },
 
     /// G49
     /// Cancel tool length compensation (G43, G44).
-    CancelLenComp(),
+    CancelLenComp,
 
     /// G52
     /// Work coordinate system shift.
@@ -94,46 +100,46 @@ pub enum GBlock {
 
     /// G80
     /// Cancel canned cycles.
-    CancelCanned(),
+    CancelCanned,
 
     /// G90
     /// Absolute positioning.
-    AbsoluteMode(),
+    AbsoluteMode,
 
     /// G91
     /// Incremental positioning.
-    IncrementalMode(),
+    IncrementalMode,
 
     /// G94
     /// Feed per minute mode.
-    FeedMinute(),
+    FeedMinute,
 
     /// G95
     /// Feed per revolution mode.
-    FeedRev(),
+    FeedRev,
 
     /// G98
     /// Initial point return in canned cycles.
-    InititalReturn(),
+    InititalReturn,
 
     /// G99
     /// Retract plane return in canned cycles.
-    RetractReturn(),
+    RetractReturn,
 }
 
 /// Represents a **M-Code block**.
 pub enum MBlock {
     /// M00
     /// Program stop.
-    Stop(),
+    Stop,
 
     /// M01
     /// Optional stop.
-    OptionalStop(),
+    OptionalStop,
 
     /// M02/M30
     /// Program end.
-    End(),
+    End,
 
     /// M03
     /// Spindle forward.
@@ -145,7 +151,7 @@ pub enum MBlock {
 
     /// M05
     /// Spindle stop.
-    SpindleStop(),
+    SpindleStop,
 
     /// M06
     /// Tool change.
@@ -156,7 +162,7 @@ pub enum MBlock {
     Coolant(bool),
 }
 
-/// Circular Interpolation helper
+/// Circular Interpolation helper.
 /// Both relative point and radius must not appear in the same block.
 pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K**.
@@ -165,14 +171,73 @@ pub enum CircleMethod {
     FixedRadius(f64),
 }
 
-/// Represents a side
+/// Represents a side.
 pub enum Side {
     Left,
     Right,
 }
 
-/// Represents possible algerbric signs
+/// Represents possible algerbric signs.
 pub enum Sign {
     Positive,
     Negative,
+}
+
+/// Represents a plane that is parallel to both the specified axes.
+#[derive(Default)]
+pub enum Plane {
+    #[default]
+    XY,
+    YZ,
+    XZ,
+}
+
+/// Represents a **Machine**.
+pub struct Machine {
+    max_travels: Point,
+    pos: Point,
+    work_coord: Point,
+    active_gcodes: Vec<u8>,
+    plane: Plane,
+    rapid: bool,
+    feed_rate: Option<f64>,
+    absolute: bool,
+    imperial: bool,
+    tool: Option<u8>,
+    coolant: bool,
+    spindle_on: bool,
+    spindle_speed: Option<u32>,
+}
+
+impl Machine {
+    /// Generate a new default machine instance.
+    pub fn new() -> Self {
+        Machine {
+            max_travels: Point {
+                x: Some(0.0),
+                y: Some(0.0),
+                z: Some(0.0),
+            },
+            pos: Point {
+                x: Some(0.0),
+                y: Some(0.0),
+                z: Some(0.0),
+            },
+            work_coord: Point {
+                x: Some(0.0),
+                y: Some(0.0),
+                z: Some(0.0),
+            },
+            active_gcodes: Vec::new(),
+            plane: Plane::default(),
+            rapid: true,
+            feed_rate: None,
+            absolute: true,
+            imperial: true,
+            tool: None,
+            coolant: false,
+            spindle_on: false,
+            spindle_speed: None,
+        }
+    }
 }
