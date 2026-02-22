@@ -1,30 +1,29 @@
 //! # Parser
 //!
 //! This library combines `lexer` and `parser` functionality to parse **G-Code**.
-//! Aims to parse every **Mill** code listed on **[Haas'](https://example.com)** website.
 
 // TODO Split into lexer & parser explicitly
 
 #![allow(unused)]
 
-/// Encapsulates a **3D coordinate**.
+/// Represents a **3D coordinate**.
 pub struct Point {
     x: Option<f64>,
     y: Option<f64>,
     z: Option<f64>,
 }
 
-/// Encapsulates a **G-Code block**.
+/// Represents a **G-Code block**.
 pub enum GBlock {
-    /// G00 Command
+    /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
     RapidMove(Point),
 
-    /// G01 Command
+    /// G01
     /// Linear Interpolate to new coordinates using provided feed rate.
     FeedMove { point: Point, f: Option<f64> },
 
-    /// G02/G03 Command
+    /// G02/G03
     /// Circular Interpolate to new coordinates using provided feed rate.
     ArcMove {
         clockwise: bool,
@@ -33,15 +32,15 @@ pub enum GBlock {
         f: Option<f64>,
     },
 
-    /// G04 Command
+    /// G04
     /// Dwell (sec) blocking further code execution.
     Dwell(f64),
 
-    /// G09 Command
+    /// G09
     /// Exact Stop for improving accuracy by checking for completion.
     ExactStop(),
 
-    /// G10 Command
+    /// G10
     /// Set offsets from within the program.
     SetOffset {
         /// Offset category
@@ -53,7 +52,7 @@ pub enum GBlock {
         zero: Point,
     },
 
-    /// G12/G13 Command
+    /// G12/G13
     /// Mill circular shapes.
     CirclePocket {
         clockwise: bool,
@@ -71,25 +70,106 @@ pub enum GBlock {
         z: f64,
     },
 
-    /// G17 Command
+    /// G17
     /// Select plane parallel to both X and Y axes (**default for mills**).
     XYPlane(),
 
-    /// G18 Command
+    /// G18
     /// Select plane parallel to both X and Z axes.
     XZPlane(),
 
-    /// G19 Command
+    /// G19
     /// Select plane parallel to both Y and Z axes.
     YZPlane(),
 
-    /// G20 Command
+    /// G20
     /// Use **imperial** units.
     ImperialMode(),
 
-    /// G21 Command
+    /// G21
     /// Use **metric** units
     MetricMode(),
+
+    /// G28
+    /// Return to Machine Zero point.
+    ReturnMachineZero(Point),
+
+    /// G29
+    /// Return from reference point.
+    ReturnReference(Point),
+
+    /// G40
+    /// Cancel cutter compensation (G41/G42).
+    CancelCutterComp(),
+
+    /// G41/G42
+    /// 2D cutter compensation, left or right.
+    CutterComp { side: Side, d: u32 },
+
+    /// G43/G44
+    /// Tool length compensation, add or subtract.
+    ToolLenComp { sign: Sign, h: u32 },
+
+    /// G47
+    /// Text engraving.
+    Engrave {
+        /// Smoothness setting
+        d: Level,
+        /// Plunge feed rate
+        e: f64,
+        f: f64,
+        /// Angle of rotation
+        i: f64,
+        /// Height of text
+        j: f64,
+        /// Max corner rounding
+        k: f64,
+        /// Engraving type
+        p: u32,
+        r: f64,
+        /// Starting point on the selected plane, third axis will be the depth
+        start: Point,
+    },
+
+    /// G49
+    /// Cancel tool length compensation (G43, G44).
+    CancelLenComp(),
+
+    /// G50
+    /// Cancel scaling (G51).
+    CancelScaling(),
+
+    /// G51
+    /// Scaling.
+    Scaling {
+        center: Point,
+        /// Scaling factor
+        p: f32,
+    },
+
+    //// G52
+    /// Work coordinate system shift.
+    WorkCoordShift(Point),
+
+    /// G53
+    /// Machine coordinate system.
+    MachineCoord(Point),
+
+    /// G54-G59
+    /// Work coordinate system select.
+    WorkCoord(u8),
+
+    /// G60
+    /// Uni-Directional positioning.
+    UniDirectional(),
+
+    /// G61
+    /// Activate exact stop mode.
+    ExactStopMode(),
+
+    /// G64
+    /// Cancel exact stop mode.
+    ExactStopModeCancel(),
 }
 
 /// Circular Interpolation helper
@@ -99,4 +179,23 @@ pub enum CircleMethod {
     RelativePoint(Point),
     /// Explicit radius specified with **R**.
     FixedRadius(f64),
+}
+
+/// Represents a side
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// Represents possible algerbric signs
+pub enum Sign {
+    Positive,
+    Negative,
+}
+
+/// Represents possible levels for a variable
+pub enum Level {
+    Low,
+    Medium,
+    High,
 }
