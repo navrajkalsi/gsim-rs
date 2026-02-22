@@ -36,40 +36,6 @@ pub enum GBlock {
     /// Dwell (sec) blocking further code execution.
     Dwell(f64),
 
-    /// G09
-    /// Exact Stop for improving accuracy by checking for completion.
-    ExactStop(),
-
-    /// G10
-    /// Set offsets from within the program.
-    SetOffset {
-        /// Offset category
-        l: i32,
-        /// Specific offset
-        p: i32,
-        // Offset value
-        r: f64,
-        zero: Point,
-    },
-
-    /// G12/G13
-    /// Mill circular shapes.
-    CirclePocket {
-        clockwise: bool,
-        /// Tool diameter
-        d: i32,
-        /// Radius of first circle
-        i: f64,
-        /// Radius of finished circle
-        k: f64,
-        /// Repeat count
-        l: i32,
-        /// Radius depth
-        q: f64,
-        /// Axial depth
-        z: f64,
-    },
-
     /// G17
     /// Select plane parallel to both X and Y axes (**default for mills**).
     XYPlane(),
@@ -110,44 +76,11 @@ pub enum GBlock {
     /// Tool length compensation, add or subtract.
     ToolLenComp { sign: Sign, h: u32 },
 
-    /// G47
-    /// Text engraving.
-    Engrave {
-        /// Smoothness setting
-        d: Level,
-        /// Plunge feed rate
-        e: f64,
-        f: f64,
-        /// Angle of rotation
-        i: f64,
-        /// Height of text
-        j: f64,
-        /// Max corner rounding
-        k: f64,
-        /// Engraving type
-        p: u32,
-        r: f64,
-        /// Starting point on the selected plane, third axis will be the depth
-        start: Point,
-    },
-
     /// G49
     /// Cancel tool length compensation (G43, G44).
     CancelLenComp(),
 
-    /// G50
-    /// Cancel scaling (G51).
-    CancelScaling(),
-
-    /// G51
-    /// Scaling.
-    Scaling {
-        center: Point,
-        /// Scaling factor
-        p: f32,
-    },
-
-    //// G52
+    /// G52
     /// Work coordinate system shift.
     WorkCoordShift(Point),
 
@@ -159,17 +92,68 @@ pub enum GBlock {
     /// Work coordinate system select.
     WorkCoord(u8),
 
-    /// G60
-    /// Uni-Directional positioning.
-    UniDirectional(),
+    /// G80
+    /// Cancel canned cycles.
+    CancelCanned(),
 
-    /// G61
-    /// Activate exact stop mode.
-    ExactStopMode(),
+    /// G90
+    /// Absolute positioning.
+    AbsoluteMode(),
 
-    /// G64
-    /// Cancel exact stop mode.
-    ExactStopModeCancel(),
+    /// G91
+    /// Incremental positioning.
+    IncrementalMode(),
+
+    /// G94
+    /// Feed per minute mode.
+    FeedMinute(),
+
+    /// G95
+    /// Feed per revolution mode.
+    FeedRev(),
+
+    /// G98
+    /// Initial point return in canned cycles.
+    InititalReturn(),
+
+    /// G99
+    /// Retract plane return in canned cycles.
+    RetractReturn(),
+}
+
+/// Represents a **M-Code block**.
+pub enum MBlock {
+    /// M00
+    /// Program stop.
+    Stop(),
+
+    /// M01
+    /// Optional stop.
+    OptionalStop(),
+
+    /// M02/M30
+    /// Program end.
+    End(),
+
+    /// M03
+    /// Spindle forward.
+    SpindleFwd(Option<u32>),
+
+    /// M04
+    /// Spindle reverse.
+    SpindleRev(Option<u32>),
+
+    /// M05
+    /// Spindle stop.
+    SpindleStop(),
+
+    /// M06
+    /// Tool change.
+    ToolChange(Option<u8>),
+
+    /// M08/M09
+    /// Coolant on/off.
+    Coolant(bool),
 }
 
 /// Circular Interpolation helper
@@ -191,11 +175,4 @@ pub enum Side {
 pub enum Sign {
     Positive,
     Negative,
-}
-
-/// Represents possible levels for a variable
-pub enum Level {
-    Low,
-    Medium,
-    High,
 }
