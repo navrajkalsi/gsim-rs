@@ -105,7 +105,7 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
         }
 
         // start new word
-        if prefix == None {
+        if prefix.is_none() {
             if *byte == b' ' {
                 continue; // try to start new on next()
             } else if byte.is_ascii_alphabetic() {
@@ -136,7 +136,7 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
 
             // read suffix
         } else if byte.is_ascii_digit() || *byte == b'.' || *byte == b'-' {
-            if suffix_str == None {
+            if suffix_str.is_none() {
                 suffix_str = Some(String::from(*byte as char));
             } else if *byte == b'-' {
                 // cannot have - in the middle of suffix
@@ -200,7 +200,7 @@ fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, self::Error> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
