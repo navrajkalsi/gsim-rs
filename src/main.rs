@@ -1,6 +1,9 @@
+// #![warn(missing_docs)]
 use std::fs;
 
 use gsim_rs::{Machine, Point, parse_block};
+
+mod parser;
 
 fn main() {
     let contents = fs::read_to_string("gcode.nc").unwrap();

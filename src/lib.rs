@@ -7,6 +7,7 @@
 #![allow(unused)]
 
 use std::{cmp::Ordering, fmt::Display, process::exit};
+pub mod parser;
 
 const MAX_TRAVELS: Point = Point {
     x: 40.0,
@@ -63,117 +64,144 @@ impl PartialOrd for Point {
 
 /// Represents a **G-Code block**.
 #[derive(Debug)]
+#[repr(i8)]
 pub enum GBlock {
-    Empty,
+    Empty = -1,
 
     /// The block only contains coordinates.
-    Point(PartialPoint),
+    Point(PartialPoint) = -2,
 
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
-    RapidMove(PartialPoint),
+    RapidMove(PartialPoint) = 0,
 
     /// G01
     /// Linear Interpolate to new coordinates using provided feed rate.
     FeedMove {
         point: PartialPoint,
         f: Option<f64>,
-    },
+    } = 1,
 
-    /// G02/G03
-    /// Circular Interpolate to new coordinates using provided feed rate.
-    ArcMove {
-        clockwise: bool,
+    /// G02
+    /// Clockwise Circular Interpolate to new coordinates using provided feed rate.
+    CWArcMove {
         point: PartialPoint,
         method: CircleMethod,
         f: Option<f64>,
-    },
+    } = 2,
+
+    /// G03
+    /// Counter-Clockwise Circular Interpolate to new coordinates using provided feed rate.
+    CCWArcMove {
+        point: PartialPoint,
+        method: CircleMethod,
+        f: Option<f64>,
+    } = 3,
 
     /// G04
     /// Dwell (sec) blocking further code execution.
-    Dwell(f64),
+    Dwell(f64) = 4,
 
-    /// G17-G19
-    /// Select plane parallel to axes specified in the plane.
-    Plane(Plane),
+    /// G17
+    /// Select plane parallel to X and Y axes (**default for mills**).
+    XYPlane() = 17,
+
+    /// G18
+    /// Select plane parallel to X and Z axes.
+    XZPlane() = 18,
+
+    /// G19
+    /// Select plane parallel to Y and Z axes.
+    YZPlane() = 19,
 
     /// G20
     /// Use **imperial** units.
-    ImperialMode,
+    ImperialMode = 20,
 
     /// G21
     /// Use **metric** units
-    MetricMode,
+    MetricMode = 21,
 
     /// G28
     /// Return to Machine Zero point.
-    ReturnMachineZero(PartialPoint),
+    ReturnMachineZero(PartialPoint) = 28,
 
     /// G29
     /// Return from reference point.
-    ReturnReference(PartialPoint),
+    ReturnReference(PartialPoint) = 29,
 
     /// G40
     /// Cancel cutter compensation (G41/G42).
-    CancelCutterComp,
+    CancelCutterComp = 40,
 
-    /// G41/G42
-    /// 2D cutter compensation, left or right.
-    CutterComp {
-        side: Side,
-        d: u32,
-    },
+    /// G41
+    /// 2D left cutter compensation.
+    LeftCutterComp(u32) = 41,
 
-    /// G43/G44
-    /// Tool length compensation, add or subtract.
-    ToolLenComp {
-        sign: Sign,
-        h: u32,
-    },
+    /// G42
+    /// 2D right cutter compensation.
+    RigthCutterComp(u32) = 42,
+
+    /// G43
+    /// Tool length compensation by addition.
+    ToolLenCompAdd(u32) = 43,
+
+    /// G44
+    /// Tool length compensation by subtraction.
+    ToolLenCompSubtract(u32) = 44,
 
     /// G49
     /// Cancel tool length compensation (G43, G44).
-    CancelLenComp,
+    CancelLenComp = 49,
 
     /// G52
     /// Work coordinate system shift.
-    WorkCoordShift(PartialPoint),
+    WorkCoordShift(PartialPoint) = 52,
 
     /// G53
     /// Machine coordinate system.
-    MachineCoord(PartialPoint),
+    MachineCoord(PartialPoint) = 53,
 
     /// G54-G59
     /// Work coordinate system select.
-    WorkCoord(u8),
+    WorkCoord(u8) = 54,
 
     /// G80
     /// Cancel canned cycles.
-    CancelCanned,
+    CancelCanned = 80,
 
     /// G90
     /// Absolute positioning.
-    AbsoluteMode,
+    AbsoluteMode = 90,
 
     /// G91
     /// Incremental positioning.
-    IncrementalMode,
+    IncrementalMode = 91,
 
     /// G94
     /// Feed per minute mode.
-    FeedMinute,
+    FeedMinute = 94,
 
     /// G95
     /// Feed per revolution mode.
-    FeedRev,
+    FeedRev = 95,
 
     /// G98
     /// Initial point return in canned cycles.
-    InititalReturn,
+    InititalReturn = 98,
 
     /// G99
     /// Retract plane return in canned cycles.
-    RetractReturn,
+    RetractReturn = 99,
+}
+
+impl GBlock {
+    fn discriminant(&self) -> i8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<i8>() }
+    }
 }
 
 /// Represents a **M-Code block**.
@@ -240,8 +268,8 @@ pub enum Sign {
 pub enum Plane {
     #[default]
     XY,
-    YZ,
     XZ,
+    YZ,
 }
 
 impl Display for Plane {
@@ -330,7 +358,7 @@ impl Display for Machine {
 
 pub enum Alarm {
     OvertravelXNeg(&'static str),
-    OvertravleXPos(&'static str),
+    OvertravelXPos(&'static str),
     OvertravelYNeg(&'static str),
     OvertravelYPos(&'static str),
     OvertravelZNeg(&'static str),
@@ -368,6 +396,8 @@ pub fn parse_block(block: &str) -> Result<GBlock, ParseError> {
     // it is reset when a space or another letter is detected
     //
     let mut buffer: [u8; 5] = [0, 0, 0, 0, 0];
+
+    println!("{}", res.discriminant());
 
     for char in block.as_bytes() {
         if char.is_ascii_control() {
