@@ -2,6 +2,8 @@
 //!
 //! The Lexer is responsible for converting a raw **ASCII G-code line**,
 //! into usable [`Token`]s that can then be parsed.
+//!
+//! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 /// A token represents a single **G-code field**.
 ///
@@ -206,7 +208,7 @@ mod tests {
     #[test]
     // Tests the most common format of G-code.
     // Tests with all alphabets in uppercase, both with and without whitespace between them.
-    fn parse_upper() {
+    fn tokenize_upper() {
         // with whitespace
         let whitespace = String::from("G01 X0.0 Y.0 Z-1.");
         let tokens = tokenize(&whitespace);
@@ -240,7 +242,7 @@ mod tests {
 
     #[test]
     // Tests with all alphabets in lowercase, both with and without whitespace between them.
-    fn parse_lower() {
+    fn tokenize_lower() {
         // with whitespace
         let whitespace = String::from("g01 x0.0 y.0 z-1.");
         let tokens = tokenize(&whitespace);
@@ -274,32 +276,32 @@ mod tests {
 
     #[test]
     // Tests with semicolon
-    fn parse_semicolon() {
+    fn tokenize_semicolon() {
         assert_eq!(tokenize("G01;").unwrap_err(), Error::EOBFound);
     }
 
     #[test]
     // Test non usable ASCII character
-    fn parse_non_usable() {
+    fn tokenize_non_usable() {
         assert_eq!(tokenize("G53 {").unwrap_err(), Error::NonUsableChar);
         assert_eq!(tokenize("G53 X1-1.").unwrap_err(), Error::NonUsableChar);
     }
 
     #[test]
     // Test non-ASCII character
-    fn parse_non_ascii() {
+    fn tokenize_non_ascii() {
         assert_eq!(tokenize("G53 नमस्ते").unwrap_err(), Error::IllegalChar);
     }
 
     #[test]
-    // Test parsing a field with no suffix
-    fn parse_no_suffix() {
+    // Test a field with no suffix
+    fn tokenize_no_suffix() {
         assert_eq!(tokenize("G53 X0.Y Z-1.").unwrap_err(), Error::NoSuffix);
     }
 
     #[test]
-    // Test parsing an invalid suffix.
-    fn parse_invalid_suffix() {
+    // Test an invalid suffix.
+    fn tokenize_invalid_suffix() {
         assert_eq!(tokenize("G53 X.").unwrap_err(), Error::ParseSuffix);
     }
 }
