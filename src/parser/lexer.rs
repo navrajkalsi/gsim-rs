@@ -35,7 +35,7 @@ pub enum Suffix {
 
 /// Possible errors that can happen during tokenization.
 #[derive(PartialEq, Debug)]
-pub enum Error {
+pub enum LexerError {
     /// A non-ASCII char is detected.
     IllegalChar,
     /// An invalid ASCII G-code char is detected.
@@ -53,21 +53,21 @@ pub enum Error {
 /// Accepts a string slice containing **only ASCII** characters and without a semicolon (`;`),
 /// known as `End of Block (EOB)`.
 ///
-/// Returns a vector of [`Token`]s on success or an [`Error`] on failure.
+/// Returns a vector of [`Token`]s, which may be *empty*, on success or an [`LexerError`] on failure.
 ///
 /// # Errors
-/// - [`Error::IllegalChar`] -- The block contains a non-ASCII character.
-/// - [`Error::NonUsableChar`] -- The block contains an invalid G-code character which is an ASCII
+/// - [`LexerError::IllegalChar`] -- The block contains a non-ASCII character.
+/// - [`LexerError::NonUsableChar`] -- The block contains an invalid G-code character which is an ASCII
 /// character.
-/// - [`Error::EOBFound`] -- The block contains a semicolon.
-/// - [`Error::NoSuffix`] -- The block contains a word that has no numeric suffix.
-/// - [`Error::ParseSuffix`] -- The numeric suffix of the block cannot be parse into a type.
+/// - [`LexerError::EOBFound`] -- The block contains a semicolon.
+/// - [`LexerError::NoSuffix`] -- The block contains a word that has no numeric suffix.
+/// - [`LexerError::ParseSuffix`] -- The numeric suffix of the block cannot be parse into a type.
 ///
 /// # Examples
 /// - Most common usage:
 /// ```
 /// # use gsim_rs::parser::lexer::*;
-/// # fn main() -> Result<(), Error> {
+/// # fn main() -> Result<(), LexerError> {
 /// assert_eq!(tokenize("G00 X.0 Y.0 Z-5.")?, vec![
 ///     Token {prefix: b'G', suffix: Suffix::Int(0)},
 ///     Token {prefix: b'X', suffix: Suffix::Float(0.0)},
@@ -81,7 +81,7 @@ pub enum Error {
 /// - Rare usage, using lowercase and no whitespace:
 /// ```
 /// # use gsim_rs::parser::lexer::*;
-/// # fn main() -> Result<(), Error> {
+/// # fn main() -> Result<(), LexerError> {
 /// assert_eq!(tokenize("g00x.0y.0z-5.")?, vec![
 ///     Token {prefix: b'G', suffix: Suffix::Int(0)},
 ///     Token {prefix: b'X', suffix: Suffix::Float(0.0)},
@@ -91,7 +91,7 @@ pub enum Error {
 /// # Ok(())
 /// # }
 /// ```
-pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
+pub fn tokenize(block: &str) -> Result<Vec<Token>, LexerError> {
     let mut tokens = vec![];
 
     let mut prefix = None;
@@ -99,11 +99,11 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
 
     for byte in block.trim().as_bytes() {
         if !byte.is_ascii() {
-            return Err(Error::IllegalChar);
+            return Err(LexerError::IllegalChar);
         } else if byte.is_ascii_control() {
-            return Err(Error::NonUsableChar);
+            return Err(LexerError::NonUsableChar);
         } else if *byte == b';' {
-            return Err(Error::EOBFound);
+            return Err(LexerError::EOBFound);
         }
 
         // start new word
@@ -114,7 +114,7 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
                 prefix = Some(byte.to_ascii_uppercase()); // read numeric on next()
                 continue;
             } else {
-                return Err(Error::NonUsableChar);
+                return Err(LexerError::NonUsableChar);
             }
         }
 
@@ -142,7 +142,7 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
                 suffix_str = Some(String::from(*byte as char));
             } else if *byte == b'-' {
                 // cannot have - in the middle of suffix
-                return Err(Error::NonUsableChar);
+                return Err(LexerError::NonUsableChar);
             } else {
                 suffix_str
                     .as_mut()
@@ -152,7 +152,7 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
 
             // invalid suffix
         } else {
-            return Err(Error::NonUsableChar);
+            return Err(LexerError::NonUsableChar);
         }
     }
 
@@ -174,30 +174,30 @@ pub fn tokenize(block: &str) -> Result<Vec<Token>, self::Error> {
 ///
 /// Accepts an `Option` containing a suffix String.
 ///
-/// Returns a [`Suffix`], with the appropriate variant, on success and [`Error`] on failure.
-fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, self::Error> {
+/// Returns a [`Suffix`], with the appropriate variant, on success and [`LexerError`] on failure.
+fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, LexerError> {
     if suffix_str.is_none() {
-        return Err(Error::NoSuffix);
+        return Err(LexerError::NoSuffix);
     }
 
     let suffix_str = suffix_str.expect("None variant of suffix has already been handled.");
 
     if suffix_str.is_empty() {
-        return Err(Error::NoSuffix);
+        return Err(LexerError::NoSuffix);
     }
 
     // parse as float
     if suffix_str.contains('.') {
         return match suffix_str.parse::<f64>() {
             Ok(s) => Ok(Suffix::Float(s)),
-            Err(_) => Err(Error::ParseSuffix),
+            Err(_) => Err(LexerError::ParseSuffix),
         };
     }
 
     // try to parse as int
     match suffix_str.parse::<isize>() {
         Ok(s) => Ok(Suffix::Int(s)),
-        Err(_) => Err(Error::ParseSuffix),
+        Err(_) => Err(LexerError::ParseSuffix),
     }
 }
 
@@ -277,31 +277,34 @@ mod tests {
     #[test]
     // Tests with semicolon
     fn tokenize_semicolon() {
-        assert_eq!(tokenize("G01;").unwrap_err(), Error::EOBFound);
+        assert_eq!(tokenize("G01;").unwrap_err(), LexerError::EOBFound);
     }
 
     #[test]
     // Test non usable ASCII character
     fn tokenize_non_usable() {
-        assert_eq!(tokenize("G53 {").unwrap_err(), Error::NonUsableChar);
-        assert_eq!(tokenize("G53 X1-1.").unwrap_err(), Error::NonUsableChar);
+        assert_eq!(tokenize("G53 {").unwrap_err(), LexerError::NonUsableChar);
+        assert_eq!(
+            tokenize("G53 X1-1.").unwrap_err(),
+            LexerError::NonUsableChar
+        );
     }
 
     #[test]
     // Test non-ASCII character
     fn tokenize_non_ascii() {
-        assert_eq!(tokenize("G53 नमस्ते").unwrap_err(), Error::IllegalChar);
+        assert_eq!(tokenize("G53 नमस्ते").unwrap_err(), LexerError::IllegalChar);
     }
 
     #[test]
     // Test a field with no suffix
     fn tokenize_no_suffix() {
-        assert_eq!(tokenize("G53 X0.Y Z-1.").unwrap_err(), Error::NoSuffix);
+        assert_eq!(tokenize("G53 X0.Y Z-1.").unwrap_err(), LexerError::NoSuffix);
     }
 
     #[test]
     // Test an invalid suffix.
     fn tokenize_invalid_suffix() {
-        assert_eq!(tokenize("G53 X.").unwrap_err(), Error::ParseSuffix);
+        assert_eq!(tokenize("G53 X.").unwrap_err(), LexerError::ParseSuffix);
     }
 }

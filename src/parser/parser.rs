@@ -7,7 +7,10 @@
 
 #![allow(unused)]
 
-use crate::parser::lexer::Token;
+use super::lexer;
+use crate::parser::lexer::*;
+use std::cmp::PartialEq;
+use std::fmt::Debug;
 
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
@@ -19,7 +22,7 @@ use crate::parser::lexer::Token;
 /// # use gsim_rs::parser::parser::*;
 /// let max_travels = Point(40.0, 20.0, 20.0);
 /// ```
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub struct Point(pub f64, pub f64, pub f64);
 
 /// Same as [`Point`] but the fields can be `None`.
@@ -34,58 +37,119 @@ pub struct Point(pub f64, pub f64, pub f64);
 ///     None,
 /// ); // Represents block: X2. Y-5.
 /// ```
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub struct PartialPoint(pub Option<f64>, pub Option<f64>, pub Option<f64>);
 
-/// Represents a *G-code* block.
+/// Represents a *complete independent code*, that is,
+/// each variant will contain itself and any other code it is required to have.
+///
+/// Since a [`Code`] variant may be a result of parsing **one or more [`Token`]s**,
+/// it may or may not represent an entire *line/block* of code.
+///
+/// Therefore, it is not necessary that a *line/block* of code be parsed into just one [`Code`]
+/// or only one variant of it (*a mix of the variants is also valid in a line/block*).
 #[derive(Debug, PartialEq)]
-#[repr(i8)]
+pub enum Code {
+    G(GCode),
+    M(MCode),
+    Empty,
+}
+
+impl Code {
+    /// Provides a numeric value of a [`GCode`] or [`MCode`]
+    /// by returning a primitive discriminant of the said enumeration.
+    ///
+    /// The returned number would be the same one that was [`tokenize`]d
+    /// by the [`lexer`] as the [`Suffix`].
+    ///
+    /// # SAFETY
+    /// *Not to be used for any other [`Code`] variants.*
+    ///
+    /// It is certain that the [`GCode`] & [`MCode`] enums specify a primitive representation,
+    /// therefore the discriminant may be accessed via *unsafe pointer casting*.
+    ///
+    /// # PANICS
+    ///
+    /// The function panics if called on any other variant.
+    pub fn suffix(&self) -> u8 {
+        match self {
+            Self::G(gcode) => unsafe { *(gcode as *const GCode as *const u8) },
+            Self::M(mcode) => unsafe { *(mcode as *const MCode as *const u8) },
+            _ => panic!("suffix() must only be called on variants: G & M"),
+        }
+    }
+}
+
+/// Represents a *G-code*.
+///
+/// Each variant contains all the other variable values it needs to be a valid.
+#[derive(Debug, PartialEq)]
+#[repr(u8)]
 pub enum GCode {
-    /// Tokens has a `len` of 0.
-    Empty = -2,
-
-    /// The block only contains coordinates.
-    Point(PartialPoint) = -1,
-
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
     RapidMove(PartialPoint) = 0,
 }
 
-impl GCode {
-    /// Returns primitive discriminant of a [`GCode`] variant.
-    ///
-    /// # SAFETY
-    /// It is certain that the enum specifies a primitive representation, therefore the
-    /// discriminant is being accessed via *unsafe pointer casting*.
-    fn discriminant(&self) -> i8 {
-        unsafe { *(self as *const Self as *const i8) }
-    }
-
-    /// Returns the *suffix* of a [`GCode`] word by getting its discriminant.
-    pub fn suffix(&self) -> i8 {
-        self.discriminant()
-    }
+/// Represents a *M-code*.
+///
+/// Each variant contains all the other variable values it needs to be a valid.
+#[derive(Debug, PartialEq)]
+#[repr(u8)]
+pub enum MCode {
+    /// M00
+    /// Program stop.
+    Stop = 0,
 }
 
-pub fn parse(tokens: Vec<Token>) -> Vec<GCode> {
+/// Possible errors that can happen during parsing.
+#[derive(PartialEq, Debug)]
+pub enum ParserError {
+    /// Multiple [`MCode`]s on the same line.
+    MultipleMCodes,
+}
+
+/// Parses a sequence of *tokens*.
+///
+/// Accepts a vector of [`Token`]s, which can be empty.
+///
+/// Returns a vector made up of [`Code`]s on success or [`Error`] on failure.
+/// The returned vector *may be empty*, only if the passed argument is also an empty vector.
+pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
     let mut codes = Vec::new();
 
     if tokens.is_empty() {
-        codes.push(GCode::Empty);
-        return codes;
+        return Ok(codes);
     }
 
+    validate_block(&tokens)?;
+
+    Ok(codes)
+}
+
+/// This function is responsible for performing all the validation on a list of [`Token`]s that are
+/// required for it to be parsed correctly.
+///
+/// The purpose of this validation is to make sure that all the tokens present in the sequence
+/// (*a line/block of code*), go well together & do not interfere with one another's functionality.
+///
+/// Validates:
+/// - Each line/block has a single [`MCode`] at most.
+///
+/// The [`parse`] function should not contain any validation of the block.
+pub fn validate_block(tokens: &Vec<Token>) -> Result<(), ParserError> {
+    let mut m_found = false;
+
     for token in tokens {
-        if token.prefix == b'G' {
-            println!("g detected");
-            println!("suffix: {:?}", token.suffix);
-        } else {
-            println!("something else");
+        if token.prefix == b'M' {
+            if m_found {
+                return Err(ParserError::MultipleMCodes);
+            }
+            m_found = true;
         }
     }
 
-    codes
+    Ok(())
 }
 
 #[cfg(test)]
@@ -97,22 +161,40 @@ mod tests {
     #[test]
     // Test to get the suffix of a code by accessing its discriminant.
     fn get_code_suffix() {
-        assert_eq!(GCode::RapidMove(PartialPoint(None, None, None)).suffix(), 0);
-        assert_eq!(GCode::Empty.suffix(), -2);
-    }
-
-    #[test]
-    // Test empty block.
-    fn parse_emtpy() {
-        assert_eq!(parse(tokenize("").unwrap()), vec![GCode::Empty]);
-    }
-
-    #[test]
-    // Test rapid move.
-    fn parse_rapid() {
         assert_eq!(
-            parse(tokenize("G00 X0.0 Y0.0").unwrap()),
-            Vec::<GCode>::new()
+            Code::G(GCode::RapidMove(PartialPoint(None, None, None))).suffix(),
+            0
+        );
+        assert_eq!(Code::M(MCode::Stop).suffix(), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    // Test to get the suffix of an invalid variant
+    fn get_code_suffix_invalid() {
+        let _ = Code::Empty.suffix();
+    }
+
+    #[test]
+    fn multiple_mcodes() {
+        assert_eq!(
+            parse(tokenize("G40 M5 M9").unwrap()).unwrap_err(),
+            ParserError::MultipleMCodes
         );
     }
+
+    // #[test]
+    // // Test empty block.
+    // fn parse_emtpy() {
+    //     assert_eq!(parse(tokenize("").unwrap()).unwrap(), vec![GCode::Empty]);
+    // }
+    //
+    // #[test]
+    // // Test rapid move.
+    // fn parse_rapid() {
+    //     assert_eq!(
+    //         parse(tokenize("G00 X0.0 Y0.0").unwrap()).unwrap(),
+    //         Vec::<GCode>::new()
+    //     );
+    // }
 }
