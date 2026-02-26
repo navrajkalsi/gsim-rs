@@ -109,6 +109,28 @@ impl GCode {
     }
 }
 
+impl Token {
+    /// Optionally returns what *group* a [`Suffix`] of a [`Token`] with **G prefix** belongs to.
+    ///
+    /// Same as *group()* for [`GCode`], but for tokens.
+    ///
+    /// Intended for use on *valid 'G' prefix* tokens.
+    /// `None` is returned when either:
+    /// - The prefix is *not 'G'*.
+    /// - The suffix variant is [`Suffix::Float`].
+    /// - The suffix is an *unknown integer*.
+    pub fn group(&self) -> Option<u8> {
+        if self.prefix == b'G' {
+            match self.suffix {
+                Suffix::Int(0) => Some(01),                // rapid move
+                Suffix::Int(_) | Suffix::Float(_) => None, // ignore rest of ints and all floats
+            }
+        } else {
+            None // only gcodes are grouped
+        }
+    }
+}
+
 /// Represents a *M-code*.
 ///
 /// A M-code is used to control machine specific features, mostly as an on-off switch.
@@ -131,6 +153,10 @@ pub enum ParserError {
     DuplicateGCode,
     /// G-codes detected from the same group.
     SameGroupGCode,
+    /// The suffix of G-code is detected to be a floating point.
+    FloatGCode,
+    /// The given G-code is not valid, i.e., the suffix is unknown.
+    InvalidGCode,
 }
 
 /// Parses a sequence of *tokens*.
@@ -166,15 +192,38 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 ///
 /// # Errors
 /// - [`ParserError::MultipleMCodes`] -- Two or more [`MCode`]s found.
-pub fn validate_block(tokens: &Vec<Token>) -> Result<(), ParserError> {
-    let mut m_found = false;
-    let mut g_found = Vec::new();
-    let mut g_groups = Vec::new();
+/// - [`ParserError::FloatGCode`] -- [`GCode`] is suffixed by a floating point number, which is
+/// *invalid*.
+/// - [`ParserError::InvalidGCode`] -- [`GCode`] is suffixed by an unknown integer value.
+pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
+    let mut m_found = false; // the block contains a M-code
+    let mut g_found = Vec::new(); // unique G-codes read from the block
+    let mut g_groups = Vec::new(); // group of G-codes in `g_found` vector
 
     for token in tokens {
         if token.prefix == b'G' {
-            // validate gcodes next
-            unimplemented!();
+            // check suffix variant
+            if let Suffix::Float(_) = token.suffix {
+                return Err(ParserError::FloatGCode);
+            }
+
+            // if G-code already found, return error else add to the vector
+            if g_found.contains(&token) {
+                return Err(ParserError::DuplicateGCode);
+            }
+            g_found.push(token);
+
+            // if same group G-code already found, return error else add to the vector
+            match token.group() {
+                Some(group) => {
+                    if g_groups.contains(&group) {
+                        return Err(ParserError::SameGroupGCode);
+                    }
+                    g_groups.push(group);
+                }
+                None => return Err(ParserError::InvalidGCode), // none is only possible if the
+                                                               // suffix is int variant and unknown
+            }
         } else if token.prefix == b'M' {
             if m_found {
                 return Err(ParserError::MultipleMCodes);
@@ -208,10 +257,28 @@ mod tests {
     }
 
     #[test]
+    // Test G-code with floating point suffix.
+    fn floating_gcode() {
+        assert_eq!(
+            parse(tokenize("G20.0").unwrap()).unwrap_err(),
+            ParserError::FloatGCode
+        );
+    }
+
+    #[test]
+    // Test duplicate G-codes.
+    fn duplicate_gcode() {
+        assert_eq!(
+            parse(tokenize("G0 G0 X0. Y0.").unwrap()).unwrap_err(),
+            ParserError::DuplicateGCode
+        );
+    }
+
+    #[test]
     // Multiple M codes must be rejected.
     fn multiple_mcodes() {
         assert_eq!(
-            parse(tokenize("G40 M5 M9").unwrap()).unwrap_err(),
+            parse(tokenize("G00 M5 M9").unwrap()).unwrap_err(),
             ParserError::MultipleMCodes
         );
     }
