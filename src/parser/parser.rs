@@ -5,10 +5,8 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-#![allow(unused)]
-
 use super::lexer::{self, *};
-use std::{cmp::PartialEq, fmt::Debug};
+use std::{cmp::PartialEq, fmt::Debug, ptr::eq};
 
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
@@ -160,7 +158,7 @@ pub enum ParserError {
 
 /// Parses a sequence of *tokens*.
 ///
-/// Accepts a vector of [`Token`]s, which can be empty.
+/// Accepts ownership to a *vector of [`Token`]s*, which can be empty.
 ///
 /// Returns a vector made up of [`Code`]s on success or [`ParserError`] on failure.
 /// The returned vector *may be empty*, only if the passed argument is also an empty vector.
@@ -175,13 +173,34 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
         return Ok(codes);
     }
 
-    validate_block(&tokens)?;
+    let (gcodes, mut tokens) = validate_block(tokens)?;
+
+    for gcode in gcodes {
+        match gcode {
+            0 => {
+                println!("rapid");
+            }
+            1 => {
+                println!("feed");
+            }
+            _ => {
+                return Err(ParserError::InvalidGCode);
+            }
+        }
+    }
 
     Ok(codes)
 }
 
 /// This function is responsible for performing all the validation on a list of [`Token`]s that are
 /// required for it to be parsed correctly.
+///
+/// Consumes the input *vector of [`Token`]s*.
+/// On success, returns a *tuple* made up of two vectors:
+/// - A *vector of `isize`*, which contains all the valid [`GCode`] integer suffixes.
+/// - A *vector of `Token`s*, which contains all the valid `Tokens`, that are not prefixed with
+/// **'G'**.
+/// On failure, returns a [`ParserError`].
 ///
 /// The purpose of this validation is to make sure that all the tokens present in the sequence
 /// (*a line/block of code*), go well together & do not interfere with one another's functionality.
@@ -196,12 +215,13 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 /// - [`ParserError::InvalidGCode`] -- The suffix of 'G' prefix token is not valid or supported.
 /// - [`ParserError::DuplicateGCodeGroup`] -- Two or more G-codes of the same group found.
 /// - [`ParserError::DuplicatePrefix`] -- Two or more codes with the same prefix (not 'G') found.
-pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
-    let mut g_found = Vec::new(); // unique gcode tokens found
+pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<isize>, Vec<Token>), ParserError> {
+    let mut g_suffix_found = Vec::new(); // unique gcode suffixes found
+    let mut g_found_indices = Vec::new(); // for removing gcodes at the end
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
-    for token in tokens {
+    for (index, token) in tokens.iter().enumerate() {
         // check suffix type based on the prefix, only for KNOWN/SUPPORTED prefixes
         match token.prefix {
             // following prefix must be with ints
@@ -223,19 +243,22 @@ pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
         // suffix type has been validated
 
         if token.prefix == b'G' {
+            let suffix = match token.suffix {
+                Suffix::Int(suffix) => suffix,
+                Suffix::Float(_) => {
+                    unreachable!("'G' has been validated to be suffixed by an integer value only.")
+                }
+            };
+
             // multiple gcodes are valid, but must be of different suffixes
-            if g_found.contains(&token) {
+            if g_suffix_found.contains(&suffix) {
                 return Err(ParserError::DuplicateGCode);
             }
-            g_found.push(token);
+            g_suffix_found.push(suffix);
+            g_found_indices.push(index);
 
-            // if the gcode is valid, the same group must not have been found already
-            let group = match token.suffix {
-                Suffix::Int(suffix) => GCode::group_from_suffix(suffix)?, // can return InvalidGcode
-                Suffix::Float(_) => panic!(
-                    "Control reaches here on making sure 'G' is suffixed by an integer value."
-                ),
-            };
+            // the same group must not have been found already
+            let group = GCode::group_from_suffix(suffix)?; // can return InvalidGCode
 
             // check if same group already found or not
             if groups_found.contains(&group) {
@@ -251,7 +274,12 @@ pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
         }
     }
 
-    Ok(())
+    // remove all g_found_indices from the input
+    for index in g_found_indices {
+        tokens.remove(index);
+    }
+
+    Ok((g_suffix_found, tokens))
 }
 
 #[cfg(test)]
@@ -335,18 +363,12 @@ mod tests {
         );
     }
 
-    // #[test]
-    // // Test empty block.
-    // fn parse_emtpy() {
-    //     assert_eq!(parse(tokenize("").unwrap()).unwrap(), vec![GCode::Empty]);
-    // }
-    //
-    // #[test]
-    // // Test rapid move.
-    // fn parse_rapid() {
-    //     assert_eq!(
-    //         parse(tokenize("G00 X0.0 Y0.0").unwrap()).unwrap(),
-    //         Vec::<GCode>::new()
-    //     );
-    // }
+    #[test]
+    // Test rapid move.
+    fn parse_test() {
+        assert_eq!(
+            parse(tokenize("G00 X0.0 Y0.0").unwrap()).unwrap(),
+            Vec::new()
+        );
+    }
 }
