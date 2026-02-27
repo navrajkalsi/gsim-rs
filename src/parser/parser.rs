@@ -90,6 +90,10 @@ pub enum GCode {
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
     RapidMove(PartialPoint) = 0,
+
+    /// G01
+    /// Linear Interpolate to new coordinates using provided feed rate.
+    FeedMove { point: PartialPoint, f: Option<f64> } = 1,
 }
 
 impl GCode {
@@ -104,7 +108,21 @@ impl GCode {
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
     pub fn group(&self) -> u8 {
         match self {
-            Self::RapidMove(_) => 1,
+            Self::RapidMove(_) | Self::FeedMove { point: _, f: _ } => 1,
+        }
+    }
+
+    /// Same as [`GCode::group`], but is *not a method* and rather uses an input `suffix` argument to
+    /// try to return a group number.
+    ///
+    /// **Only [`GCode`]s are grouped codes.**
+    ///
+    /// Returns the `u8` group on success or [`ParserError::InvalidGCode`] on failure.
+    pub fn group_from_suffix(suffix: isize) -> Result<u8, ParserError> {
+        match suffix {
+            0 => Ok(1), // rapid move
+            1 => Ok(1), // feed move
+            _ => Err(ParserError::InvalidGCode),
         }
     }
 }
@@ -125,17 +143,19 @@ pub enum MCode {
 /// Possible errors that can happen during parsing.
 #[derive(PartialEq, Debug)]
 pub enum ParserError {
-    /// Same G-code found atleast twice.
-    DuplicateGCode,
-    /// Multiple codes of same prefix in the same line.
-    /// Only multiple G-codes are allowed in one line.
-    DuplicatePrefix,
     /// This prefix does not support the type of suffix provided.
     WrongSuffixType,
     /// The code prefix provided is invalid/unimplemented
     UnknownPrefix,
+    /// Same G-code found atleast twice.
+    DuplicateGCode,
+    /// Prefix and suffix make an invalid G-code.
+    InvalidGCode,
     /// G-codes detected from the same group.
-    SameGroupGCode,
+    DuplicateGCodeGroup,
+    /// Multiple codes of same prefix in the same line.
+    /// Only multiple G-codes are allowed in one line.
+    DuplicatePrefix,
 }
 
 /// Parses a sequence of *tokens*.
@@ -170,29 +190,18 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 /// Check [*Errors*](#Errors) section below to see what validations are done by this function.
 ///
 /// # Errors
-/// - [`ParserError::DuplicateGCode`] -- Same G-code found more than once.
-/// - [`ParserError::DuplicatePrefix`] -- Two or more codes with the same prefix (not 'G') found.
 /// - [`ParserError::WrongSuffixType`] -- The suffix type is not what the prefix expected.
 /// - [`ParserError::UnknownPrefix`] -- The prefix character is invalid or not supported by parser.
+/// - [`ParserError::DuplicateGCode`] -- Same G-code found more than once.
+/// - [`ParserError::InvalidGCode`] -- The suffix of 'G' prefix token is not valid or supported.
+/// - [`ParserError::DuplicateGCodeGroup`] -- Two or more G-codes of the same group found.
+/// - [`ParserError::DuplicatePrefix`] -- Two or more codes with the same prefix (not 'G') found.
 pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
     let mut g_found = Vec::new(); // unique gcode tokens found
+    let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
     for token in tokens {
-        if token.prefix == b'G' {
-            // multiple gcodes are valid, but must be of different suffixes
-            if g_found.contains(&token) {
-                return Err(ParserError::DuplicateGCode);
-            }
-            g_found.push(token);
-        } else {
-            // mutiple codes of prefix other than 'G' are invalid
-            if prefix_found.contains(&token.prefix) {
-                return Err(ParserError::DuplicatePrefix);
-            }
-            prefix_found.push(token.prefix);
-        }
-
         // check suffix type based on the prefix, only for KNOWN/SUPPORTED prefixes
         match token.prefix {
             // following prefix must be with ints
@@ -210,6 +219,36 @@ pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
             // unknown prefix
             _ => return Err(ParserError::UnknownPrefix),
         }
+
+        // suffix type has been validated
+
+        if token.prefix == b'G' {
+            // multiple gcodes are valid, but must be of different suffixes
+            if g_found.contains(&token) {
+                return Err(ParserError::DuplicateGCode);
+            }
+            g_found.push(token);
+
+            // if the gcode is valid, the same group must not have been found already
+            let group = match token.suffix {
+                Suffix::Int(suffix) => GCode::group_from_suffix(suffix)?, // can return InvalidGcode
+                Suffix::Float(_) => panic!(
+                    "Control reaches here on making sure 'G' is suffixed by an integer value."
+                ),
+            };
+
+            // check if same group already found or not
+            if groups_found.contains(&group) {
+                return Err(ParserError::DuplicateGCodeGroup);
+            }
+            groups_found.push(group);
+        } else {
+            // mutiple codes of prefix other than 'G' is invalid
+            if prefix_found.contains(&token.prefix) {
+                return Err(ParserError::DuplicatePrefix);
+            }
+            prefix_found.push(token.prefix);
+        }
     }
 
     Ok(())
@@ -217,7 +256,7 @@ pub fn validate_block(tokens: &[Token]) -> Result<(), ParserError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{super::lexer::tokenize, *};
+    use super::{lexer::tokenize, *};
 
     #[test]
     // Test to get the suffix of a code by accessing its discriminant.
@@ -234,24 +273,6 @@ mod tests {
     // Test to get the suffix of an invalid variant.
     fn get_code_suffix_invalid() {
         let _ = Code::T(0).suffix();
-    }
-
-    #[test]
-    // Repeat the same 'G' prefix code.
-    fn duplicate_gcode() {
-        assert_eq!(
-            parse(tokenize("G00 G00 X0.").unwrap()).unwrap_err(),
-            ParserError::DuplicateGCode
-        );
-    }
-
-    #[test]
-    // Repeat prefix codes must be rejected, other than 'G' prefix.
-    fn duplicate_prefix() {
-        assert_eq!(
-            parse(tokenize("G00 M5 M9").unwrap()).unwrap_err(),
-            ParserError::DuplicatePrefix
-        );
     }
 
     #[test]
@@ -274,6 +295,43 @@ mod tests {
         assert_eq!(
             parse(tokenize("A0").unwrap()).unwrap_err(),
             ParserError::UnknownPrefix
+        );
+    }
+
+    #[test]
+    // Repeat the same 'G' prefix code.
+    fn duplicate_gcode() {
+        assert_eq!(
+            parse(tokenize("G00 G00").unwrap()).unwrap_err(),
+            ParserError::DuplicateGCode
+        );
+    }
+
+    #[test]
+    // Test with a G-code having an invalid suffix.
+    fn invalid_gcode() {
+        // although the gcode is suffixed by an int, the code itself is invalid
+        assert_eq!(
+            parse(tokenize("G999").unwrap()).unwrap_err(),
+            ParserError::InvalidGCode
+        );
+    }
+
+    #[test]
+    // Test with a G-code having an invalid suffix.
+    fn duplicate_gcode_group() {
+        assert_eq!(
+            parse(tokenize("G00 G01").unwrap()).unwrap_err(),
+            ParserError::DuplicateGCodeGroup
+        );
+    }
+
+    #[test]
+    // Repeat prefix codes must be rejected, other than 'G' prefix.
+    fn duplicate_prefix() {
+        assert_eq!(
+            parse(tokenize("M5 M9").unwrap()).unwrap_err(),
+            ParserError::DuplicatePrefix
         );
     }
 
