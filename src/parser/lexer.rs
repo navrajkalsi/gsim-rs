@@ -29,8 +29,26 @@ pub struct Token {
 /// A G-code field can contain an integer or a floating point.
 #[derive(PartialEq, Debug)]
 pub enum Suffix {
-    Int(isize),
+    Int(i32),
     Float(f64),
+}
+
+impl Suffix {
+    /// Tries to *optionally* return the value inside of the [`Suffix::Int`] variant.
+    pub fn int(&self) -> Option<i32> {
+        match self {
+            Suffix::Int(i) => Some(*i),
+            Suffix::Float(_) => None,
+        }
+    }
+
+    /// Tries to *optionally* return the value inside of the [`Suffix::Float`] variant.
+    pub fn float(&self) -> Option<f64> {
+        match self {
+            Suffix::Int(_) => None,
+            Suffix::Float(f) => Some(*f),
+        }
+    }
 }
 
 /// Possible errors that can happen during tokenization.
@@ -195,7 +213,7 @@ fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, LexerError> {
     }
 
     // try to parse as int
-    match suffix_str.parse::<isize>() {
+    match suffix_str.parse::<i32>() {
         Ok(s) => Ok(Suffix::Int(s)),
         Err(_) => Err(LexerError::ParseSuffix),
     }

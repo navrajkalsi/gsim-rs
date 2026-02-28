@@ -6,7 +6,27 @@
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use super::lexer::{self, *};
-use std::{cmp::PartialEq, fmt::Debug, ptr::eq};
+use std::{cmp::PartialEq, fmt::Debug};
+
+/// Every **G-code** supported.
+/// An *array of binary tuples* where index 0 is a G-code *suffix*,
+/// and index 1 is the *group* the G-code belongs to.
+const GCODES: &[(i32, u8)] = &[
+    (0, 1), // rapid move
+    (1, 1), // feed move
+];
+
+/// Every **M-code** supported.
+/// An *array of suffixes* for valid M-codes.
+const MCODES: &[i32] = &[
+    0, // program stop
+];
+
+/// All prefix that must be suffixed only with **integer type**.
+const INTCODES: &[u8] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'S', b'T'];
+
+/// All prefix that must be suffixed only with **floating type**.
+const FLOATCODES: &[u8] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
 
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
@@ -68,10 +88,10 @@ impl Code {
     /// # PANICS
     ///
     /// The function panics if called on any other variant.
-    pub fn suffix(&self) -> u8 {
+    pub fn suffix(&self) -> i32 {
         match self {
-            Self::G(gcode) => unsafe { *(gcode as *const GCode as *const u8) },
-            Self::M(mcode) => unsafe { *(mcode as *const MCode as *const u8) },
+            Self::G(gcode) => gcode.suffix(),
+            Self::M(mcode) => mcode.suffix(),
             _ => panic!("suffix() must only be called on variants: G & M"),
         }
     }
@@ -83,7 +103,7 @@ impl Code {
 ///
 /// Each variant contains all the other variable values it needs to be a valid.
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
+#[repr(i32)]
 pub enum GCode {
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
@@ -95,6 +115,19 @@ pub enum GCode {
 }
 
 impl GCode {
+    /// Provides the numeric value, suffix of a [`GCode`],
+    /// by returning a primitive discriminant of the enumeration.
+    ///
+    /// The returned number would be the same one that was [`tokenize`]d
+    /// by the [`lexer`] as the [`Suffix`].
+    ///
+    /// # SAFETY
+    /// It is certain that [`GCode`] enum specifies a primitive representation,
+    /// therefore the discriminant may be accessed via *unsafe pointer casting*.
+    pub fn suffix(&self) -> i32 {
+        unsafe { *(self as *const Self as *const i32) }
+    }
+
     /// Returns what *group* a [`GCode`] belongs to.
     ///
     /// G-codes can be modal and are divided into *groups*.
@@ -105,21 +138,94 @@ impl GCode {
     /// Reference:
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
     pub fn group(&self) -> u8 {
-        match self {
-            Self::RapidMove(_) | Self::FeedMove { point: _, f: _ } => 1,
+        let suffix = self.suffix();
+
+        for gcode in GCODES {
+            if gcode.0 == suffix {
+                return gcode.1;
+            }
         }
+
+        unreachable!("All GCode variants must be in the GCODES array.");
     }
 
-    /// Same as [`GCode::group`], but is *not a method* and rather uses an input `suffix` argument to
-    /// try to return a group number.
+    /// Same as [`GCode::group`], but is *not a method* and rather
+    /// uses an input `suffix` argument to try to return a group number.
     ///
     /// **Only [`GCode`]s are grouped codes.**
     ///
     /// Returns the `u8` group on success or [`ParserError::InvalidGCode`] on failure.
-    pub fn group_from_suffix(suffix: isize) -> Result<u8, ParserError> {
+    pub fn group_from_suffix(suffix: i32) -> Result<u8, ParserError> {
+        for gcode in GCODES {
+            if gcode.0 == suffix {
+                return Ok(gcode.1);
+            }
+        }
+
+        return Err(ParserError::InvalidGCode);
+    }
+
+    /// Specifically for parsing 'G' prefix codes.
+    ///
+    /// Accepts the *suffix* of the 'G' prefix code and a *mutable reference to a vector of
+    /// [`Token`]s* that were found with the said [`GCode`].
+    ///
+    /// Returns a [`GCode`] with all the specific fields filled from token values on success, and
+    /// [`ParserError`] on failure.
+    ///
+    /// The tokens used in parsing the GCode **will be consumed and removed** from the `tokens`
+    /// vector.
+    pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
+        // parsing can be done with two points in mind:
+        // - do duplicate tokens at all.
+        // - the suffix types will be as expected.
         match suffix {
-            0 => Ok(1), // rapid move
-            1 => Ok(1), // feed move
+            0 => {
+                let mut point = PartialPoint::default();
+                tokens.retain(|token| match token.prefix {
+                    // remove at the same time
+                    b'X' => {
+                        point.0 = token.suffix.float(); // this will be float, None not possible
+                        false
+                    }
+                    b'Y' => {
+                        point.1 = token.suffix.float();
+                        false
+                    }
+                    b'Z' => {
+                        point.2 = token.suffix.float();
+                        false
+                    }
+                    _ => true,
+                });
+
+                Ok(Self::RapidMove(point))
+            }
+            1 => {
+                let mut point = PartialPoint::default();
+                let mut f = None;
+                tokens.retain(|token| match token.prefix {
+                    b'X' => {
+                        point.0 = token.suffix.float();
+                        false
+                    }
+                    b'Y' => {
+                        point.1 = token.suffix.float();
+                        false
+                    }
+                    b'Z' => {
+                        point.2 = token.suffix.float();
+                        false
+                    }
+                    b'F' => {
+                        f = token.suffix.float();
+                        false
+                    }
+                    _ => true,
+                });
+
+                Ok(Self::FeedMove { point, f })
+            }
             _ => Err(ParserError::InvalidGCode),
         }
     }
@@ -131,11 +237,26 @@ impl GCode {
 ///
 /// Each variant contains all the other variable values it needs to be a valid.
 #[derive(Debug, PartialEq)]
-#[repr(u8)]
+#[repr(i32)]
 pub enum MCode {
     /// M00
     /// Program stop.
     Stop = 0,
+}
+
+impl MCode {
+    /// Provides the numeric value, suffix of a [`MCode`],
+    /// by returning a primitive discriminant of the enumeration.
+    ///
+    /// The returned number would be the same one that was [`tokenize`]d
+    /// by the [`lexer`] as the [`Suffix`].
+    ///
+    /// # SAFETY
+    /// It is certain that [`MCode`] enum specifies a primitive representation,
+    /// therefore the discriminant may be accessed via *unsafe pointer casting*.
+    pub fn suffix(&self) -> i32 {
+        unsafe { *(self as *const Self as *const i32) }
+    }
 }
 
 /// Possible errors that can happen during parsing.
@@ -197,7 +318,7 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 ///
 /// Consumes the input *vector of [`Token`]s*.
 /// On success, returns a *tuple* made up of two vectors:
-/// - A *vector of `isize`*, which contains all the valid [`GCode`] integer suffixes.
+/// - A *vector of `i32`*, which contains all the valid [`GCode`] integer suffixes.
 /// - A *vector of `Token`s*, which contains all the valid `Tokens`, that are not prefixed with
 /// **'G'**.
 /// On failure, returns a [`ParserError`].
@@ -215,9 +336,8 @@ pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 /// - [`ParserError::InvalidGCode`] -- The suffix of 'G' prefix token is not valid or supported.
 /// - [`ParserError::DuplicateGCodeGroup`] -- Two or more G-codes of the same group found.
 /// - [`ParserError::DuplicatePrefix`] -- Two or more codes with the same prefix (not 'G') found.
-pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<isize>, Vec<Token>), ParserError> {
+pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), ParserError> {
     let mut g_suffix_found = Vec::new(); // unique gcode suffixes found
-    let mut g_found_indices = Vec::new(); // for removing gcodes at the end
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
@@ -255,7 +375,6 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<isize>, Vec<Token>)
                 return Err(ParserError::DuplicateGCode);
             }
             g_suffix_found.push(suffix);
-            g_found_indices.push(index);
 
             // the same group must not have been found already
             let group = GCode::group_from_suffix(suffix)?; // can return InvalidGCode
@@ -274,10 +393,10 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<isize>, Vec<Token>)
         }
     }
 
-    // remove all g_found_indices from the input
-    for index in g_found_indices {
-        tokens.remove(index);
-    }
+    // at this point all 'G' prefix codes would be valid, with unique groups, no duplicate
+    // suffixes, and int suffix type
+    // remove G-codes from the vector
+    tokens.retain(|token| token.prefix != b'G');
 
     Ok((g_suffix_found, tokens))
 }
