@@ -14,11 +14,16 @@ use std::{cmp::PartialEq, fmt::Debug};
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
 /// and index 1 is the *group* the G-code belongs to.
 const GCODES: &[(i32, u8)] = &[
-    (0, 1), // rapid move
-    (1, 1), // feed move
-    (2, 1), // clockwise arc
-    (3, 1), // counter-clockwise arc
-    (4, 0), // dwell
+    (0, 1),  // rapid move
+    (1, 1),  // feed move
+    (2, 1),  // clockwise arc
+    (3, 1),  // counter-clockwise arc
+    (4, 0),  // dwell
+    (17, 2), // xy plane
+    (18, 2), // xz plane
+    (19, 2), // yz plane
+    (20, 6), // imperial mode
+    (21, 6), // metric mode
 ];
 
 /// Every **M-code** supported.
@@ -196,6 +201,26 @@ pub enum GCode {
     /// G04
     /// Dwell (sec) blocking further code execution.
     Dwell(f64) = 4,
+
+    /// G17
+    /// Select plane parallel to X and Y axes (**default for mills**).
+    XYPlane = 17,
+
+    /// G18
+    /// Select plane parallel to X and Z axes.
+    XZPlane = 18,
+
+    /// G19
+    /// Select plane parallel to Y and Z axes.
+    YZPlane = 19,
+
+    /// G20
+    /// Use **imperial** units.
+    ImperialMode = 20,
+
+    /// G21
+    /// Use **metric** units
+    MetricMode = 21,
 }
 
 impl GCode {
@@ -355,6 +380,11 @@ impl GCode {
                     Err(ParserError::MissingParamForGCode)
                 }
             }
+            17 => Ok(Self::XYPlane),
+            18 => Ok(Self::XZPlane),
+            19 => Ok(Self::YZPlane),
+            20 => Ok(Self::ImperialMode),
+            21 => Ok(Self::MetricMode),
             _ => Err(ParserError::InvalidGCode),
         }
     }
@@ -475,7 +505,7 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), 
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
-    for (index, token) in tokens.iter().enumerate() {
+    for token in &tokens {
         // check suffix type based on the prefix, only for KNOWN/SUPPORTED prefixes
         if INTCODES.contains(&token.prefix) {
             if !matches!(token.suffix, Suffix::Int(_)) {
@@ -685,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cw_arc() {
+    fn parse_cw_arc() {
         assert_eq!(
             tokenize_parse("G2 X0. I1. J2. F20.").unwrap(),
             vec![Code::G(GCode::CWArcMove {
@@ -706,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ccw_arc() {
+    fn parse_ccw_arc() {
         assert_eq!(
             tokenize_parse("G3 X0. I1. J2. F20.").unwrap(),
             vec![Code::G(GCode::CCWArcMove {
@@ -727,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dwell() {
+    fn parse_dwell() {
         assert_eq!(
             tokenize_parse("G4 X10.").unwrap(),
             vec![Code::G(GCode::Dwell(10.0))]
@@ -741,6 +771,37 @@ mod tests {
         assert_eq!(
             tokenize_parse("G4").unwrap_err(),
             ParserError::MissingParamForGCode
+        );
+    }
+
+    #[test]
+    fn parse_planes() {
+        assert_eq!(
+            tokenize_parse("G17").unwrap(),
+            vec![Code::G(GCode::XYPlane)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G18").unwrap(),
+            vec![Code::G(GCode::XZPlane)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G19").unwrap(),
+            vec![Code::G(GCode::YZPlane)]
+        );
+    }
+
+    #[test]
+    fn parse_unit_modes() {
+        assert_eq!(
+            tokenize_parse("G20").unwrap(),
+            vec![Code::G(GCode::ImperialMode)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G21").unwrap(),
+            vec![Code::G(GCode::MetricMode)]
         );
     }
 }
