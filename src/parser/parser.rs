@@ -14,16 +14,31 @@ use std::{cmp::PartialEq, fmt::Debug};
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
 /// and index 1 is the *group* the G-code belongs to.
 const GCODES: &[(i32, u8)] = &[
-    (0, 1),  // rapid move
-    (1, 1),  // feed move
-    (2, 1),  // clockwise arc
-    (3, 1),  // counter-clockwise arc
-    (4, 0),  // dwell
-    (17, 2), // xy plane
-    (18, 2), // xz plane
-    (19, 2), // yz plane
-    (20, 6), // imperial mode
-    (21, 6), // metric mode
+    (0, 1),   // rapid move
+    (1, 1),   // feed move
+    (2, 1),   // clockwise arc
+    (3, 1),   // counter-clockwise arc
+    (4, 0),   // dwell
+    (17, 2),  // xy plane
+    (18, 2),  // xz plane
+    (19, 2),  // yz plane
+    (20, 6),  // imperial mode
+    (21, 6),  // metric mode
+    (40, 7),  // cancel cutter comp
+    (41, 7),  // left cutter comp
+    (42, 7),  // right cutter comp
+    (43, 8),  // len comp add
+    (44, 8),  // len comp subtract
+    (49, 8),  // cancel len comp
+    (53, 0),  // machine coord system
+    (54, 12), // workpiece coord system
+    (80, 9),  // cancel canned cycles
+    (90, 3),  // absolute mode
+    (91, 3),  // incremental mode
+    (94, 5),  // feed per minute mode
+    (95, 5),  // feed per rev mode
+    (98, 10), // initial return
+    (99, 10), // retract return
 ];
 
 /// Every **M-code** supported.
@@ -221,6 +236,66 @@ pub enum GCode {
     /// G21
     /// Use **metric** units
     MetricMode = 21,
+
+    /// G40
+    /// Cancel cutter compensation (G41/G42).
+    CancelCutterComp = 40,
+
+    /// G41
+    /// 2D left cutter compensation.
+    LeftCutterComp(u32) = 41,
+
+    /// G42
+    /// 2D right cutter compensation.
+    RightCutterComp(u32) = 42,
+
+    /// G43
+    /// Tool length compensation by addition.
+    ToolLenCompAdd(u32) = 43,
+
+    /// G44
+    /// Tool length compensation by subtraction.
+    ToolLenCompSubtract(u32) = 44,
+
+    /// G49
+    /// Cancel tool length compensation (G43, G44).
+    CancelLenComp = 49,
+
+    /// G53
+    /// Machine coordinate system.
+    MachineCoord(PartialPoint) = 53,
+
+    /// G54
+    /// Work coordinate system select.
+    WorkCoord = 54,
+
+    /// G80
+    /// Cancel canned cycles.
+    CancelCanned = 80,
+
+    /// G90
+    /// Absolute positioning.
+    AbsoluteMode = 90,
+
+    /// G91
+    /// Incremental positioning.
+    IncrementalMode = 91,
+
+    /// G94
+    /// Feed per minute mode.
+    FeedMinute = 94,
+
+    /// G95
+    /// Feed per revolution mode.
+    FeedRev = 95,
+
+    /// G98
+    /// Initial point return in canned cycles.
+    InititalReturn = 98,
+
+    /// G99
+    /// Retract plane return in canned cycles.
+    RetractReturn = 99,
 }
 
 impl GCode {
@@ -310,12 +385,14 @@ impl GCode {
 
                 Ok(Self::RapidMove(p_point)) // all fields may be None
             }
+
             1 => {
                 let p_point = PartialPoint::from_tokens(tokens);
                 let f = get_feed(tokens);
 
                 Ok(Self::FeedMove { p_point, f })
             }
+
             2 | 3 => {
                 let p_point = PartialPoint::from_tokens(tokens);
                 let f = get_feed(tokens);
@@ -355,6 +432,7 @@ impl GCode {
                     Ok(Self::CCWArcMove { p_point, method, f })
                 }
             }
+
             4 => {
                 // P can be used for milliseconds
                 if let Some(pos) = tokens.iter().position(|token| token.prefix == b'P') {
@@ -380,11 +458,100 @@ impl GCode {
                     Err(ParserError::MissingParamForGCode)
                 }
             }
+
             17 => Ok(Self::XYPlane),
+
             18 => Ok(Self::XZPlane),
+
             19 => Ok(Self::YZPlane),
+
             20 => Ok(Self::ImperialMode),
+
             21 => Ok(Self::MetricMode),
+
+            40 => Ok(Self::CancelCutterComp),
+
+            41 | 42 => {
+                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'D') {
+                    if suffix == 41 {
+                        Ok(Self::LeftCutterComp(
+                            tokens
+                                .remove(pos)
+                                .suffix
+                                .int()
+                                .expect("D must be suffixed with an int.")
+                                as u32,
+                        ))
+                    } else {
+                        Ok(Self::RightCutterComp(
+                            tokens
+                                .remove(pos)
+                                .suffix
+                                .int()
+                                .expect("D must be suffixed with an int.")
+                                as u32,
+                        ))
+                    }
+                } else {
+                    Err(ParserError::MissingParamForGCode)
+                }
+            }
+
+            43 | 44 => {
+                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'H') {
+                    if suffix == 43 {
+                        Ok(Self::ToolLenCompAdd(
+                            tokens
+                                .remove(pos)
+                                .suffix
+                                .int()
+                                .expect("H must be suffixed with an int.")
+                                as u32,
+                        ))
+                    } else {
+                        Ok(Self::ToolLenCompSubtract(
+                            tokens
+                                .remove(pos)
+                                .suffix
+                                .int()
+                                .expect("H must be suffixed with an int.")
+                                as u32,
+                        ))
+                    }
+                } else {
+                    Err(ParserError::MissingParamForGCode)
+                }
+            }
+
+            49 => Ok(Self::CancelLenComp),
+
+            53 => {
+                let p_point = PartialPoint::from_tokens(tokens);
+
+                if p_point.is_none() {
+                    // need atleast one axis to move
+                    Err(ParserError::MissingParamForGCode)
+                } else {
+                    Ok(Self::MachineCoord(p_point))
+                }
+            }
+
+            54 => Ok(Self::WorkCoord),
+
+            80 => Ok(Self::CancelCanned),
+
+            90 => Ok(Self::AbsoluteMode),
+
+            91 => Ok(Self::IncrementalMode),
+
+            94 => Ok(Self::FeedMinute),
+
+            95 => Ok(Self::FeedRev),
+
+            98 => Ok(Self::InititalReturn),
+
+            99 => Ok(Self::RetractReturn),
+
             _ => Err(ParserError::InvalidGCode),
         }
     }
@@ -678,7 +845,7 @@ mod tests {
     // also tests the group() and suffix() methods as well.
     fn test_valid_gcodes() {
         for (suffix, group) in GCODES {
-            let mut tokens = tokenize("X0. I0.").unwrap();
+            let mut tokens = tokenize("X0. I0. D1 H1").unwrap();
 
             let gcode = GCode::parse_from_suffix(*suffix, &mut tokens)
                 .expect("Every suffix must generate a valid GCode variant.");
@@ -802,6 +969,114 @@ mod tests {
         assert_eq!(
             tokenize_parse("G21").unwrap(),
             vec![Code::G(GCode::MetricMode)]
+        );
+    }
+
+    #[test]
+    fn parse_cutter_comp() {
+        assert_eq!(
+            tokenize_parse("G40").unwrap(),
+            vec![Code::G(GCode::CancelCutterComp)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G41 D1").unwrap(),
+            vec![Code::G(GCode::LeftCutterComp(1))]
+        );
+
+        assert_eq!(
+            tokenize_parse("G42 D1").unwrap(),
+            vec![Code::G(GCode::RightCutterComp(1))]
+        );
+    }
+
+    #[test]
+    fn parse_len_comp() {
+        assert_eq!(
+            tokenize_parse("G43 H1").unwrap(),
+            vec![Code::G(GCode::ToolLenCompAdd(1))]
+        );
+
+        assert_eq!(
+            tokenize_parse("G44 H1").unwrap(),
+            vec![Code::G(GCode::ToolLenCompSubtract(1))]
+        );
+
+        assert_eq!(
+            tokenize_parse("G49").unwrap(),
+            vec![Code::G(GCode::CancelLenComp)]
+        );
+    }
+
+    #[test]
+    fn parse_machine_coord() {
+        assert_eq!(
+            tokenize_parse("G53").unwrap_err(),
+            ParserError::MissingParamForGCode
+        );
+
+        assert_eq!(
+            tokenize_parse("G53 X0. Z0.").unwrap(),
+            vec![Code::G(GCode::MachineCoord(PartialPoint(
+                Some(0.0),
+                None,
+                Some(0.0)
+            )))]
+        );
+    }
+
+    #[test]
+    fn parse_workpiece_coord() {
+        assert_eq!(
+            tokenize_parse("G54").unwrap(),
+            vec![Code::G(GCode::WorkCoord)]
+        );
+    }
+
+    #[test]
+    fn parse_canned_cycles() {
+        assert_eq!(
+            tokenize_parse("G80").unwrap(),
+            vec![Code::G(GCode::CancelCanned)]
+        );
+    }
+
+    #[test]
+    fn parse_positioning_modes() {
+        assert_eq!(
+            tokenize_parse("G90").unwrap(),
+            vec![Code::G(GCode::AbsoluteMode)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G91").unwrap(),
+            vec![Code::G(GCode::IncrementalMode)]
+        );
+    }
+
+    #[test]
+    fn parse_feed_modes() {
+        assert_eq!(
+            tokenize_parse("G94").unwrap(),
+            vec![Code::G(GCode::FeedMinute)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G95").unwrap(),
+            vec![Code::G(GCode::FeedRev)]
+        );
+    }
+
+    #[test]
+    fn parse_return_canned() {
+        assert_eq!(
+            tokenize_parse("G98").unwrap(),
+            vec![Code::G(GCode::InititalReturn)]
+        );
+
+        assert_eq!(
+            tokenize_parse("G99").unwrap(),
+            vec![Code::G(GCode::RetractReturn)]
         );
     }
 }
