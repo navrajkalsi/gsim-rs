@@ -16,6 +16,9 @@ use std::{cmp::PartialEq, fmt::Debug};
 const GCODES: &[(i32, u8)] = &[
     (0, 1), // rapid move
     (1, 1), // feed move
+    (2, 1), // clockwise arc
+    (3, 1), // counter-clockwise arc
+    (4, 0), // dwell
 ];
 
 /// Every **M-code** supported.
@@ -25,7 +28,7 @@ const MCODES: &[i32] = &[
 ];
 
 /// All prefix that must be suffixed only with **integer type**.
-const INTCODES: &[u8] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'S', b'T'];
+const INTCODES: &[u8] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'P', b'S', b'T'];
 
 /// All prefix that must be suffixed only with **floating type**.
 const FLOATCODES: &[u8] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
@@ -57,6 +60,62 @@ pub struct Point(pub f64, pub f64, pub f64);
 /// ```
 #[derive(Default, Debug, PartialEq)]
 pub struct PartialPoint(pub Option<f64>, pub Option<f64>, pub Option<f64>);
+
+impl PartialPoint {
+    /// Constructs a [`PartialPoint`] by using a *mutable reference* to a vector of [`Token`]s.
+    ///
+    /// This function assumes that *tokens* has been verified by [`validate_block`], and therefore:
+    /// - All coordinate suffix types will be [`Suffix::Float`].
+    ///
+    /// Returns a `PartialPoint` that may have all its fields as `None`.
+    fn from_tokens(tokens: &mut Vec<Token>) -> Self {
+        PartialPoint::custom_from_tokens(b'X', b'Y', b'Z', tokens)
+    }
+
+    /// Same as `from_tokens()`, but can be used to parse custom prefixes.
+    fn custom_from_tokens(x: u8, y: u8, z: u8, tokens: &mut Vec<Token>) -> Self {
+        let mut point = Self::default();
+
+        // remove coords with and add suffix to point
+        tokens.retain(|token| match token.prefix {
+            prefix if prefix == x => {
+                point.0 = token.suffix.float(); // this will be float, None not possible
+                false
+            }
+            prefix if prefix == y => {
+                point.1 = token.suffix.float();
+                false
+            }
+            prefix if prefix == z => {
+                point.2 = token.suffix.float();
+                false
+            }
+            _ => true,
+        });
+
+        point
+    }
+
+    /// Check if all the axis are `None` variants.
+    pub fn is_none(&self) -> bool {
+        self.0.is_none() && self.1.is_none() && self.2.is_none()
+    }
+
+    /// Check if all the axis are `Some` variants.
+    pub fn is_some(&self) -> bool {
+        self.0.is_some() && self.1.is_some() && self.2.is_some()
+    }
+}
+
+/// Circular Interpolation helper.
+/// Both relative point and radius must not appear in the same block.
+#[derive(Debug, PartialEq)]
+pub enum CircleMethod {
+    /// Relative coordinate of circle center with **I, J & K**.
+    RelativePoint(PartialPoint),
+    /// Explicit radius specified with **R**.
+    FixedRadius(f64),
+}
 
 /// Represents a *complete independent code*, that is,
 /// each variant will contain itself and any other code it is required to have.
@@ -113,7 +172,30 @@ pub enum GCode {
 
     /// G01
     /// Linear Interpolate to new coordinates using provided feed rate.
-    FeedMove { point: PartialPoint, f: Option<f64> } = 1,
+    FeedMove {
+        p_point: PartialPoint,
+        f: Option<f64>,
+    } = 1,
+
+    /// G02
+    /// Clockwise Circular Interpolate to new coordinates using provided feed rate.
+    CWArcMove {
+        p_point: PartialPoint,
+        method: CircleMethod,
+        f: Option<f64>,
+    } = 2,
+
+    /// G03
+    /// Counter-Clockwise Circular Interpolate to new coordinates using provided feed rate.
+    CCWArcMove {
+        p_point: PartialPoint,
+        method: CircleMethod,
+        f: Option<f64>,
+    } = 3,
+
+    /// G04
+    /// Dwell (sec) blocking further code execution.
+    Dwell(f64) = 4,
 }
 
 impl GCode {
@@ -186,58 +268,94 @@ impl GCode {
     ///
     /// The tokens used in parsing the GCode **will be consumed and removed** from the `tokens`
     /// vector.
+    ///
+    /// # Errors
+    /// - [`ParserError::InvalidGCode`] -- The code suffix is unknown.
+    /// - [`ParserError::InvalidParamForGCode`] -- The required tokens for a GCode variant are
+    /// invalid.
+    /// - [`ParserError::MissingParamForGCode`] -- The variant of GCode needs another token for
+    /// parsing, that is not present in the block.
     pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
         // parsing can be done with two points in mind:
         // - no duplicate tokens at all.
         // - the suffix types will be as expected.
         match suffix {
             0 => {
-                let mut point = PartialPoint::default();
-                tokens.retain(|token| match token.prefix {
-                    // remove at the same time
-                    b'X' => {
-                        point.0 = token.suffix.float(); // this will be float, None not possible
-                        false
-                    }
-                    b'Y' => {
-                        point.1 = token.suffix.float();
-                        false
-                    }
-                    b'Z' => {
-                        point.2 = token.suffix.float();
-                        false
-                    }
-                    _ => true,
-                });
+                let p_point = PartialPoint::from_tokens(tokens);
 
-                Ok(Self::RapidMove(point)) // all fields may be None
+                Ok(Self::RapidMove(p_point)) // all fields may be None
             }
             1 => {
-                let mut point = PartialPoint::default();
-                let mut f = None;
-                tokens.retain(|token| match token.prefix {
-                    b'X' => {
-                        point.0 = token.suffix.float();
-                        false
-                    }
-                    b'Y' => {
-                        point.1 = token.suffix.float();
-                        false
-                    }
-                    b'Z' => {
-                        point.2 = token.suffix.float();
-                        false
-                    }
-                    b'F' => {
-                        f = token.suffix.float();
-                        false
-                    }
-                    _ => true,
-                });
+                let p_point = PartialPoint::from_tokens(tokens);
+                let f = get_feed(tokens);
 
-                Ok(Self::FeedMove { point, f })
+                Ok(Self::FeedMove { p_point, f })
             }
-            _ => Err(ParserError::InvalidGCode), // all fields may be None
+            2 | 3 => {
+                let p_point = PartialPoint::from_tokens(tokens);
+                let f = get_feed(tokens);
+
+                // branch based on if 'R' token exists or not
+                let method = if let Some(pos) = tokens.iter().position(|token| token.prefix == b'R')
+                {
+                    CircleMethod::FixedRadius(
+                        tokens
+                            .remove(pos)
+                            .suffix
+                            .float()
+                            .expect("R must be suffixed by a float."),
+                    )
+                } else {
+                    CircleMethod::RelativePoint(PartialPoint::custom_from_tokens(
+                        b'I', b'J', b'K', tokens,
+                    ))
+                };
+
+                // destination coords are required for arcs.
+                if p_point.is_none() {
+                    return Err(ParserError::InvalidParamForGCode);
+                }
+
+                // relative center must be on a single plane only, that is,
+                // at most 2 axis can be specified, and at least one axis should be present
+                if let CircleMethod::RelativePoint(rel_point) = &method {
+                    if rel_point.is_some() || rel_point.is_none() {
+                        return Err(ParserError::InvalidParamForGCode);
+                    }
+                }
+
+                if suffix == 2 {
+                    Ok(Self::CWArcMove { p_point, method, f })
+                } else {
+                    Ok(Self::CCWArcMove { p_point, method, f })
+                }
+            }
+            4 => {
+                // P can be used for milliseconds
+                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'P') {
+                    let p = tokens
+                        .remove(pos)
+                        .suffix
+                        .int()
+                        .expect("P must be suffixed with an int.")
+                        as f64;
+
+                    Ok(Self::Dwell(p / 1000 as f64))
+                }
+                // X can be used for seconds
+                else if let Some(pos) = tokens.iter().position(|token| token.prefix == b'X') {
+                    Ok(Self::Dwell(
+                        tokens
+                            .remove(pos)
+                            .suffix
+                            .float()
+                            .expect("X must be suffixed with a float."),
+                    ))
+                } else {
+                    Err(ParserError::MissingParamForGCode)
+                }
+            }
+            _ => Err(ParserError::InvalidGCode),
         }
     }
 }
@@ -286,6 +404,11 @@ pub enum ParserError {
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
     DuplicatePrefix,
+    /// The tokens passed along with a 'G' prefix token
+    /// do not meet the requirements of the said GCode variant.
+    InvalidParamForGCode,
+    /// Missing token required for a GCode variant.
+    MissingParamForGCode,
 }
 
 /// Parses a sequence of *tokens*.
@@ -302,7 +425,7 @@ pub enum ParserError {
 /// This function assumes that all invalid GCodes have been detected by [`validate_block`],
 /// therefore if any function calls return [`ParserError::InvalidGCode`], the function will panic,
 /// indiciating a major design flaw.
-pub fn parse(mut tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
+pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
     let mut codes = Vec::new();
 
     if tokens.is_empty() {
@@ -412,9 +535,25 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), 
     Ok((g_suffix_found, tokens))
 }
 
+// ## Parser helper:
+
+/// Removes 'F' prefix token, and *optionally* returns its *float* suffix.
+fn get_feed(tokens: &mut Vec<Token>) -> Option<f64> {
+    if let Some(pos) = tokens.iter().position(|token| token.prefix == b'F') {
+        tokens.remove(pos).suffix.float()
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{lexer::tokenize, *};
+
+    // helper for tests
+    fn tokenize_parse(tokens: &str) -> Result<Vec<Code>, ParserError> {
+        parse(tokenize(tokens).unwrap())
+    }
 
     #[test]
     // Test to get the suffix of a code by accessing its discriminant.
@@ -437,12 +576,12 @@ mod tests {
     // Test incompatible prefix and suffix types.
     fn wrong_suffix_type() {
         assert_eq!(
-            parse(tokenize("G20.0").unwrap()).unwrap_err(),
+            tokenize_parse("G20.0").unwrap_err(),
             ParserError::WrongSuffixType
         );
 
         assert_eq!(
-            parse(tokenize("F20").unwrap()).unwrap_err(),
+            tokenize_parse("F20").unwrap_err(),
             ParserError::WrongSuffixType
         );
     }
@@ -451,7 +590,7 @@ mod tests {
     // Test unknown prefix
     fn unknown_prefix() {
         assert_eq!(
-            parse(tokenize("A0").unwrap()).unwrap_err(),
+            tokenize_parse("A0").unwrap_err(),
             ParserError::UnknownPrefix
         );
     }
@@ -460,7 +599,7 @@ mod tests {
     // Repeat the same 'G' prefix code.
     fn duplicate_gcode() {
         assert_eq!(
-            parse(tokenize("G00 G00").unwrap()).unwrap_err(),
+            tokenize_parse("G00 G00").unwrap_err(),
             ParserError::DuplicateGCode
         );
     }
@@ -470,7 +609,7 @@ mod tests {
     fn invalid_gcode() {
         // although the gcode is suffixed by an int, the code itself is invalid
         assert_eq!(
-            parse(tokenize("G999").unwrap()).unwrap_err(),
+            tokenize_parse("G999").unwrap_err(),
             ParserError::InvalidGCode
         );
     }
@@ -479,7 +618,7 @@ mod tests {
     // Test with a G-code having an invalid suffix.
     fn duplicate_gcode_group() {
         assert_eq!(
-            parse(tokenize("G00 G01").unwrap()).unwrap_err(),
+            tokenize_parse("G00 G01").unwrap_err(),
             ParserError::DuplicateGCodeGroup
         );
     }
@@ -488,7 +627,7 @@ mod tests {
     // Repeat prefix codes must be rejected, other than 'G' prefix.
     fn duplicate_prefix() {
         assert_eq!(
-            parse(tokenize("M5 M9").unwrap()).unwrap_err(),
+            tokenize_parse("M5 M9").unwrap_err(),
             ParserError::DuplicatePrefix
         );
     }
@@ -508,12 +647,11 @@ mod tests {
     // Test that all codes inside GCODES array parse.
     // also tests the group() and suffix() methods as well.
     fn test_valid_gcodes() {
-        let mut tokens: Vec<Token> = Vec::new(); // add codes if required in the future.
         for (suffix, group) in GCODES {
+            let mut tokens = tokenize("X0. I0.").unwrap();
+
             let gcode = GCode::parse_from_suffix(*suffix, &mut tokens)
                 .expect("Every suffix must generate a valid GCode variant.");
-
-            println!("{gcode:?}");
 
             // test suffix method
             assert_eq!(*suffix, gcode.suffix());
@@ -521,5 +659,88 @@ mod tests {
             // test group method
             assert_eq!(*group, gcode.group());
         }
+    }
+
+    #[test]
+    fn parse_rapid_move() {
+        assert_eq!(
+            tokenize_parse("G0 X0. Y0.").unwrap(),
+            vec![Code::G(GCode::RapidMove(PartialPoint(
+                Some(0.0),
+                Some(0.0),
+                None
+            )))]
+        );
+    }
+
+    #[test]
+    fn parse_feed_move() {
+        assert_eq!(
+            tokenize_parse("G1 X0. Y0. F20.").unwrap(),
+            vec![Code::G(GCode::FeedMove {
+                p_point: PartialPoint(Some(0.0), Some(0.0), None),
+                f: Some(20.0)
+            })]
+        );
+    }
+
+    #[test]
+    fn test_cw_arc() {
+        assert_eq!(
+            tokenize_parse("G2 X0. I1. J2. F20.").unwrap(),
+            vec![Code::G(GCode::CWArcMove {
+                p_point: PartialPoint(Some(0.0), None, None),
+                method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
+                f: Some(20.0)
+            })]
+        );
+
+        assert_eq!(
+            tokenize_parse("G2 Y0. R20. F20.").unwrap(),
+            vec![Code::G(GCode::CWArcMove {
+                p_point: PartialPoint(None, Some(0.0), None),
+                method: CircleMethod::FixedRadius(20.0),
+                f: Some(20.0)
+            })]
+        );
+    }
+
+    #[test]
+    fn test_ccw_arc() {
+        assert_eq!(
+            tokenize_parse("G3 X0. I1. J2. F20.").unwrap(),
+            vec![Code::G(GCode::CCWArcMove {
+                p_point: PartialPoint(Some(0.0), None, None),
+                method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
+                f: Some(20.0)
+            })]
+        );
+
+        assert_eq!(
+            tokenize_parse("G3 Y0. R20. F20.").unwrap(),
+            vec![Code::G(GCode::CCWArcMove {
+                p_point: PartialPoint(None, Some(0.0), None),
+                method: CircleMethod::FixedRadius(20.0),
+                f: Some(20.0)
+            })]
+        );
+    }
+
+    #[test]
+    fn test_dwell() {
+        assert_eq!(
+            tokenize_parse("G4 X10.").unwrap(),
+            vec![Code::G(GCode::Dwell(10.0))]
+        );
+
+        assert_eq!(
+            tokenize_parse("G4 P1000").unwrap(),
+            vec![Code::G(GCode::Dwell(1.0))]
+        );
+
+        assert_eq!(
+            tokenize_parse("G4").unwrap_err(),
+            ParserError::MissingParamForGCode
+        );
     }
 }
