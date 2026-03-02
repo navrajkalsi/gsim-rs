@@ -44,7 +44,15 @@ const GCODES: &[(i32, u8)] = &[
 /// Every **M-code** supported.
 /// An *array of suffixes* for valid M-codes.
 const MCODES: &[i32] = &[
-    0, // program stop
+    0,  // program stop
+    1,  // optional stop
+    3,  // spindle fwd
+    4,  // spindle rev
+    5,  // spindle stop
+    6,  // tool change
+    8,  // coolant on
+    9,  // coolant off
+    30, // program end
 ];
 
 /// All prefix that must be suffixed only with **integer type**.
@@ -89,11 +97,11 @@ impl PartialPoint {
     ///
     /// Returns a `PartialPoint` that may have all its fields as `None`.
     fn from_tokens(tokens: &mut Vec<Token>) -> Self {
-        PartialPoint::custom_from_tokens(b'X', b'Y', b'Z', tokens)
+        PartialPoint::custom_from_tokens((b'X', b'Y', b'Z'), tokens)
     }
 
     /// Same as `from_tokens()`, but can be used to parse custom prefixes.
-    fn custom_from_tokens(x: u8, y: u8, z: u8, tokens: &mut Vec<Token>) -> Self {
+    fn custom_from_tokens((x, y, z): (u8, u8, u8), tokens: &mut Vec<Token>) -> Self {
         let mut point = Self::default();
 
         // remove coords with and add suffix to point
@@ -291,7 +299,7 @@ pub enum GCode {
 
     /// G98
     /// Initial point return in canned cycles.
-    InititalReturn = 98,
+    InitialReturn = 98,
 
     /// G99
     /// Retract plane return in canned cycles.
@@ -351,13 +359,13 @@ impl GCode {
             }
         }
 
-        return Err(ParserError::InvalidGCode);
+        return Err(ParserError::InvalidGCode(suffix));
     }
 
     /// Specifically for parsing 'G' prefix codes.
     /// Assumes [`validate_block`] has been called, and therefore:
     /// - No duplicate tokens are present.
-    /// - The suffix types are as expected ([`Suffix::Int`] for GCoes).
+    /// - The suffix types are as expected ([`Suffix::Int`] for GCodes).
     /// - All int suffixes represent a valid [`GCode`].
     ///
     /// Accepts the *suffix* of the 'G' prefix code and a *mutable reference to a vector of
@@ -373,7 +381,7 @@ impl GCode {
     /// - [`ParserError::InvalidGCode`] -- The code suffix is unknown.
     /// - [`ParserError::InvalidParamForGCode`] -- The required tokens for a GCode variant are
     /// invalid.
-    /// - [`ParserError::MissingParamForGCode`] -- The variant of GCode needs another token for
+    /// - [`ParserError::MissingCodeForGCode`] -- The variant of GCode needs another token for
     /// parsing, that is not present in the block.
     pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
         // parsing can be done with two points in mind:
@@ -409,20 +417,21 @@ impl GCode {
                     )
                 } else {
                     CircleMethod::RelativePoint(PartialPoint::custom_from_tokens(
-                        b'I', b'J', b'K', tokens,
+                        (b'I', b'J', b'K'),
+                        tokens,
                     ))
                 };
 
                 // destination coords are required for arcs.
                 if p_point.is_none() {
-                    return Err(ParserError::InvalidParamForGCode);
+                    return Err(ParserError::InvalidParamForGCode(suffix));
                 }
 
                 // relative center must be on a single plane only, that is,
                 // at most 2 axis can be specified, and at least one axis should be present
                 if let CircleMethod::RelativePoint(rel_point) = &method {
                     if rel_point.is_some() || rel_point.is_none() {
-                        return Err(ParserError::InvalidParamForGCode);
+                        return Err(ParserError::InvalidParamForGCode(suffix));
                     }
                 }
 
@@ -455,7 +464,7 @@ impl GCode {
                             .expect("X must be suffixed with a float."),
                     ))
                 } else {
-                    Err(ParserError::MissingParamForGCode)
+                    Err(ParserError::MissingCodeForGCode(b'P'))
                 }
             }
 
@@ -493,7 +502,7 @@ impl GCode {
                         ))
                     }
                 } else {
-                    Err(ParserError::MissingParamForGCode)
+                    Err(ParserError::MissingCodeForGCode(b'D'))
                 }
             }
 
@@ -519,7 +528,7 @@ impl GCode {
                         ))
                     }
                 } else {
-                    Err(ParserError::MissingParamForGCode)
+                    Err(ParserError::MissingCodeForGCode(b'H'))
                 }
             }
 
@@ -530,7 +539,7 @@ impl GCode {
 
                 if p_point.is_none() {
                     // need atleast one axis to move
-                    Err(ParserError::MissingParamForGCode)
+                    Err(ParserError::MissingCodeForGCode(b'X'))
                 } else {
                     Ok(Self::MachineCoord(p_point))
                 }
@@ -548,11 +557,11 @@ impl GCode {
 
             95 => Ok(Self::FeedRev),
 
-            98 => Ok(Self::InititalReturn),
+            98 => Ok(Self::InitialReturn),
 
             99 => Ok(Self::RetractReturn),
 
-            _ => Err(ParserError::InvalidGCode),
+            _ => Err(ParserError::InvalidGCode(suffix)),
         }
     }
 }
@@ -568,6 +577,38 @@ pub enum MCode {
     /// M00
     /// Program stop.
     Stop = 0,
+
+    /// M01
+    /// Optional stop.
+    OptionalStop = 1,
+
+    /// M03
+    /// Spindle forward.
+    SpindleFwd(Option<u32>) = 3,
+
+    /// M04
+    /// Spindle reverse.
+    SpindleRev(Option<u32>) = 4,
+
+    /// M05
+    /// Spindle stop.
+    SpindleStop = 5,
+
+    /// M06
+    /// Tool change.
+    ToolChange(Option<u8>) = 6,
+
+    /// M08
+    /// Coolant on.
+    CoolantOn = 8,
+
+    /// M09
+    /// Coolant off.
+    CoolantOff = 9,
+
+    /// M30
+    /// Program end.
+    End = 30,
 }
 
 impl MCode {
@@ -583,29 +624,140 @@ impl MCode {
     pub fn suffix(&self) -> i32 {
         unsafe { *(self as *const Self as *const i32) }
     }
+
+    /// Specifically for parsing 'M' prefix codes.
+    /// Assumes [`validate_block`] has been called, and therefore:
+    /// - No duplicate tokens are present.
+    /// - The suffix types are as expected ([`Suffix::Int`] for MCodes).
+    /// - All int suffixes represent a valid [`MCode`].
+    ///
+    /// Accepts the *suffix* of the 'M' prefix code and a *mutable reference to a vector of
+    /// [`Token`]s* that were found with the said [`MCode`].
+    ///
+    /// Returns a [`MCode`] with all the specific fields filled from token values on success, and
+    /// [`ParserError`] on failure.
+    ///
+    /// The tokens used in parsing the MCode **will be consumed and removed** from the `tokens`
+    /// vector.
+    ///
+    /// # Errors
+    /// - [`ParserError::InvalidMCode`] -- The code suffix is unknown.
+    pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
+        match suffix {
+            0 => Ok(Self::Stop),
+
+            1 => Ok(Self::OptionalStop),
+
+            3 | 4 => {
+                let speed = if let Some(pos) = tokens.iter().position(|token| token.prefix == b'S')
+                {
+                    tokens.remove(pos).suffix.int().map(|s| s as u32)
+                } else {
+                    None
+                };
+
+                if suffix == 3 {
+                    Ok(Self::SpindleFwd(speed))
+                } else {
+                    Ok(Self::SpindleRev(speed))
+                }
+            }
+
+            5 => Ok(Self::SpindleStop),
+
+            6 => Ok(Self::ToolChange(
+                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'T') {
+                    tokens.remove(pos).suffix.int().map(|s| s as u8)
+                } else {
+                    None
+                },
+            )),
+
+            8 => Ok(Self::CoolantOn),
+
+            9 => Ok(Self::CoolantOff),
+
+            30 => Ok(Self::End),
+
+            _ => Err(ParserError::InvalidMCode(suffix)),
+        }
+    }
 }
 
 /// Possible errors that can happen during parsing.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
-    WrongSuffixType,
+    WrongSuffixType(u8),
     /// The code prefix provided is invalid/unimplemented
-    UnknownPrefix,
+    UnknownPrefix(u8),
     /// Same G-code found atleast twice.
-    DuplicateGCode,
+    DuplicateGCode(i32),
     /// Prefix and suffix make an invalid G-code.
-    InvalidGCode,
+    InvalidGCode(i32),
     /// G-codes detected from the same group.
-    DuplicateGCodeGroup,
+    DuplicateGCodeGroup(u8),
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
-    DuplicatePrefix,
+    DuplicatePrefix(u8),
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
-    InvalidParamForGCode,
+    InvalidParamForGCode(i32),
     /// Missing token required for a GCode variant.
-    MissingParamForGCode,
+    MissingCodeForGCode(u8),
+    /// Prefix and suffix make an invalid M-code.
+    InvalidMCode(i32),
+    /// Missing token required for a MCode variant.
+    MissingCodeForMCode(u8),
+}
+
+impl Debug for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::WrongSuffixType(prefix) =>
+                    format!("Wrong Suffix Type detected for prefix code: '{prefix}'"),
+
+                Self::UnknownPrefix(prefix) => format!(
+                    "Unsupported Prefix Detected:\nPrefix '{prefix}' is not supported by this parser."
+                ),
+
+                Self::DuplicateGCode(suffix) => format!(
+                    "Duplicate G-Code Detected:\nThe following code was repeated: 'G{suffix}'"
+                ),
+
+                Self::InvalidGCode(suffix) => format!(
+                    "Invalid G-Code Detected:\nThe following G-Code is not supported by this parser: 'G{suffix}'"
+                ),
+
+                Self::DuplicateGCodeGroup(group) => format!(
+                    "Duplicate G-Code Group Detected:\nThe following group contains more than one G-Codes belong to it: '{group}'"
+                ),
+
+                Self::DuplicatePrefix(prefix) => format!(
+                    "Duplicate Prefix Detected:\nThe following prefix code appears more than once: '{prefix}'"
+                ),
+
+                Self::InvalidParamForGCode(suffix) => format!(
+                    "Invalid Parameter Detected:\nThe following G-Code requirements were not met: 'G{suffix}'"
+                ),
+
+                Self::MissingCodeForGCode(prefix) => format!(
+                    "Required Code not found for G-Code:\nThe following prefix code was not found: '{prefix}'"
+                ),
+
+                Self::InvalidMCode(suffix) => format!(
+                    "Invalid M-Code Detected:\nThe following M-Code is not supported by this parser: 'M{suffix}'"
+                ),
+
+                Self::MissingCodeForMCode(prefix) => format!(
+                    "Required Code not found for M-Code:\nThe following prefix code was not found: '{prefix}'"
+                ),
+            }
+        )
+    }
 }
 
 /// Parses a sequence of *tokens*.
@@ -629,13 +781,25 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
         return Ok(codes);
     }
 
-    let (gcodes, mut tokens) = validate_block(tokens)?;
+    let (gcodes, mcode, mut tokens) = validate_block(tokens)?;
 
+    // parse g prefix codes
     for suffix in gcodes {
         match GCode::parse_from_suffix(suffix, &mut tokens) {
             Ok(gcode) => codes.push(Code::G(gcode)),
-            Err(ParserError::InvalidGCode) => {
+            Err(ParserError::InvalidGCode(_)) => {
                 panic!("Invalid GCode must be dealt with in validate_block().")
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    // parse m prefix code, if available
+    if let Some(suffix) = mcode {
+        match MCode::parse_from_suffix(suffix, &mut tokens) {
+            Ok(mcode) => codes.push(Code::M(mcode)),
+            Err(ParserError::InvalidMCode(_)) => {
+                panic!("Invalid MCode must be dealt with in validate_block().")
             }
             Err(e) => return Err(e),
         }
@@ -649,7 +813,8 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 ///
 /// Consumes the input *vector of [`Token`]s*.
 /// On success, returns a *tuple* made up of two vectors:
-/// - A *vector of `i32`*, which contains all the valid [`GCode`] integer suffixes.
+/// - A *vector of `i32`s*, which contains all the valid [`GCode`] integer suffixes.
+/// - An *option of `i32`*, which optionally contains the valid [`MCode`] integer suffix, if found.
 /// - A *vector of `Token`s*, which contains all the valid `Tokens`, that are not prefixed with
 /// **'G'**.
 /// On failure, returns a [`ParserError`].
@@ -667,8 +832,12 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 /// - [`ParserError::InvalidGCode`] -- The suffix of 'G' prefix token is not valid or supported.
 /// - [`ParserError::DuplicateGCodeGroup`] -- Two or more G-codes of the same group found.
 /// - [`ParserError::DuplicatePrefix`] -- Two or more codes with the same prefix (not 'G') found.
-pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), ParserError> {
+/// - [`ParserError::InvalidMCode`] -- The suffix of 'M' prefix token is not valid or supported.
+pub fn validate_block(
+    mut tokens: Vec<Token>,
+) -> Result<(Vec<i32>, Option<i32>, Vec<Token>), ParserError> {
     let mut g_suffix_found = Vec::new(); // unique gcode suffixes found
+    let mut m_suffix_found: Option<i32> = None; // mcode suffix, if found
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
@@ -676,14 +845,14 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), 
         // check suffix type based on the prefix, only for KNOWN/SUPPORTED prefixes
         if INTCODES.contains(&token.prefix) {
             if !matches!(token.suffix, Suffix::Int(_)) {
-                return Err(ParserError::WrongSuffixType);
+                return Err(ParserError::WrongSuffixType(token.prefix));
             }
         } else if FLOATCODES.contains(&token.prefix) {
             if !matches!(token.suffix, Suffix::Float(_)) {
-                return Err(ParserError::WrongSuffixType);
+                return Err(ParserError::WrongSuffixType(token.prefix));
             }
         } else {
-            return Err(ParserError::UnknownPrefix); // unknown prefix
+            return Err(ParserError::UnknownPrefix(token.prefix)); // unknown prefix
         }
 
         // suffix type has been validated
@@ -698,12 +867,12 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), 
 
             // check if suffix is supported
             if GCODES.iter().position(|gcode| gcode.0 == suffix).is_none() {
-                return Err(ParserError::InvalidGCode);
+                return Err(ParserError::InvalidGCode(suffix));
             }
 
             // multiple gcodes are valid, but must be of different suffixes
             if g_suffix_found.contains(&suffix) {
-                return Err(ParserError::DuplicateGCode);
+                return Err(ParserError::DuplicateGCode(suffix));
             }
             g_suffix_found.push(suffix);
 
@@ -712,24 +881,43 @@ pub fn validate_block(mut tokens: Vec<Token>) -> Result<(Vec<i32>, Vec<Token>), 
 
             // check if same group already found or not
             if groups_found.contains(&group) {
-                return Err(ParserError::DuplicateGCodeGroup);
+                return Err(ParserError::DuplicateGCodeGroup(group));
             }
             groups_found.push(group);
+        } else if token.prefix == b'M' {
+            if m_suffix_found.is_some() {
+                // only one mcode is allowed per block
+                return Err(ParserError::DuplicatePrefix(b'M'));
+            }
+
+            let suffix = match token.suffix {
+                Suffix::Int(suffix) => suffix,
+                Suffix::Float(_) => {
+                    unreachable!("'M' has been validated to be suffixed by an integer value only.")
+                }
+            };
+
+            // check if suffix is supported
+            if MCODES.iter().position(|mcode| *mcode == suffix).is_none() {
+                return Err(ParserError::InvalidMCode(suffix));
+            }
+
+            m_suffix_found = Some(suffix);
         } else {
             // mutiple codes of prefix other than 'G' is invalid
             if prefix_found.contains(&token.prefix) {
-                return Err(ParserError::DuplicatePrefix);
+                return Err(ParserError::DuplicatePrefix(token.prefix));
             }
             prefix_found.push(token.prefix);
         }
     }
 
-    // at this point all 'G' prefix codes would be valid, with unique groups, no duplicate
+    // at this point all 'G' and 'M' prefix codes would be valid, with unique groups, no duplicate
     // suffixes, and int suffix type
-    // remove G-codes from the vector
-    tokens.retain(|token| token.prefix != b'G');
+    // remove G and M codes from the vector
+    tokens.retain(|token| token.prefix != b'G' && token.prefix != b'M');
 
-    Ok((g_suffix_found, tokens))
+    Ok((g_suffix_found, m_suffix_found, tokens))
 }
 
 // ## Parser helper:
@@ -774,12 +962,12 @@ mod tests {
     fn wrong_suffix_type() {
         assert_eq!(
             tokenize_parse("G20.0").unwrap_err(),
-            ParserError::WrongSuffixType
+            ParserError::WrongSuffixType(b'G')
         );
 
         assert_eq!(
             tokenize_parse("F20").unwrap_err(),
-            ParserError::WrongSuffixType
+            ParserError::WrongSuffixType(b'F')
         );
     }
 
@@ -788,7 +976,7 @@ mod tests {
     fn unknown_prefix() {
         assert_eq!(
             tokenize_parse("A0").unwrap_err(),
-            ParserError::UnknownPrefix
+            ParserError::UnknownPrefix(b'A')
         );
     }
 
@@ -797,7 +985,7 @@ mod tests {
     fn duplicate_gcode() {
         assert_eq!(
             tokenize_parse("G00 G00").unwrap_err(),
-            ParserError::DuplicateGCode
+            ParserError::DuplicateGCode(0)
         );
     }
 
@@ -807,7 +995,7 @@ mod tests {
         // although the gcode is suffixed by an int, the code itself is invalid
         assert_eq!(
             tokenize_parse("G999").unwrap_err(),
-            ParserError::InvalidGCode
+            ParserError::InvalidGCode(999)
         );
     }
 
@@ -816,7 +1004,7 @@ mod tests {
     fn duplicate_gcode_group() {
         assert_eq!(
             tokenize_parse("G00 G01").unwrap_err(),
-            ParserError::DuplicateGCodeGroup
+            ParserError::DuplicateGCodeGroup(1)
         );
     }
 
@@ -825,13 +1013,13 @@ mod tests {
     fn duplicate_prefix() {
         assert_eq!(
             tokenize_parse("M5 M9").unwrap_err(),
-            ParserError::DuplicatePrefix
+            ParserError::DuplicatePrefix(b'M')
         );
     }
 
     #[test]
     // Test all groups are correct.
-    fn test_gcode_groups() {
+    fn parse_gcode_groups() {
         for (suffix, group) in GCODES {
             assert_eq!(
                 *group,
@@ -843,7 +1031,7 @@ mod tests {
     #[test]
     // Test that all codes inside GCODES array parse.
     // also tests the group() and suffix() methods as well.
-    fn test_valid_gcodes() {
+    fn parse_valid_gcodes() {
         for (suffix, group) in GCODES {
             let mut tokens = tokenize("X0. I0. D1 H1").unwrap();
 
@@ -937,7 +1125,7 @@ mod tests {
 
         assert_eq!(
             tokenize_parse("G4").unwrap_err(),
-            ParserError::MissingParamForGCode
+            ParserError::MissingCodeForGCode(b'P')
         );
     }
 
@@ -1012,7 +1200,7 @@ mod tests {
     fn parse_machine_coord() {
         assert_eq!(
             tokenize_parse("G53").unwrap_err(),
-            ParserError::MissingParamForGCode
+            ParserError::MissingCodeForGCode(b'X')
         );
 
         assert_eq!(
@@ -1071,12 +1259,92 @@ mod tests {
     fn parse_return_canned() {
         assert_eq!(
             tokenize_parse("G98").unwrap(),
-            vec![Code::G(GCode::InititalReturn)]
+            vec![Code::G(GCode::InitialReturn)]
         );
 
         assert_eq!(
             tokenize_parse("G99").unwrap(),
             vec![Code::G(GCode::RetractReturn)]
         );
+    }
+
+    #[test]
+    // Test that all codes inside MCODES array parse.
+    fn parse_valid_mcodes() {
+        for suffix in MCODES {
+            let mut tokens = tokenize("").unwrap();
+
+            let gcode = MCode::parse_from_suffix(*suffix, &mut tokens)
+                .expect("Every suffix must generate a valid MCode variant.");
+
+            // test suffix method
+            assert_eq!(*suffix, gcode.suffix());
+        }
+    }
+
+    #[test]
+    fn parse_stop() {
+        assert_eq!(tokenize_parse("M00").unwrap(), vec![Code::M(MCode::Stop)]);
+    }
+
+    #[test]
+    fn parse_optional_stop() {
+        assert_eq!(
+            tokenize_parse("M01").unwrap(),
+            vec![Code::M(MCode::OptionalStop)]
+        );
+    }
+
+    #[test]
+    fn parse_spindle() {
+        assert_eq!(
+            tokenize_parse("M03 S1000").unwrap(),
+            vec![Code::M(MCode::SpindleFwd(Some(1000)))]
+        );
+        assert_eq!(
+            tokenize_parse("M03").unwrap(),
+            vec![Code::M(MCode::SpindleFwd(None))]
+        );
+        assert_eq!(
+            tokenize_parse("M04 S1000").unwrap(),
+            vec![Code::M(MCode::SpindleRev(Some(1000)))]
+        );
+        assert_eq!(
+            tokenize_parse("M04").unwrap(),
+            vec![Code::M(MCode::SpindleRev(None))]
+        );
+        assert_eq!(
+            tokenize_parse("M05").unwrap(),
+            vec![Code::M(MCode::SpindleStop)]
+        );
+    }
+
+    #[test]
+    fn parse_tool_change() {
+        assert_eq!(
+            tokenize_parse("M06 T1").unwrap(),
+            vec![Code::M(MCode::ToolChange(Some(1)))]
+        );
+        assert_eq!(
+            tokenize_parse("M06").unwrap(),
+            vec![Code::M(MCode::ToolChange(None))]
+        );
+    }
+
+    #[test]
+    fn parse_coolant() {
+        assert_eq!(
+            tokenize_parse("M08").unwrap(),
+            vec![Code::M(MCode::CoolantOn)]
+        );
+        assert_eq!(
+            tokenize_parse("M09").unwrap(),
+            vec![Code::M(MCode::CoolantOff)]
+        );
+    }
+
+    #[test]
+    fn parse_program_end() {
+        assert_eq!(tokenize_parse("M30").unwrap(), vec![Code::M(MCode::End)]);
     }
 }
