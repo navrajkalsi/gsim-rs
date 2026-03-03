@@ -8,12 +8,21 @@
 use super::lexer::{self, *};
 use std::{cmp::PartialEq, collections::HashMap, fmt::Debug};
 
+/// Prefix **ASCII** character for codes.
+pub type Prefix = u8;
+/// Suffix type which pairs with prefixes expecting **an integer** type.
+pub type IntSuffix = usize;
+/// Suffix type which pairs with prefixes expecting **a floating** type.
+pub type FloatSuffix = f64;
+/// Type specifying **a code group**. Only for 'G' prefix codes.
+pub type Group = u8;
+
 // ALL THE CONST ARRAYS ARE TESTED AT THE END TO PARSE CORRECTLY.
 
 /// Every **G-code** supported.
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
 /// and index 1 is the *group* the G-code belongs to.
-const GCODES: &[(usize, u8)] = &[
+const GCODES: &[(IntSuffix, Group)] = &[
     (0, 1),   // rapid move
     (1, 1),   // feed move
     (2, 1),   // clockwise arc
@@ -43,7 +52,7 @@ const GCODES: &[(usize, u8)] = &[
 
 /// Every **M-code** supported.
 /// An *array of suffixes* for valid M-codes.
-const MCODES: &[usize] = &[
+const MCODES: &[IntSuffix] = &[
     0,  // program stop
     1,  // optional stop
     3,  // spindle fwd
@@ -56,54 +65,45 @@ const MCODES: &[usize] = &[
 ];
 
 /// All prefixs that must be suffixed only with **integer type**.
-const INTCODES: &[u8] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'P', b'S', b'T'];
+const INTCODES: &[Prefix] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'P', b'S', b'T'];
 
 /// All prefixs that must be suffixed only with **floating type**.
-const FLOATCODES: &[u8] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
+const FLOATCODES: &[Prefix] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
+
+// Characters NOT in `INTCODES` or `FLOATCODES`, are INVALID PREFIXES for this parser.
 
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
 /// The fields represent X, Y, and Z axis respectively.
 #[derive(Default, Debug, PartialEq)]
-pub struct Point(pub f64, pub f64, pub f64);
+pub struct Point(pub FloatSuffix, pub FloatSuffix, pub FloatSuffix);
 
 /// Same as [`Point`] but the fields can be `None`.
 #[derive(Default, Debug, PartialEq)]
-pub struct PartialPoint(pub Option<f64>, pub Option<f64>, pub Option<f64>);
+pub struct PartialPoint(
+    pub Option<FloatSuffix>,
+    pub Option<FloatSuffix>,
+    pub Option<FloatSuffix>,
+);
 
 impl PartialPoint {
-    /// Constructs a [`PartialPoint`] by using a *mutable reference* to a vector of [`Token`]s.
+    /// Constructs a [`PartialPoint`] by using a *mutable reference* to a **validated** [`Block`].
     ///
-    /// This function assumes that *tokens* has been verified by [`validate_block`], and therefore:
+    /// Since `block` is validated by [`validate_block`], therefore:
     /// - All coordinate suffix types will be [`Suffix::Float`].
     ///
     /// Returns a `PartialPoint` that may have all its fields as `None`.
-    fn from_tokens(tokens: &mut Vec<Token>) -> Self {
-        PartialPoint::custom_from_tokens((b'X', b'Y', b'Z'), tokens)
+    fn from_block(block: &mut Block) -> Self {
+        PartialPoint::custom_from_block((b'X', b'Y', b'Z'), block)
     }
 
-    /// Same as `from_tokens()`, but can be used to parse custom prefixes.
-    fn custom_from_tokens((x, y, z): (u8, u8, u8), tokens: &mut Vec<Token>) -> Self {
-        let mut point = Self::default();
-
-        // remove coords with and add suffix to point
-        tokens.retain(|token| match token.prefix {
-            prefix if prefix == x => {
-                point.0 = token.suffix.float(); // this will be float, None not possible
-                false
-            }
-            prefix if prefix == y => {
-                point.1 = token.suffix.float();
-                false
-            }
-            prefix if prefix == z => {
-                point.2 = token.suffix.float();
-                false
-            }
-            _ => true,
-        });
-
-        point
+    /// Same as [`PartialPoint::from_block`], but can be used to parse custom prefix characters.
+    fn custom_from_block((x, y, z): (Prefix, Prefix, Prefix), block: &mut Block) -> Self {
+        PartialPoint(
+            block.float_codes.remove(&x),
+            block.float_codes.remove(&y),
+            block.float_codes.remove(&z),
+        )
     }
 
     /// Check if all the axis are `None` variants.
@@ -124,14 +124,14 @@ pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K**.
     RelativePoint(PartialPoint),
     /// Explicit radius specified with **R**.
-    FixedRadius(f64),
+    FixedRadius(FloatSuffix),
 }
 
 /// Represents a *complete independent code*, that is,
 /// each variant will contain itself and any other code it is required to have.
 ///
 /// Since a [`Code`] variant may be a result of parsing **one or more [`Token`]s**,
-/// it may or may not represent an entire *line/block* of code.
+/// it may or may not represent an entire [`Block`] of code.
 ///
 /// Therefore, it is not necessary that a *line/block* of code be parsed into just one [`Code`]
 /// or only one variant of it (*a mix of the variants is also valid in a line/block*).
@@ -140,28 +140,28 @@ pub enum Code {
     G(GCode),
     M(MCode),
     /// Change feed rate.
-    F(f64),
+    F(FloatSuffix),
     /// Line number.
-    N(usize),
+    N(IntSuffix),
     /// Program number.
-    O(usize),
+    O(IntSuffix),
     /// Change spindle speed.
-    S(usize),
+    S(IntSuffix),
     /// Preload a tool.
-    T(u8),
+    T(IntSuffix),
 
-    X(f64),
+    X(FloatSuffix),
 
-    Y(f64),
+    Y(FloatSuffix),
 
-    Z(f64),
+    Z(FloatSuffix),
 }
 
 impl Code {
     /// Retrieves a numeric suffix of a [`Code`].
     ///
-    /// For [`Code::G`] and [`Code::M`] this is done
-    /// by returning a primitive discriminant of the enumeration inside the variants.
+    /// For [`Code::G`] and [`Code::M`] this is done by:
+    /// returning a primitive discriminant of the enumeration inside the variants.
     /// Rest of the variants directly contain their suffixes.
     ///
     /// Return a [`Suffix`] which will be the same one that was [`tokenize`]d by the [`lexer`].
@@ -179,7 +179,7 @@ impl Code {
 
             Self::S(s) => Suffix::Int(*s),
 
-            Self::T(t) => Suffix::Int(*t as usize),
+            Self::T(t) => Suffix::Int(*t),
 
             Self::X(x) => Suffix::Float(*x),
 
