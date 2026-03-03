@@ -29,13 +29,13 @@ pub struct Token {
 /// A G-code field can contain an integer or a floating point.
 #[derive(PartialEq, Debug)]
 pub enum Suffix {
-    Int(i32),
+    Int(usize),
     Float(f64),
 }
 
 impl Suffix {
     /// Tries to *optionally* return the value inside of the [`Suffix::Int`] variant.
-    pub fn int(&self) -> Option<i32> {
+    pub fn int(&self) -> Option<usize> {
         match self {
             Suffix::Int(i) => Some(*i),
             Suffix::Float(_) => None,
@@ -213,7 +213,7 @@ fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, LexerError> {
     }
 
     // try to parse as int
-    match suffix_str.parse::<i32>() {
+    match suffix_str.parse::<usize>() {
         Ok(s) => Ok(Suffix::Int(s)),
         Err(_) => Err(LexerError::ParseSuffix),
     }
@@ -324,5 +324,11 @@ mod tests {
     // Test an invalid suffix.
     fn tokenize_invalid_suffix() {
         assert_eq!(tokenize("G53 X.").unwrap_err(), LexerError::ParseSuffix);
+    }
+
+    #[test]
+    // Test a signed int.
+    fn tokenize_signed_int() {
+        assert_eq!(tokenize("G-53").unwrap_err(), LexerError::ParseSuffix);
     }
 }

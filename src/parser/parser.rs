@@ -13,7 +13,7 @@ use std::{cmp::PartialEq, fmt::Debug};
 /// Every **G-code** supported.
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
 /// and index 1 is the *group* the G-code belongs to.
-const GCODES: &[(i32, u8)] = &[
+const GCODES: &[(usize, u8)] = &[
     (0, 1),   // rapid move
     (1, 1),   // feed move
     (2, 1),   // clockwise arc
@@ -43,7 +43,7 @@ const GCODES: &[(i32, u8)] = &[
 
 /// Every **M-code** supported.
 /// An *array of suffixes* for valid M-codes.
-const MCODES: &[i32] = &[
+const MCODES: &[usize] = &[
     0,  // program stop
     1,  // optional stop
     3,  // spindle fwd
@@ -142,11 +142,11 @@ pub enum Code {
     /// Change feed rate.
     F(f64),
     /// Line number.
-    N(u32),
+    N(usize),
     /// Program number.
-    O(u32),
+    O(usize),
     /// Change spindle speed.
-    S(u32),
+    S(usize),
     /// Preload a tool.
     T(u8),
 
@@ -173,13 +173,13 @@ impl Code {
 
             Self::F(f) => Suffix::Float(*f),
 
-            Self::N(n) => Suffix::Int(*n as i32),
+            Self::N(n) => Suffix::Int(*n),
 
-            Self::O(o) => Suffix::Int(*o as i32),
+            Self::O(o) => Suffix::Int(*o),
 
-            Self::S(s) => Suffix::Int(*s as i32),
+            Self::S(s) => Suffix::Int(*s),
 
-            Self::T(t) => Suffix::Int(*t as i32),
+            Self::T(t) => Suffix::Int(*t as usize),
 
             Self::X(x) => Suffix::Float(*x),
 
@@ -196,7 +196,7 @@ impl Code {
 ///
 /// Each variant contains all the other variable values it needs to be a valid.
 #[derive(Debug, PartialEq)]
-#[repr(i32)]
+#[repr(usize)]
 pub enum GCode {
     /// G00
     /// Linear Interpolate to new coordinates using rapid rate.
@@ -320,8 +320,8 @@ impl GCode {
     /// # SAFETY
     /// It is certain that [`GCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> i32 {
-        unsafe { *(self as *const Self as *const i32) }
+    pub fn suffix(&self) -> usize {
+        unsafe { *(self as *const Self as *const usize) }
     }
 
     /// Returns what *group* a [`GCode`] belongs to.
@@ -356,7 +356,7 @@ impl GCode {
     /// **Only [`GCode`]s are grouped codes.**
     ///
     /// Returns the `u8` group on success or [`ParserError::InvalidGCode`] on failure.
-    fn group_from_suffix(suffix: i32) -> Result<u8, ParserError> {
+    fn group_from_suffix(suffix: usize) -> Result<u8, ParserError> {
         for gcode in GCODES {
             if gcode.0 == suffix {
                 return Ok(gcode.1);
@@ -387,7 +387,7 @@ impl GCode {
     /// invalid.
     /// - [`ParserError::MissingCodeForGCode`] -- The variant of GCode needs another token for
     /// parsing, that is not present in the block.
-    pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
+    pub fn parse_from_suffix(suffix: usize, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
         // parsing can be done with two points in mind:
         // - no duplicate tokens at all.
         // - the suffix types will be as expected.
@@ -576,7 +576,7 @@ impl GCode {
 ///
 /// Each variant contains all the other variable values it needs to be a valid.
 #[derive(Debug, PartialEq)]
-#[repr(i32)]
+#[repr(usize)]
 pub enum MCode {
     /// M00
     /// Program stop.
@@ -625,8 +625,8 @@ impl MCode {
     /// # SAFETY
     /// It is certain that [`MCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> i32 {
-        unsafe { *(self as *const Self as *const i32) }
+    pub fn suffix(&self) -> usize {
+        unsafe { *(self as *const Self as *const usize) }
     }
 
     /// Specifically for parsing 'M' prefix codes.
@@ -646,7 +646,7 @@ impl MCode {
     ///
     /// # Errors
     /// - [`ParserError::InvalidMCode`] -- The code suffix is unknown.
-    pub fn parse_from_suffix(suffix: i32, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
+    pub fn parse_from_suffix(suffix: usize, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
         match suffix {
             0 => Ok(Self::Stop),
 
@@ -696,9 +696,9 @@ pub enum ParserError {
     /// The code prefix provided is invalid/unimplemented
     UnknownPrefix(u8),
     /// Same G-code found atleast twice.
-    DuplicateGCode(i32),
+    DuplicateGCode(usize),
     /// Prefix and suffix make an invalid G-code.
-    InvalidGCode(i32),
+    InvalidGCode(usize),
     /// G-codes detected from the same group.
     DuplicateGCodeGroup(u8),
     /// Multiple codes of same prefix in the same line.
@@ -706,11 +706,11 @@ pub enum ParserError {
     DuplicatePrefix(u8),
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
-    InvalidParamForGCode(i32),
+    InvalidParamForGCode(usize),
     /// Missing token required for a GCode variant.
     MissingCodeForGCode(u8),
     /// Prefix and suffix make an invalid M-code.
-    InvalidMCode(i32),
+    InvalidMCode(usize),
     /// Missing token required for a MCode variant.
     MissingCodeForMCode(u8),
 }
@@ -817,8 +817,8 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 ///
 /// Consumes the input *vector of [`Token`]s*.
 /// On success, returns a *tuple* made up of two vectors:
-/// - A *vector of `i32`s*, which contains all the valid [`GCode`] integer suffixes.
-/// - An *option of `i32`*, which optionally contains the valid [`MCode`] integer suffix, if found.
+/// - A *vector of `usize`s*, which contains all the valid [`GCode`] integer suffixes.
+/// - An *option of `usize`*, which optionally contains the valid [`MCode`] integer suffix, if found.
 /// - A *vector of `Token`s*, which contains all the valid `Tokens`, that are not prefixed with
 /// **'G'**.
 /// On failure, returns a [`ParserError`].
@@ -839,9 +839,9 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 /// - [`ParserError::InvalidMCode`] -- The suffix of 'M' prefix token is not valid or supported.
 pub fn validate_block(
     mut tokens: Vec<Token>,
-) -> Result<(Vec<i32>, Option<i32>, Vec<Token>), ParserError> {
+) -> Result<(Vec<usize>, Option<usize>, Vec<Token>), ParserError> {
     let mut g_suffix_found = Vec::new(); // unique gcode suffixes found
-    let mut m_suffix_found: Option<i32> = None; // mcode suffix, if found
+    let mut m_suffix_found: Option<usize> = None; // mcode suffix, if found
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
 
@@ -949,16 +949,12 @@ mod tests {
     fn get_code_suffix() {
         assert_eq!(
             Code::G(GCode::RapidMove(PartialPoint(None, None, None))).suffix(),
-            0
+            Suffix::Int(0)
         );
-        assert_eq!(Code::M(MCode::Stop).suffix(), 0);
-    }
 
-    #[test]
-    #[should_panic(expected = "G & M")]
-    // Test to get the suffix of an invalid variant.
-    fn get_code_suffix_invalid() {
-        let _ = Code::T(0).suffix();
+        assert_eq!(Code::M(MCode::Stop).suffix(), Suffix::Int(0));
+
+        // TODO add other variants
     }
 
     #[test]
