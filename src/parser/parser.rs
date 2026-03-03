@@ -1,14 +1,14 @@
 //! # Parser
 //!
-//! The Parser depends on the output of the Lexer, and is responsible for converting a sequence of
-//! tokens to a sequence of [`GCode`]s or [`MCode`]s or a combination of both.
+//! The Parser depends on the output of the Lexer,
+//! and is responsible for converting a sequence of tokens to a sequence of [`Code`]s.
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use super::lexer::{self, *};
 use std::{cmp::PartialEq, fmt::Debug};
 
-// ALL THE CONST ARRAYS ARE TESTED AT THE END.
+// ALL THE CONST ARRAYS ARE TESTED AT THE END TO PARSE CORRECTLY.
 
 /// Every **G-code** supported.
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
@@ -55,37 +55,19 @@ const MCODES: &[i32] = &[
     30, // program end
 ];
 
-/// All prefix that must be suffixed only with **integer type**.
+/// All prefixs that must be suffixed only with **integer type**.
 const INTCODES: &[u8] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'P', b'S', b'T'];
 
-/// All prefix that must be suffixed only with **floating type**.
+/// All prefixs that must be suffixed only with **floating type**.
 const FLOATCODES: &[u8] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
 
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
 /// The fields represent X, Y, and Z axis respectively.
-///
-/// # Example
-/// - Storing **max travels** for each axis of a machine where every axis **must** have a value.
-/// ```
-/// # use gsim_rs::parser::parser::*;
-/// let max_travels = Point(40.0, 20.0, 20.0);
-/// ```
 #[derive(Default, Debug, PartialEq)]
 pub struct Point(pub f64, pub f64, pub f64);
 
 /// Same as [`Point`] but the fields can be `None`.
-///
-/// # Example
-/// - Representing a block when [`GCode`] may or may not contain coordinates for each axis.
-/// ```
-/// # use gsim_rs::parser::parser::*;
-/// PartialPoint(
-///     Some(1.0),
-///     Some(-5.0),
-///     None,
-/// ); // Represents block: X2. Y-5.
-/// ```
 #[derive(Default, Debug, PartialEq)]
 pub struct PartialPoint(pub Option<f64>, pub Option<f64>, pub Option<f64>);
 
@@ -157,38 +139,60 @@ pub enum CircleMethod {
 pub enum Code {
     G(GCode),
     M(MCode),
-    /// Preload a tool
+    /// Change feed rate.
+    F(f64),
+    /// Line number.
+    N(u32),
+    /// Program number.
+    O(u32),
+    /// Change spindle speed.
+    S(u32),
+    /// Preload a tool.
     T(u8),
+
+    X(f64),
+
+    Y(f64),
+
+    Z(f64),
 }
 
 impl Code {
-    /// Provides a numeric value of a [`GCode`] or [`MCode`]
-    /// by returning a primitive discriminant of the said enumeration.
+    /// Retrieves a numeric suffix of a [`Code`].
     ///
-    /// The returned number would be the same one that was [`tokenize`]d
-    /// by the [`lexer`] as the [`Suffix`].
+    /// For [`Code::G`] and [`Code::M`] this is done
+    /// by returning a primitive discriminant of the enumeration inside the variants.
+    /// Rest of the variants directly contain their suffixes.
     ///
-    /// # SAFETY
-    /// *Not to be used for any other [`Code`] variants.*
-    ///
-    /// It is certain that the [`GCode`] & [`MCode`] enums specify a primitive representation,
-    /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    ///
-    /// # PANICS
-    ///
-    /// The function panics if called on any other variant.
-    pub fn suffix(&self) -> i32 {
+    /// Return a [`Suffix`] which will be the same one that was [`tokenize`]d by the [`lexer`].
+    pub fn suffix(&self) -> Suffix {
         match self {
-            Self::G(gcode) => gcode.suffix(),
-            Self::M(mcode) => mcode.suffix(),
-            _ => panic!("suffix() must only be called on variants: G & M"),
+            Self::G(gcode) => Suffix::Int(gcode.suffix()),
+
+            Self::M(mcode) => Suffix::Int(mcode.suffix()),
+
+            Self::F(f) => Suffix::Float(*f),
+
+            Self::N(n) => Suffix::Int(*n as i32),
+
+            Self::O(o) => Suffix::Int(*o as i32),
+
+            Self::S(s) => Suffix::Int(*s as i32),
+
+            Self::T(t) => Suffix::Int(*t as i32),
+
+            Self::X(x) => Suffix::Float(*x),
+
+            Self::Y(y) => Suffix::Float(*y),
+
+            Self::Z(z) => Suffix::Float(*z),
         }
     }
 }
 
 /// Represents a *G-code*.
 ///
-/// A G-code is used in toolpaths to move axes of a machine.
+/// A G-code is used in toolpaths to move axes of a machine in a controlled way.
 ///
 /// Each variant contains all the other variable values it needs to be a valid.
 #[derive(Debug, PartialEq)]
@@ -331,8 +335,8 @@ impl GCode {
     /// [Haas](https://www.haascnc.com/service/service-content/guide-procedures/what-are-g-codes.html#gsc.tab=0)
     ///
     /// # PANICS
-    /// If the suffix is not found in `GCODES` array, then the [`GCode`] creation must not have been
-    /// possible in the first place.
+    /// If the suffix is not found in `GCODES` array,
+    /// then the [`GCode`] creation must not have been possible in the first place.
     /// This would indicate a major logic error.
     pub fn group(&self) -> u8 {
         let suffix = self.suffix();
@@ -359,7 +363,7 @@ impl GCode {
             }
         }
 
-        return Err(ParserError::InvalidGCode(suffix));
+        Err(ParserError::InvalidGCode(suffix))
     }
 
     /// Specifically for parsing 'G' prefix codes.
