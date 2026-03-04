@@ -5,10 +5,9 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use super::{
-    lexer::{self, *},
-    *,
-};
+#![allow(unused)]
+
+use super::{lexer::*, *};
 use std::{cmp::PartialEq, collections::HashMap, fmt::Debug};
 
 // ALL THE CONST ARRAYS ARE TESTED AT THE END TO PARSE CORRECTLY.
@@ -59,10 +58,10 @@ const MCODES: &[Int] = &[
 ];
 
 /// All prefixs that must be suffixed only with **integer type**.
-const INTCODES: &[Prefix] = &[b'D', b'G', b'H', b'M', b'N', b'O', b'P', b'S', b'T'];
+const INTCODES: &[Prefix] = b"DGHMNOPST";
 
 /// All prefixs that must be suffixed only with **floating type**.
-const FLOATCODES: &[Prefix] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', b'Z'];
+const FLOATCODES: &[Prefix] = b"FIJKQRXYZ";
 
 // Characters NOT in `INTCODES` or `FLOATCODES`, are INVALID PREFIXES for this parser.
 
@@ -584,7 +583,7 @@ impl MCode {
     ///
     /// # Errors
     /// - [`ParserError::InvalidMCode`] -- The code suffix is unknown.
-    pub fn parse_from_suffix(suffix: Int, block: &mut Block) -> Result<Self, ParserError> {
+    fn parse_from_suffix(suffix: Int, block: &mut Block) -> Result<Self, ParserError> {
         match suffix {
             0 => Ok(Self::Stop),
 
@@ -857,7 +856,7 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
 
     let mut block = validate_block(tokens)?;
     let gcodes = block.gcodes.clone();
-    let mcode = block.mcode.clone();
+    let mcode = block.mcode;
 
     // parse g prefix codes
     for suffix in gcodes {
@@ -902,8 +901,6 @@ mod tests {
         );
 
         assert_eq!(Code::M(MCode::Stop).suffix(), Suffix::Int(0));
-
-        // TODO add other variants
     }
 
     #[test]

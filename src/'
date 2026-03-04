@@ -3,7 +3,7 @@
 //! A proper parser for **Geometric Code (G-Code)**, consisting of two parts:
 //! - [`Lexer`](mod@lexer) -- Responsible for transforming raw text to a sequence of `Token`s.
 //! - [`Parser`](mod@parser) -- Uses the output of the `Lexer` and parses it into structures of
-//! *Rust code*.
+//! code for the user to be able to use.
 
 pub mod lexer;
 pub mod parser;
