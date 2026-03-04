@@ -5,24 +5,18 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-use super::lexer::{self, *};
+use super::{
+    lexer::{self, *},
+    *,
+};
 use std::{cmp::PartialEq, collections::HashMap, fmt::Debug};
-
-/// Prefix **ASCII** character for codes.
-pub type Prefix = u8;
-/// Suffix type which pairs with prefixes expecting **an integer** type.
-pub type IntSuffix = usize;
-/// Suffix type which pairs with prefixes expecting **a floating** type.
-pub type FloatSuffix = f64;
-/// Type specifying **a code group**. Only for 'G' prefix codes.
-pub type Group = u8;
 
 // ALL THE CONST ARRAYS ARE TESTED AT THE END TO PARSE CORRECTLY.
 
 /// Every **G-code** supported.
 /// An *array of binary tuples* where index 0 is a G-code *suffix*,
 /// and index 1 is the *group* the G-code belongs to.
-const GCODES: &[(IntSuffix, Group)] = &[
+const GCODES: &[(Int, Group)] = &[
     (0, 1),   // rapid move
     (1, 1),   // feed move
     (2, 1),   // clockwise arc
@@ -52,7 +46,7 @@ const GCODES: &[(IntSuffix, Group)] = &[
 
 /// Every **M-code** supported.
 /// An *array of suffixes* for valid M-codes.
-const MCODES: &[IntSuffix] = &[
+const MCODES: &[Int] = &[
     0,  // program stop
     1,  // optional stop
     3,  // spindle fwd
@@ -76,21 +70,17 @@ const FLOATCODES: &[Prefix] = &[b'F', b'I', b'J', b'K', b'Q', b'R', b'X', b'Y', 
 ///
 /// The fields represent X, Y, and Z axis respectively.
 #[derive(Default, Debug, PartialEq)]
-pub struct Point(pub FloatSuffix, pub FloatSuffix, pub FloatSuffix);
+pub struct Point(pub Float, pub Float, pub Float);
 
 /// Same as [`Point`] but the fields can be `None`.
 #[derive(Default, Debug, PartialEq)]
-pub struct PartialPoint(
-    pub Option<FloatSuffix>,
-    pub Option<FloatSuffix>,
-    pub Option<FloatSuffix>,
-);
+pub struct PartialPoint(pub Option<Float>, pub Option<Float>, pub Option<Float>);
 
 impl PartialPoint {
     /// Constructs a [`PartialPoint`] by using a *mutable reference* to a **validated** [`Block`].
     ///
     /// Since `block` is validated by [`validate_block`], therefore:
-    /// - All coordinate suffix types will be [`Suffix::Float`].
+    /// - All coordinate suffix types will be [`Float`]s.
     ///
     /// Returns a `PartialPoint` that may have all its fields as `None`.
     fn from_block(block: &mut Block) -> Self {
@@ -124,7 +114,7 @@ pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K**.
     RelativePoint(PartialPoint),
     /// Explicit radius specified with **R**.
-    FixedRadius(FloatSuffix),
+    FixedRadius(Float),
 }
 
 /// Represents a *complete independent code*, that is,
@@ -140,21 +130,21 @@ pub enum Code {
     G(GCode),
     M(MCode),
     /// Change feed rate.
-    F(FloatSuffix),
+    F(Float),
     /// Line number.
-    N(IntSuffix),
+    N(Int),
     /// Program number.
-    O(IntSuffix),
+    O(Int),
     /// Change spindle speed.
-    S(IntSuffix),
+    S(Int),
     /// Preload a tool.
-    T(IntSuffix),
+    T(Int),
 
-    X(FloatSuffix),
+    X(Float),
 
-    Y(FloatSuffix),
+    Y(Float),
 
-    Z(FloatSuffix),
+    Z(Float),
 }
 
 impl Code {
@@ -164,7 +154,7 @@ impl Code {
     /// returning a primitive discriminant of the enumeration inside the variants.
     /// Rest of the variants directly contain their suffixes.
     ///
-    /// Return a [`Suffix`] which will be the same one that was [`tokenize`]d by the [`lexer`].
+    /// Returns a [`Suffix`] which will be the same one that was [`tokenize`]d by the [`lexer`].
     pub fn suffix(&self) -> Suffix {
         match self {
             Self::G(gcode) => Suffix::Int(gcode.suffix()),
@@ -206,7 +196,7 @@ pub enum GCode {
     /// Linear Interpolate to new coordinates using provided feed rate.
     FeedMove {
         p_point: PartialPoint,
-        f: Option<f64>,
+        f: Option<Float>,
     } = 1,
 
     /// G02
@@ -214,7 +204,7 @@ pub enum GCode {
     CWArcMove {
         p_point: PartialPoint,
         method: CircleMethod,
-        f: Option<f64>,
+        f: Option<Float>,
     } = 2,
 
     /// G03
@@ -222,12 +212,12 @@ pub enum GCode {
     CCWArcMove {
         p_point: PartialPoint,
         method: CircleMethod,
-        f: Option<f64>,
+        f: Option<Float>,
     } = 3,
 
     /// G04
     /// Dwell (sec) blocking further code execution.
-    Dwell(f64) = 4,
+    Dwell(Float) = 4,
 
     /// G17
     /// Select plane parallel to X and Y axes (**default for mills**).
@@ -255,19 +245,19 @@ pub enum GCode {
 
     /// G41
     /// 2D left cutter compensation.
-    LeftCutterComp(u32) = 41,
+    LeftCutterComp(Int) = 41,
 
     /// G42
     /// 2D right cutter compensation.
-    RightCutterComp(u32) = 42,
+    RightCutterComp(Int) = 42,
 
     /// G43
     /// Tool length compensation by addition.
-    ToolLenCompAdd(u32) = 43,
+    ToolLenCompAdd(Int) = 43,
 
     /// G44
     /// Tool length compensation by subtraction.
-    ToolLenCompSubtract(u32) = 44,
+    ToolLenCompSubtract(Int) = 44,
 
     /// G49
     /// Cancel tool length compensation (G43, G44).
@@ -320,7 +310,7 @@ impl GCode {
     /// # SAFETY
     /// It is certain that [`GCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> usize {
+    pub fn suffix(&self) -> Int {
         unsafe { *(self as *const Self as *const usize) }
     }
 
@@ -338,7 +328,7 @@ impl GCode {
     /// If the suffix is not found in `GCODES` array,
     /// then the [`GCode`] creation must not have been possible in the first place.
     /// This would indicate a major logic error.
-    pub fn group(&self) -> u8 {
+    pub fn group(&self) -> Group {
         let suffix = self.suffix();
 
         for gcode in GCODES {
@@ -355,8 +345,8 @@ impl GCode {
     ///
     /// **Only [`GCode`]s are grouped codes.**
     ///
-    /// Returns the `u8` group on success or [`ParserError::InvalidGCode`] on failure.
-    fn group_from_suffix(suffix: usize) -> Result<u8, ParserError> {
+    /// Returns the [`Group`] on success or [`ParserError::InvalidGCode`] on failure.
+    fn group_from_suffix(suffix: Int) -> Result<Group, ParserError> {
         for gcode in GCODES {
             if gcode.0 == suffix {
                 return Ok(gcode.1);
@@ -367,19 +357,19 @@ impl GCode {
     }
 
     /// Specifically for parsing 'G' prefix codes.
-    /// Assumes [`validate_block`] has been called, and therefore:
+    ///
+    /// Accepts the [`Int`] *suffix* of the 'G' prefix code to parse and
+    /// a *mutable reference to the [`Block`]* that contains the said [`GCode`].
+    /// Since the function accepts a [`Block`], therefore:
     /// - No duplicate tokens are present.
-    /// - The suffix types are as expected ([`Suffix::Int`] for GCodes).
+    /// - The suffix types are as expected ([`Int`] for GCodes).
     /// - All int suffixes represent a valid [`GCode`].
     ///
-    /// Accepts the *suffix* of the 'G' prefix code and a *mutable reference to a vector of
-    /// [`Token`]s* that were found with the said [`GCode`].
+    /// Returns a [`GCode`] with all the specific fields filled from `block`
+    /// values on success, and [`ParserError`] on failure.
     ///
-    /// Returns a [`GCode`] with all the specific fields filled from token values on success, and
-    /// [`ParserError`] on failure.
-    ///
-    /// The tokens used in parsing the GCode **will be consumed and removed** from the `tokens`
-    /// vector.
+    /// The values used in parsing the GCode **will be removed** from `block.int_codes` or
+    /// `block.float_codes` as required.
     ///
     /// # Errors
     /// - [`ParserError::InvalidGCode`] -- The code suffix is unknown.
@@ -387,42 +377,32 @@ impl GCode {
     /// invalid.
     /// - [`ParserError::MissingCodeForGCode`] -- The variant of GCode needs another token for
     /// parsing, that is not present in the block.
-    pub fn parse_from_suffix(suffix: usize, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
-        // parsing can be done with two points in mind:
-        // - no duplicate tokens at all.
-        // - the suffix types will be as expected.
+    fn parse_from_suffix(suffix: Int, block: &mut Block) -> Result<Self, ParserError> {
         match suffix {
             0 => {
-                let p_point = PartialPoint::from_tokens(tokens);
+                let p_point = PartialPoint::from_block(block);
 
                 Ok(Self::RapidMove(p_point)) // all fields may be None
             }
 
             1 => {
-                let p_point = PartialPoint::from_tokens(tokens);
-                let f = get_feed(tokens);
+                let p_point = PartialPoint::from_block(block);
+                let f = block.get_feed();
 
                 Ok(Self::FeedMove { p_point, f })
             }
 
             2 | 3 => {
-                let p_point = PartialPoint::from_tokens(tokens);
-                let f = get_feed(tokens);
+                let p_point = PartialPoint::from_block(block);
+                let f = block.get_feed();
 
-                // branch based on if 'R' token exists or not
-                let method = if let Some(pos) = tokens.iter().position(|token| token.prefix == b'R')
-                {
-                    CircleMethod::FixedRadius(
-                        tokens
-                            .remove(pos)
-                            .suffix
-                            .float()
-                            .expect("R must be suffixed by a float."),
-                    )
+                // branch based on if 'R' prefix exists or not
+                let method = if let Some(r) = block.float_codes.remove(&b'R') {
+                    CircleMethod::FixedRadius(r)
                 } else {
-                    CircleMethod::RelativePoint(PartialPoint::custom_from_tokens(
+                    CircleMethod::RelativePoint(PartialPoint::custom_from_block(
                         (b'I', b'J', b'K'),
-                        tokens,
+                        block,
                     ))
                 };
 
@@ -448,25 +428,11 @@ impl GCode {
 
             4 => {
                 // P can be used for milliseconds
-                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'P') {
-                    let p = tokens
-                        .remove(pos)
-                        .suffix
-                        .int()
-                        .expect("P must be suffixed with an int.")
-                        as f64;
-
-                    Ok(Self::Dwell(p / 1000 as f64))
-                }
-                // X can be used for seconds
-                else if let Some(pos) = tokens.iter().position(|token| token.prefix == b'X') {
-                    Ok(Self::Dwell(
-                        tokens
-                            .remove(pos)
-                            .suffix
-                            .float()
-                            .expect("X must be suffixed with a float."),
-                    ))
+                if let Some(p) = block.int_codes.remove(&b'P') {
+                    Ok(Self::Dwell((p as f64) / 1000.0))
+                } else if let Some(x) = block.float_codes.remove(&b'X') {
+                    // X can be used for seconds
+                    Ok(Self::Dwell(x))
                 } else {
                     Err(ParserError::MissingCodeForGCode(b'P'))
                 }
@@ -485,25 +451,11 @@ impl GCode {
             40 => Ok(Self::CancelCutterComp),
 
             41 | 42 => {
-                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'D') {
+                if let Some(d) = block.int_codes.remove(&b'D') {
                     if suffix == 41 {
-                        Ok(Self::LeftCutterComp(
-                            tokens
-                                .remove(pos)
-                                .suffix
-                                .int()
-                                .expect("D must be suffixed with an int.")
-                                as u32,
-                        ))
+                        Ok(Self::LeftCutterComp(d))
                     } else {
-                        Ok(Self::RightCutterComp(
-                            tokens
-                                .remove(pos)
-                                .suffix
-                                .int()
-                                .expect("D must be suffixed with an int.")
-                                as u32,
-                        ))
+                        Ok(Self::RightCutterComp(d))
                     }
                 } else {
                     Err(ParserError::MissingCodeForGCode(b'D'))
@@ -511,25 +463,11 @@ impl GCode {
             }
 
             43 | 44 => {
-                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'H') {
+                if let Some(h) = block.int_codes.remove(&b'H') {
                     if suffix == 43 {
-                        Ok(Self::ToolLenCompAdd(
-                            tokens
-                                .remove(pos)
-                                .suffix
-                                .int()
-                                .expect("H must be suffixed with an int.")
-                                as u32,
-                        ))
+                        Ok(Self::ToolLenCompAdd(h))
                     } else {
-                        Ok(Self::ToolLenCompSubtract(
-                            tokens
-                                .remove(pos)
-                                .suffix
-                                .int()
-                                .expect("H must be suffixed with an int.")
-                                as u32,
-                        ))
+                        Ok(Self::ToolLenCompSubtract(h))
                     }
                 } else {
                     Err(ParserError::MissingCodeForGCode(b'H'))
@@ -539,7 +477,7 @@ impl GCode {
             49 => Ok(Self::CancelLenComp),
 
             53 => {
-                let p_point = PartialPoint::from_tokens(tokens);
+                let p_point = PartialPoint::from_block(block);
 
                 if p_point.is_none() {
                     // need atleast one axis to move
@@ -588,11 +526,11 @@ pub enum MCode {
 
     /// M03
     /// Spindle forward.
-    SpindleFwd(Option<u32>) = 3,
+    SpindleFwd(Option<Int>) = 3,
 
     /// M04
     /// Spindle reverse.
-    SpindleRev(Option<u32>) = 4,
+    SpindleRev(Option<Int>) = 4,
 
     /// M05
     /// Spindle stop.
@@ -600,7 +538,7 @@ pub enum MCode {
 
     /// M06
     /// Tool change.
-    ToolChange(Option<u8>) = 6,
+    ToolChange(Option<Int>) = 6,
 
     /// M08
     /// Coolant on.
@@ -625,40 +563,35 @@ impl MCode {
     /// # SAFETY
     /// It is certain that [`MCode`] enum specifies a primitive representation,
     /// therefore the discriminant may be accessed via *unsafe pointer casting*.
-    pub fn suffix(&self) -> usize {
+    pub fn suffix(&self) -> Int {
         unsafe { *(self as *const Self as *const usize) }
     }
 
     /// Specifically for parsing 'M' prefix codes.
-    /// Assumes [`validate_block`] has been called, and therefore:
+    ///
+    /// Accepts the [`Int`] *suffix* of the 'M' prefix code to parse and
+    /// a *mutable reference to the [`Block`]* that contains the said [`MCode`].
+    /// Since the function accepts a [`Block`], therefore:
     /// - No duplicate tokens are present.
-    /// - The suffix types are as expected ([`Suffix::Int`] for MCodes).
+    /// - The suffix types are as expected ([`Int`] for MCodes).
     /// - All int suffixes represent a valid [`MCode`].
     ///
-    /// Accepts the *suffix* of the 'M' prefix code and a *mutable reference to a vector of
-    /// [`Token`]s* that were found with the said [`MCode`].
+    /// Returns a [`MCode`] with all the specific fields filled from `block`
+    /// values on success, and [`ParserError`] on failure.
     ///
-    /// Returns a [`MCode`] with all the specific fields filled from token values on success, and
-    /// [`ParserError`] on failure.
-    ///
-    /// The tokens used in parsing the MCode **will be consumed and removed** from the `tokens`
-    /// vector.
+    /// The values used in parsing the MCode **will be removed** from `block.int_codes` or
+    /// `block.float_codes` as required.
     ///
     /// # Errors
     /// - [`ParserError::InvalidMCode`] -- The code suffix is unknown.
-    pub fn parse_from_suffix(suffix: usize, tokens: &mut Vec<Token>) -> Result<Self, ParserError> {
+    pub fn parse_from_suffix(suffix: Int, block: &mut Block) -> Result<Self, ParserError> {
         match suffix {
             0 => Ok(Self::Stop),
 
             1 => Ok(Self::OptionalStop),
 
             3 | 4 => {
-                let speed = if let Some(pos) = tokens.iter().position(|token| token.prefix == b'S')
-                {
-                    tokens.remove(pos).suffix.int().map(|s| s as u32)
-                } else {
-                    None
-                };
+                let speed = block.int_codes.remove(&b'S');
 
                 if suffix == 3 {
                     Ok(Self::SpindleFwd(speed))
@@ -669,13 +602,7 @@ impl MCode {
 
             5 => Ok(Self::SpindleStop),
 
-            6 => Ok(Self::ToolChange(
-                if let Some(pos) = tokens.iter().position(|token| token.prefix == b'T') {
-                    tokens.remove(pos).suffix.int().map(|s| s as u8)
-                } else {
-                    None
-                },
-            )),
+            6 => Ok(Self::ToolChange(block.int_codes.remove(&b'T'))),
 
             8 => Ok(Self::CoolantOn),
 
@@ -692,27 +619,27 @@ impl MCode {
 #[derive(PartialEq)]
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
-    WrongSuffixType(u8),
+    WrongSuffixType(Prefix),
     /// The code prefix provided is invalid/unimplemented
-    UnknownPrefix(u8),
+    UnknownPrefix(Prefix),
     /// Same G-code found atleast twice.
-    DuplicateGCode(usize),
+    DuplicateGCode(Int),
     /// Prefix and suffix make an invalid G-code.
-    InvalidGCode(usize),
+    InvalidGCode(Int),
     /// G-codes detected from the same group.
-    DuplicateGCodeGroup(u8),
+    DuplicateGCodeGroup(Group),
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
-    DuplicatePrefix(u8),
+    DuplicatePrefix(Prefix),
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
-    InvalidParamForGCode(usize),
+    InvalidParamForGCode(Int),
     /// Missing token required for a GCode variant.
-    MissingCodeForGCode(u8),
+    MissingCodeForGCode(Prefix),
     /// Prefix and suffix make an invalid M-code.
-    InvalidMCode(usize),
+    InvalidMCode(Int),
     /// Missing token required for a MCode variant.
-    MissingCodeForMCode(u8),
+    MissingCodeForMCode(Prefix),
 }
 
 impl Debug for ParserError {
@@ -771,22 +698,27 @@ impl Debug for ParserError {
 /// - Unique 'G' prefix codes.
 /// - Unique groups for multiple 'G' prefix codes.
 /// - Valid suffix type for each prefix.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Block {
     /// A vector containing all the valid suffixes found with prefix as 'G'.
-    gcodes: Vec<usize>,
+    gcodes: Vec<Int>,
+
     /// An option with its `Some` variant containing the valid suffix found with
     /// prefix as 'M'. Is an `Option` since [`MCode`] is optional and only be one in a `Block`.
-    mcode: Option<usize>,
-    /// A vector of **validated** [`Token`]s containing all codes found,
-    /// except for the ones prefixed with 'G' & 'M'.
-    rest: Vec<Token>,
+    mcode: Option<Int>,
 
     /// A hash map of **validated** prefixes and `usize` suffixes.
-    int_codes: HashMap<u8, usize>,
+    int_codes: HashMap<Prefix, Int>,
 
     /// A hash map of **validated** prefixes and `float` suffixes.
-    float_codes: HashMap<u8, f64>,
+    float_codes: HashMap<Prefix, Float>,
+}
+
+impl Block {
+    /// Removes 'F' key, and *optionally* returns its *float* value.
+    fn get_feed(&mut self) -> Option<Float> {
+        self.float_codes.remove(&b'F')
+    }
 }
 
 /// This function is responsible for performing all the validations on a sequence of [`Token`]s,
@@ -811,11 +743,11 @@ struct Block {
 /// - [`ParserError::InvalidMCode`] -- The suffix of 'M' prefix token is not valid or supported.
 fn validate_block(mut tokens: Vec<Token>) -> Result<Block, ParserError> {
     let mut g_suffix_found = Vec::new(); // unique gcode suffixes found
-    let mut m_suffix_found: Option<usize> = None; // mcode suffix, if found
+    let mut m_suffix_found = None; // mcode suffix, if found
     let mut groups_found = Vec::new(); // groups of all gcodes found
     let mut prefix_found = Vec::new(); // unique token prefixes from the block
-    let mut int_codes_found: HashMap<u8, usize> = HashMap::new();
-    let mut float_codes_found: HashMap<u8, f64> = HashMap::new();
+    let mut int_codes_found: HashMap<Prefix, Int> = HashMap::new();
+    let mut float_codes_found: HashMap<Prefix, Float> = HashMap::new();
 
     for token in &tokens {
         // check suffix type based on the prefix, only for KNOWN/SUPPORTED prefixes
@@ -902,7 +834,6 @@ fn validate_block(mut tokens: Vec<Token>) -> Result<Block, ParserError> {
     Ok(Block {
         gcodes: g_suffix_found,
         mcode: m_suffix_found,
-        rest: tokens,
         int_codes: int_codes_found,
         float_codes: float_codes_found,
     })
@@ -924,15 +855,13 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
         return Ok(codes);
     }
 
-    println!("\n\n{tokens:?}");
-
     let mut block = validate_block(tokens)?;
-
-    println!("{block:?}\n\n");
+    let gcodes = block.gcodes.clone();
+    let mcode = block.mcode.clone();
 
     // parse g prefix codes
-    for suffix in block.gcodes {
-        match GCode::parse_from_suffix(suffix, &mut block.rest) {
+    for suffix in gcodes {
+        match GCode::parse_from_suffix(suffix, &mut block) {
             Ok(gcode) => codes.push(Code::G(gcode)),
             Err(ParserError::InvalidGCode(_)) => {
                 panic!("Invalid GCode must be dealt with in validate_block().")
@@ -942,8 +871,8 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
     }
 
     // parse m prefix code, if available
-    if let Some(suffix) = block.mcode {
-        match MCode::parse_from_suffix(suffix, &mut block.rest) {
+    if let Some(suffix) = mcode {
+        match MCode::parse_from_suffix(suffix, &mut block) {
             Ok(mcode) => codes.push(Code::M(mcode)),
             Err(ParserError::InvalidMCode(_)) => {
                 panic!("Invalid MCode must be dealt with in validate_block().")
@@ -953,17 +882,6 @@ pub fn parse(tokens: Vec<Token>) -> Result<Vec<Code>, ParserError> {
     }
 
     Ok(codes)
-}
-
-// ## Parser helper:
-
-/// Removes 'F' prefix token, and *optionally* returns its *float* suffix.
-fn get_feed(tokens: &mut Vec<Token>) -> Option<f64> {
-    if let Some(pos) = tokens.iter().position(|token| token.prefix == b'F') {
-        tokens.remove(pos).suffix.float()
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -1063,10 +981,11 @@ mod tests {
     // Test that all codes inside GCODES array parse.
     // also tests the group() and suffix() methods as well.
     fn parse_valid_gcodes() {
-        for (suffix, group) in GCODES {
-            let mut tokens = tokenize("X0. I0. D1 H1").unwrap();
+        let tokens = tokenize("X0. I0. D1 H1").unwrap();
+        let block = validate_block(tokens).unwrap();
 
-            let gcode = GCode::parse_from_suffix(*suffix, &mut tokens)
+        for (suffix, group) in GCODES {
+            let gcode = GCode::parse_from_suffix(*suffix, &mut block.clone())
                 .expect("Every suffix must generate a valid GCode variant.");
 
             // test suffix method
@@ -1302,10 +1221,11 @@ mod tests {
     #[test]
     // Test that all codes inside MCODES array parse.
     fn parse_valid_mcodes() {
-        for suffix in MCODES {
-            let mut tokens = tokenize("").unwrap();
+        let tokens = tokenize("").unwrap();
+        let block = validate_block(tokens).unwrap();
 
-            let gcode = MCode::parse_from_suffix(*suffix, &mut tokens)
+        for suffix in MCODES {
+            let gcode = MCode::parse_from_suffix(*suffix, &mut block.clone())
                 .expect("Every suffix must generate a valid MCode variant.");
 
             // test suffix method
