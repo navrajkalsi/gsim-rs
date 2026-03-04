@@ -5,6 +5,8 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
+use super::*;
+
 /// A token represents a single **G-code field**.
 ///
 /// A field begins with a single alphabet (*the prefix*),
@@ -19,7 +21,7 @@
 #[derive(PartialEq, Debug)]
 pub struct Token {
     /// 'G' in G01
-    pub prefix: u8,
+    pub prefix: Prefix,
     /// '1.2345' in X1.2345
     pub suffix: Suffix,
 }
@@ -29,13 +31,13 @@ pub struct Token {
 /// A G-code field can contain an integer or a floating point.
 #[derive(PartialEq, Debug)]
 pub enum Suffix {
-    Int(usize),
-    Float(f64),
+    Int(Int),
+    Float(Float),
 }
 
 impl Suffix {
     /// Tries to *optionally* return the value inside of the [`Suffix::Int`] variant.
-    pub fn int(&self) -> Option<usize> {
+    pub fn int(&self) -> Option<Int> {
         match self {
             Suffix::Int(i) => Some(*i),
             Suffix::Float(_) => None,
@@ -43,7 +45,7 @@ impl Suffix {
     }
 
     /// Tries to *optionally* return the value inside of the [`Suffix::Float`] variant.
-    pub fn float(&self) -> Option<f64> {
+    pub fn float(&self) -> Option<Float> {
         match self {
             Suffix::Int(_) => None,
             Suffix::Float(f) => Some(*f),
@@ -206,14 +208,14 @@ fn parse_suffix(suffix_str: Option<String>) -> Result<Suffix, LexerError> {
 
     // parse as float
     if suffix_str.contains('.') {
-        return match suffix_str.parse::<f64>() {
+        return match suffix_str.parse::<Float>() {
             Ok(s) => Ok(Suffix::Float(s)),
             Err(_) => Err(LexerError::ParseSuffix),
         };
     }
 
     // try to parse as int
-    match suffix_str.parse::<usize>() {
+    match suffix_str.parse::<Int>() {
         Ok(s) => Ok(Suffix::Int(s)),
         Err(_) => Err(LexerError::ParseSuffix),
     }
