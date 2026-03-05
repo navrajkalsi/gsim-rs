@@ -5,8 +5,6 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
-#![allow(unused)]
-
 use super::{lexer::*, *};
 use std::{cmp::PartialEq, collections::HashMap, fmt::Debug};
 
@@ -69,13 +67,58 @@ const FLOATCODES: &[Prefix] = b"FIJKQRXYZ";
 ///
 /// The fields represent X, Y, and Z axis respectively.
 #[derive(Default, Debug, PartialEq)]
-pub struct Point(pub Float, pub Float, pub Float);
+pub struct Point(Float, Float, Float);
+
+impl Point {
+    /// Constructor for a [`Point`].
+    ///
+    /// The fields represent X, Y, and Z axis respectively and are necessary.
+    pub fn new(x: Float, y: Float, z: Float) -> Self {
+        Point(x, y, z)
+    }
+
+    /// Returns a tuple of [`Float`] values for each axis.
+    pub fn get(&self) -> (Float, Float, Float) {
+        (self.0, self.1, self.2)
+    }
+
+    /// Set every axis.
+    pub fn set(&mut self, x: Float, y: Float, z: Float) {
+        self.0 = x;
+        self.1 = y;
+        self.2 = z;
+    }
+
+    pub fn set_x(&mut self, x: Float) {
+        self.0 = x;
+    }
+
+    pub fn set_y(&mut self, y: Float) {
+        self.1 = y;
+    }
+
+    pub fn set_z(&mut self, z: Float) {
+        self.2 = z;
+    }
+
+    /// Returns a tuple of ratios of all 3 axes of self: (`x`:`y`, `x`:`z`, `y`:`z`)
+    pub fn ratio(&self) -> (Float, Float, Float) {
+        (self.0 / self.1, self.0 / self.2, self.1 / self.2)
+    }
+}
 
 /// Same as [`Point`] but the fields can be `None`.
 #[derive(Default, Debug, PartialEq)]
-pub struct PartialPoint(pub Option<Float>, pub Option<Float>, pub Option<Float>);
+pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
 
 impl PartialPoint {
+    /// Constructs a [`PartialPoint`] using [`Option<Float>`] for each axis.
+    ///
+    /// The fields represent X, Y, and Z axis respectively and are required.
+    pub fn new((x, y, z): (Option<Float>, Option<Float>, Option<Float>)) -> Self {
+        PartialPoint(x, y, z)
+    }
+
     /// Constructs a [`PartialPoint`] by using a *mutable reference* to a **validated** [`Block`].
     ///
     /// Since `block` is validated by [`validate_block`], therefore:

@@ -1,8 +1,8 @@
-// #![warn(missing_docs)]
 use std::fs;
 
 use crate::parser::{lexer::tokenize, parser::parse};
 
+mod machine;
 mod parser;
 
 fn main() {
