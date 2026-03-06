@@ -8,21 +8,21 @@
 use crate::parser::{Float, Int, parser::*};
 use std::fmt::Debug;
 
+/// Starting point of a machine.
+const HOME_POS: Point = Point::new(0.0, 0.0, 0.0);
+
 /// Maximum and Minimum values supported for [`Machine::max_travels`] for this module.
-/// These values will be treated in [`Unit::default`] system.
-const MAX_TRAVELS: (Float, Float, Float) = (1500.0, 1000.0, 1000.0);
-const MIN_TRAVELS: (Float, Float, Float) = (150.0, 100.0, 100.0);
+/// The fields of these [`Point`]s will be treated in [`Unit::default`] system.
+const MAX_TRAVELS: Point = Point::new(1500.0, 1000.0, 1000.0);
+const MIN_TRAVELS: Point = Point::new(150.0, 100.0, 100.0);
+
 /// Ratio to maintain between axes lengths.
-const MAX_RATIO: (Float, Float, Float) = (
-    (MAX_TRAVELS.0 / MAX_TRAVELS.1) + 1.0,
-    (MAX_TRAVELS.0 / MAX_TRAVELS.2) + 1.0,
-    (MAX_TRAVELS.1 / MAX_TRAVELS.2) + 1.0,
-);
-const MIN_RATIO: (Float, Float, Float) = (
-    (MAX_TRAVELS.0 / MAX_TRAVELS.1) - 0.5,
-    (MAX_TRAVELS.0 / MAX_TRAVELS.2) - 0.5,
-    (MAX_TRAVELS.1 / MAX_TRAVELS.2) - 0.5,
-);
+/// The order of specific axes is as follows:
+/// - X : Y
+/// - X : Z
+/// - Y : Z
+const MAX_RATIO: Point = Point::new(2.0, 2.0, 1.5);
+const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
 
 /// Possible unit standards for measurable values.
 #[derive(Default, Debug)]
@@ -60,7 +60,7 @@ pub struct Machine {
     code_units: Unit,
 
     /// **Positive extreme values** for each linear axis.
-    /// The other extreme would naturally be **Zero**.
+    /// The other extreme would naturally be `HOME_POS`.
     /// The values in this struct will be assumed to be in [`units`](Self::units).
     max_travels: Point,
 
@@ -96,6 +96,9 @@ pub struct Machine {
 
     /// Selected offset for tool height with a `H` code.
     height_offset: Option<Int>,
+
+    /// Current error for machine.
+    alarm: Option<MachineError>,
 }
 
 impl Machine {
@@ -112,16 +115,18 @@ impl Machine {
     /// At least one axis is longer than what the constructor supports.
     /// - [`MachineError::TravelsTooShort`] --
     /// At least one axis is shorter than what the constructor supports.
+    /// - [`MachineError::WrongRatio`] --
+    /// At least two axes have weird values.
     pub fn build(max_travels: Point) -> Result<Self, MachineError> {
         let ratio = max_travels.ratio();
 
-        if max_travels.get() < (0.0, 0.0, 0.0) {
+        if max_travels.any_negative() {
             Err(MachineError::NegativeTravels)
-        } else if max_travels.get() > MAX_TRAVELS {
+        } else if max_travels.over(&MAX_TRAVELS) {
             Err(MachineError::TravelsTooLong)
-        } else if max_travels.get() < MIN_TRAVELS {
+        } else if max_travels.under(&MIN_TRAVELS) {
             Err(MachineError::TravelsTooShort)
-        } else if ratio > MAX_RATIO || ratio < MIN_RATIO {
+        } else if ratio.over(&MAX_RATIO) || ratio.under(&MIN_RATIO) {
             Err(MachineError::WrongRatio)
         } else {
             Ok(Machine {
@@ -140,7 +145,46 @@ impl Machine {
                 positioning: Positioning::default(),
                 dia_offset: None,
                 height_offset: None,
+                alarm: None,
             })
+        }
+    }
+
+    /// Returns the standard [`Unit`] in which [`Code`] values will be interpreted.
+    pub fn code_units(&self) -> &Unit {
+        &self.code_units
+    }
+
+    /// Interpret [`Code`] values in a new [`Unit`] standard.
+    pub fn set_code_units(&mut self, code_units: Unit) {
+        self.code_units = code_units;
+    }
+
+    /// Returns `G54` work coordinate system.
+    pub fn work_offset(&self) -> &Point {
+        &self.work_offset
+    }
+
+    /// Set `G54` work coordinate system.
+    /// This is not verified to be inside the machine travels.
+    pub fn set_work_offset(&mut self, work_offset: Point) {
+        self.work_offset = work_offset;
+    }
+
+    /// Returns the current position of the machine.
+    pub fn pos(&self) -> &Point {
+        &self.pos
+    }
+
+    /// Set the current absolute machine position for all axes.
+    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels`.
+    pub fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
+        if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
+            self.alarm = Some(MachineError::Overtravel);
+            Err(MachineError::Overtravel)
+        } else {
+            self.pos = pos;
+            Ok(())
         }
     }
 }
@@ -154,6 +198,7 @@ pub enum MachineError {
     TravelsTooShort,
     /// The resulting machine would be an odd shape
     WrongRatio,
+    Overtravel,
 }
 
 impl Debug for MachineError {
@@ -174,6 +219,8 @@ impl Debug for MachineError {
                 Self::WrongRatio => format!(
                     "The resultant machine would have a particular axis too long or too short.\nPlease reconsider axis lengths."
                 ),
+                Self::Overtravel => format!("
+                    Overtravel:\nAt least one axis of the machine overtravels because of the last move.")
             }
         )
     }
@@ -186,7 +233,7 @@ mod tests {
     #[test]
     fn construct_neg_travels() {
         assert_eq!(
-            Machine::build(Point::new(-100.0, 500.0, 500.0)).unwrap_err(),
+            Machine::build(Point::new(150.0, -500.0, 500.0)).unwrap_err(),
             MachineError::NegativeTravels
         );
     }
@@ -202,7 +249,7 @@ mod tests {
     #[test]
     fn construct_short_travels() {
         assert_eq!(
-            Machine::build(Point::new(100.0, 1000.0, 1000.0)).unwrap_err(),
+            Machine::build(Point::new(100.0, 75.0, 75.0)).unwrap_err(),
             MachineError::TravelsTooShort
         );
     }
@@ -213,5 +260,11 @@ mod tests {
             Machine::build(Point::new(1500.0, 100.0, 100.0)).unwrap_err(),
             MachineError::WrongRatio
         );
+    }
+
+    #[test]
+    // Must pass
+    fn construct_good() {
+        assert!(Machine::build(Point::new(1000.0, 750.0, 500.0)).is_ok());
     }
 }

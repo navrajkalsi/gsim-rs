@@ -66,14 +66,14 @@ const FLOATCODES: &[Prefix] = b"FIJKQRXYZ";
 /// A *tuple struct* that represents a **3D Point** in space.
 ///
 /// The fields represent X, Y, and Z axis respectively.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct Point(Float, Float, Float);
 
 impl Point {
     /// Constructor for a [`Point`].
     ///
     /// The fields represent X, Y, and Z axis respectively and are necessary.
-    pub fn new(x: Float, y: Float, z: Float) -> Self {
+    pub const fn new(x: Float, y: Float, z: Float) -> Self {
         Point(x, y, z)
     }
 
@@ -89,21 +89,44 @@ impl Point {
         self.2 = z;
     }
 
-    pub fn set_x(&mut self, x: Float) {
-        self.0 = x;
+    /// Optionally set one or multiple axes.
+    /// `None` arguments will retain the older value.
+    pub fn set_optional(&mut self, x: Option<Float>, y: Option<Float>, z: Option<Float>) {
+        self.0 = x.unwrap_or(self.0);
+        self.1 = y.unwrap_or(self.1);
+        self.2 = z.unwrap_or(self.2);
     }
 
-    pub fn set_y(&mut self, y: Float) {
-        self.1 = y;
+    /// Same as [`Self::set_optional`], but requires a [`PartialPoint`] rather than `Option<Float>`
+    /// for each axis.
+    pub fn set_partial(&mut self, pos: PartialPoint) {
+        self.set_optional(pos.0, pos.1, pos.2);
     }
 
-    pub fn set_z(&mut self, z: Float) {
-        self.2 = z;
+    /// Checks if any axis of `self` is negative or not.
+    pub fn any_negative(&self) -> bool {
+        self.0 < 0.0 || self.1 < 0.0 || self.2 < 0.0
     }
 
-    /// Returns a tuple of ratios of all 3 axes of self: (`x`:`y`, `x`:`z`, `y`:`z`)
-    pub fn ratio(&self) -> (Float, Float, Float) {
-        (self.0 / self.1, self.0 / self.2, self.1 / self.2)
+    /// Returns a new [`Point`] of ratios for all 3 axes of `self`: (`x`:`y`, `x`:`z`, `y`:`z`)
+    pub const fn ratio(&self) -> Self {
+        Self::new(self.0 / self.1, self.0 / self.2, self.1 / self.2)
+    }
+
+    /// Compare each axis of `self` with another [`Point`].
+    ///
+    /// Returns `false` if all fields of `self` are less than corresponding fields of `other`,
+    /// otherwise returns `true` which means at least one field of `self` exceeds that of `other`.
+    pub fn over(&self, other: &Self) -> bool {
+        self.0 > other.0 || self.1 > other.1 || self.2 > other.2
+    }
+
+    /// Compare each axis of `self` with another [`Point`].
+    ///
+    /// Returns `false` if all fields of `self` are greater than corresponding fields of `other`,
+    /// otherwise returns `true` which means at least one field of `other` exceeds that of `self`.
+    pub fn under(&self, other: &Self) -> bool {
+        self.0 < other.0 || self.1 < other.1 || self.2 < other.2
     }
 }
 
