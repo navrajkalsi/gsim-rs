@@ -6,7 +6,11 @@
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use super::{lexer::*, *};
-use std::{cmp::PartialEq, collections::HashMap, fmt::Debug};
+use std::{
+    cmp::PartialEq,
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
 
 // ALL THE CONST ARRAYS ARE TESTED AT THE END TO PARSE CORRECTLY.
 
@@ -721,7 +725,7 @@ impl MCode {
 }
 
 /// Possible errors that can happen during parsing.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
     WrongSuffixType(Prefix),
@@ -749,17 +753,20 @@ pub enum ParserError {
     UnexpectedPrefix(Prefix),
 }
 
-impl Debug for ParserError {
+impl Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "{}",
             match self {
-                Self::WrongSuffixType(prefix) =>
-                    format!("Wrong Suffix Type detected for prefix code: '{prefix}'"),
+                Self::WrongSuffixType(prefix) => format!(
+                    "Wrong Suffix Type detected for prefix: '{}'",
+                    *prefix as char
+                ),
 
                 Self::UnknownPrefix(prefix) => format!(
-                    "Unsupported Prefix Detected:\nPrefix '{prefix}' is not supported by this parser."
+                    "Unsupported Prefix Detected:\nPrefix '{}' is not supported by this parser.",
+                    *prefix as char
                 ),
 
                 Self::DuplicateGCode(suffix) => format!(
@@ -775,7 +782,8 @@ impl Debug for ParserError {
                 ),
 
                 Self::DuplicatePrefix(prefix) => format!(
-                    "Duplicate Prefix Detected:\nThe following prefix code appears more than once: '{prefix}'"
+                    "Duplicate Prefix Detected:\nThe following prefix code appears more than once: '{}'",
+                    *prefix as char
                 ),
 
                 Self::InvalidParamForGCode(suffix) => format!(
@@ -783,7 +791,8 @@ impl Debug for ParserError {
                 ),
 
                 Self::MissingCodeForGCode(prefix) => format!(
-                    "Required Code not found for G-Code:\nThe following prefix code was not found: '{prefix}'"
+                    "Required Code not found for G-Code:\nThe following prefix code was not found: '{}'",
+                    *prefix as char
                 ),
 
                 Self::InvalidMCode(suffix) => format!(
@@ -791,11 +800,13 @@ impl Debug for ParserError {
                 ),
 
                 Self::MissingCodeForMCode(prefix) => format!(
-                    "Required Code not found for M-Code:\nThe following prefix code was not found: '{prefix}'"
+                    "Required Code not found for M-Code:\nThe following prefix code was not found: '{}'",
+                    *prefix as char
                 ),
 
                 Self::UnexpectedPrefix(prefix) => format!(
-                    "Unexpected Prefix Detected:\nThe following prefix was not consumed by the parser, but cannot be parsed on its own: {prefix}"
+                    "Unexpected Prefix Detected:\nThe following prefix was not consumed by the parser, but cannot be parsed on its own: '{}'",
+                    *prefix as char
                 ),
             }
         )

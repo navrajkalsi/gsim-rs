@@ -1,29 +1,21 @@
-use std::fs;
-
-use crate::parser::{lexer::tokenize, parser::parse};
+use crate::{interpreter::Interpreter, machine::Machine, parser::parser::Point};
 
 mod interpreter;
 mod machine;
 mod parser;
 
 fn main() {
-    let contents = fs::read_to_string("program.nc").unwrap();
+    let m = match Machine::build(Point::new(1000.0, 500.0, 500.0)) {
+        Ok(m) => m,
+        Err(e) => panic!("{e}"),
+    };
 
-    for line in contents.lines() {
-        let line = line.trim().trim_end_matches(';');
+    let mut i = match Interpreter::build(m, "gcode.nc") {
+        Ok(i) => i,
+        Err(e) => panic!("{e}"),
+    };
 
-        println!("\nParsing: {line}");
-
-        match tokenize(line) {
-            Ok(vector) => {
-                println!("Tokens Ok: {vector:?}");
-
-                match parse(vector) {
-                    Ok(codes) => println!("Codes Ok: {codes:?}"),
-                    Err(e) => println!("Codes Error: {e:?}"),
-                }
-            }
-            Err(e) => println!("Tokens Error: {e:?}"),
-        }
+    if let Err(e) = i.run() {
+        println!("{e}");
     }
 }
