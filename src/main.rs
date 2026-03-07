@@ -2,6 +2,7 @@ use std::fs;
 
 use crate::parser::{lexer::tokenize, parser::parse};
 
+mod interpreter;
 mod machine;
 mod parser;
 

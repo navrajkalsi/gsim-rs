@@ -8,8 +8,8 @@
 use crate::parser::{Float, Int, parser::*};
 use std::fmt::Debug;
 
-/// Starting point of a machine.
-const HOME_POS: Point = Point::new(0.0, 0.0, 0.0);
+/// Starting point of a machine with all axes at '0'.
+pub const HOME_POS: Point = Point::new(0.0, 0.0, 0.0);
 
 /// Maximum and Minimum values supported for [`Machine::max_travels`] for this module.
 /// The fields of these [`Point`]s will be treated in [`Unit::default`] system.
@@ -26,7 +26,7 @@ const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
 
 /// Possible unit standards for measurable values.
 #[derive(Default, Debug)]
-enum Unit {
+pub enum Unit {
     Imperial,
     #[default]
     Metric,
@@ -34,7 +34,7 @@ enum Unit {
 
 /// Possible planes for a 3-axis machine.
 #[derive(Default, Debug)]
-enum Plane {
+pub enum Plane {
     #[default]
     XY,
     XZ,
@@ -43,7 +43,7 @@ enum Plane {
 
 /// Possible ways to interpret axis commands.
 #[derive(Default, Debug)]
-enum Positioning {
+pub enum Positioning {
     #[default]
     Absolute,
     Incremental,
@@ -96,13 +96,11 @@ pub struct Machine {
 
     /// Selected offset for tool height with a `H` code.
     height_offset: Option<Int>,
-
-    /// Current error for machine.
-    alarm: Option<MachineError>,
 }
 
 impl Machine {
-    /// Constructs a new instance of [`Machine`] using the [`Unit::default`] measuring system.
+    /// Constructs a new instance of [`Machine`] using the [`Unit::default`] measuring system and
+    /// all axes at [`HOME_POS`].
     ///
     /// Accepts a [`Point`] indicating positive extremes of the Machine to construct.
     ///
@@ -145,7 +143,6 @@ impl Machine {
                 positioning: Positioning::default(),
                 dia_offset: None,
                 height_offset: None,
-                alarm: None,
             })
         }
     }
@@ -156,8 +153,10 @@ impl Machine {
     }
 
     /// Interpret [`Code`] values in a new [`Unit`] standard.
-    pub fn set_code_units(&mut self, code_units: Unit) {
+    /// Returns a **mutable reference** to `self` for chaining.
+    pub fn set_code_units(&mut self, code_units: Unit) -> &mut Self {
         self.code_units = code_units;
+        self
     }
 
     /// Returns `G54` work coordinate system.
@@ -166,9 +165,12 @@ impl Machine {
     }
 
     /// Set `G54` work coordinate system.
-    /// This is not verified to be inside the machine travels.
-    pub fn set_work_offset(&mut self, work_offset: Point) {
+    /// Returns a **mutable reference** to `self` for chaining.
+    ///
+    /// **This is not verified to be inside the machine travels**.
+    pub fn set_work_offset(&mut self, work_offset: Point) -> &mut Self {
         self.work_offset = work_offset;
+        self
     }
 
     /// Returns the current position of the machine.
@@ -177,15 +179,28 @@ impl Machine {
     }
 
     /// Set the current absolute machine position for all axes.
-    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels`.
-    pub fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
+    /// Returns a **mutable reference** to `self` for chaining on success,
+    /// and [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// indicating failure.
+    pub fn set_pos(&mut self, pos: Point) -> Result<&mut Self, MachineError> {
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
-            self.alarm = Some(MachineError::Overtravel);
             Err(MachineError::Overtravel)
         } else {
             self.pos = pos;
-            Ok(())
+            Ok(self)
         }
+    }
+
+    /// Returns a [`Point`] indicating the new position, after moving by `mv`.
+    /// Accepts a [`PartialPoint`] `mv` and does not change the fields corresponding to `None`.
+    ///
+    /// **This is not verified to be inside the machine travels**.
+    pub fn new_pos(&self, mv: &PartialPoint) -> Point {
+        Point::new(
+            self.pos.x() + mv.x().unwrap_or(0.0),
+            self.pos.y() + mv.y().unwrap_or(0.0),
+            self.pos.z() + mv.z().unwrap_or(0.0),
+        )
     }
 }
 
@@ -266,5 +281,22 @@ mod tests {
     // Must pass
     fn construct_good() {
         assert!(Machine::build(Point::new(1000.0, 750.0, 500.0)).is_ok());
+    }
+
+    // Test Machine methods
+
+    #[test]
+    fn overtravel_set() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0)).unwrap();
+
+        assert_eq!(
+            m.set_pos(Point::new(-100.0, 500.0, 300.0)).unwrap_err(),
+            MachineError::Overtravel
+        );
+
+        assert_eq!(
+            m.set_pos(Point::new(1200.0, 500.0, 300.0)).unwrap_err(),
+            MachineError::Overtravel
+        );
     }
 }

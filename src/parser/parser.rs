@@ -82,25 +82,45 @@ impl Point {
         (self.0, self.1, self.2)
     }
 
+    /// Returns current position of the 'X' axis.
+    pub fn x(&self) -> Float {
+        self.0
+    }
+
+    /// Returns current position of the 'Y' axis.
+    pub fn y(&self) -> Float {
+        self.1
+    }
+
+    /// Returns current position of the 'Z' axis.
+    pub fn z(&self) -> Float {
+        self.2
+    }
+
     /// Set every axis.
-    pub fn set(&mut self, x: Float, y: Float, z: Float) {
+    /// Returns a **mutable reference** to `self` for chaining.
+    pub fn set(&mut self, x: Float, y: Float, z: Float) -> &mut Self {
         self.0 = x;
         self.1 = y;
         self.2 = z;
+
+        self
     }
 
     /// Optionally set one or multiple axes.
     /// `None` arguments will retain the older value.
-    pub fn set_optional(&mut self, x: Option<Float>, y: Option<Float>, z: Option<Float>) {
+    /// Returns a **mutable reference** to `self` for chaining.
+    pub fn set_optional(
+        &mut self,
+        x: Option<Float>,
+        y: Option<Float>,
+        z: Option<Float>,
+    ) -> &mut Self {
         self.0 = x.unwrap_or(self.0);
         self.1 = y.unwrap_or(self.1);
         self.2 = z.unwrap_or(self.2);
-    }
 
-    /// Same as [`Self::set_optional`], but requires a [`PartialPoint`] rather than `Option<Float>`
-    /// for each axis.
-    pub fn set_partial(&mut self, pos: PartialPoint) {
-        self.set_optional(pos.0, pos.1, pos.2);
+        self
     }
 
     /// Checks if any axis of `self` is negative or not.
@@ -140,6 +160,26 @@ impl PartialPoint {
     /// The fields represent X, Y, and Z axis respectively and are required.
     pub fn new((x, y, z): (Option<Float>, Option<Float>, Option<Float>)) -> Self {
         PartialPoint(x, y, z)
+    }
+
+    /// Returns a tuple of [`Option<Float>`] values for each axis.
+    pub fn get(&self) -> (Option<Float>, Option<Float>, Option<Float>) {
+        (self.0, self.1, self.2)
+    }
+
+    /// Returns current position of the 'X' axis.
+    pub fn x(&self) -> Option<Float> {
+        self.0
+    }
+
+    /// Returns current position of the 'Y' axis.
+    pub fn y(&self) -> Option<Float> {
+        self.1
+    }
+
+    /// Returns current position of the 'Z' axis.
+    pub fn z(&self) -> Option<Float> {
+        self.2
     }
 
     /// Constructs a [`PartialPoint`] by using a *mutable reference* to a **validated** [`Block`].
@@ -1389,5 +1429,33 @@ mod tests {
     #[test]
     fn parse_program_end() {
         assert_eq!(tokenize_parse("M30").unwrap(), vec![Code::M(MCode::End)]);
+    }
+
+    #[test]
+    /// Test all setters for [`Point`]
+    fn point_set() {
+        let mut p = Point::new(0.0, 0.0, 0.0);
+
+        assert_eq!(p.set(1.0, 2.0, 3.0).get(), (1.0, 2.0, 3.0));
+
+        assert_eq!(
+            p.set_optional(Some(-1.0), None, Some(-3.0)).get(),
+            (-1.0, 2.0, -3.0)
+        );
+    }
+
+    #[test]
+    fn point_negative() {
+        assert!(Point::new(-10.0, 0.0, 20.0).any_negative());
+    }
+
+    #[test]
+    fn point_comparisons() {
+        let p = Point::new(100.0, 200.0, 300.0);
+        let mid = Point::new(200.0, 200.0, 200.0);
+
+        // atleast one field is over and under `mid`
+        assert!(p.over(&mid));
+        assert!(p.under(&mid));
     }
 }
