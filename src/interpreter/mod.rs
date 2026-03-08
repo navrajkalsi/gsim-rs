@@ -47,33 +47,7 @@ impl Interpreter {
 
             for code in codes {
                 match code {
-                    Code::G(gcode) => match gcode {
-                        GCode::RapidMove(partial_point) => todo!(),
-                        GCode::FeedMove { p_point, f } => todo!(),
-                        GCode::CWArcMove { p_point, method, f } => todo!(),
-                        GCode::CCWArcMove { p_point, method, f } => todo!(),
-                        GCode::Dwell(_) => todo!(),
-                        GCode::XYPlane => todo!(),
-                        GCode::XZPlane => todo!(),
-                        GCode::YZPlane => todo!(),
-                        GCode::ImperialMode => todo!(),
-                        GCode::MetricMode => todo!(),
-                        GCode::CancelCutterComp => todo!(),
-                        GCode::LeftCutterComp(_) => todo!(),
-                        GCode::RightCutterComp(_) => todo!(),
-                        GCode::ToolLenCompAdd(_) => todo!(),
-                        GCode::ToolLenCompSubtract(_) => todo!(),
-                        GCode::CancelLenComp => todo!(),
-                        GCode::MachineCoord(partial_point) => todo!(),
-                        GCode::WorkCoord => todo!(),
-                        GCode::CancelCanned => todo!(),
-                        GCode::AbsoluteMode => todo!(),
-                        GCode::IncrementalMode => todo!(),
-                        GCode::FeedMinute => todo!(),
-                        GCode::FeedRev => todo!(),
-                        GCode::InitialReturn => todo!(),
-                        GCode::RetractReturn => todo!(),
-                    },
+                    Code::G(gcode) => self.execute_gcode(gcode)?,
 
                     Code::M(mcode) => match mcode {
                         MCode::Stop => self.wait()?,
@@ -140,6 +114,60 @@ impl Interpreter {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    fn execute_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
+        match gcode {
+            GCode::RapidMove(partial_point) => todo!(),
+            GCode::FeedMove { p_point, f } => todo!(),
+            GCode::CWArcMove { p_point, method, f } => todo!(),
+            GCode::CCWArcMove { p_point, method, f } => todo!(),
+
+            GCode::Dwell(p) => {
+                println!("Dwelling for {p} seconds.");
+                let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
+                std::thread::sleep(duration);
+            }
+
+            GCode::XYPlane => self.machine.set_plane(Plane::XY),
+
+            GCode::XZPlane => self.machine.set_plane(Plane::XZ),
+
+            GCode::YZPlane => self.machine.set_plane(Plane::YZ),
+
+            GCode::ImperialMode => self.machine.set_code_units(Unit::Imperial),
+
+            GCode::MetricMode => self.machine.set_code_units(Unit::Metric),
+
+            GCode::CancelCutterComp => todo!(),
+            GCode::LeftCutterComp(_) => todo!(),
+            GCode::RightCutterComp(_) => todo!(),
+            GCode::ToolLenCompAdd(_) => todo!(),
+            GCode::ToolLenCompSubtract(_) => todo!(),
+            GCode::CancelLenComp => todo!(),
+
+            GCode::MachineCoord(partial_point) => self.machine.set_pos_partial(partial_point)?,
+
+            // always make the machine center as g54 offset
+            GCode::WorkCoord => self.machine.set_work_offset(Point::new(
+                self.machine.pos().x() / 2.0,
+                self.machine.pos().y() / 2.0,
+                0.0,
+            )),
+
+            GCode::CancelCanned => todo!(),
+
+            GCode::AbsoluteMode => self.machine.set_positioning(Positioning::Absolute),
+
+            GCode::IncrementalMode => self.machine.set_positioning(Positioning::Incremental),
+
+            GCode::FeedMinute => todo!(),
+            GCode::FeedRev => todo!(),
+            GCode::InitialReturn => todo!(),
+            GCode::RetractReturn => todo!(),
+        };
+
+        Ok(())
     }
 
     // have 3 levels of debug.

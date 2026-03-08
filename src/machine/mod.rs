@@ -163,10 +163,8 @@ impl Machine {
     }
 
     /// Interpret [`Code`] values in a new [`Unit`] standard.
-    /// Returns a **mutable reference** to `self` for chaining.
-    pub fn set_code_units(&mut self, code_units: Unit) -> &mut Self {
+    pub fn set_code_units(&mut self, code_units: Unit) {
         self.code_units = code_units;
-        self
     }
 
     /// Returns `G54` work coordinate system.
@@ -175,12 +173,10 @@ impl Machine {
     }
 
     /// Set `G54` work coordinate system.
-    /// Returns a **mutable reference** to `self` for chaining.
     ///
     /// **This is not verified to be inside the machine travels**.
-    pub fn set_work_offset(&mut self, work_offset: Point) -> &mut Self {
+    pub fn set_work_offset(&mut self, work_offset: Point) {
         self.work_offset = work_offset;
-        self
     }
 
     /// Returns the current position of the machine.
@@ -189,8 +185,7 @@ impl Machine {
     }
 
     /// Set the current absolute machine position for all axes.
-    /// Returns a **mutable reference** to `self` for chaining on success,
-    /// and [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
     pub fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
@@ -303,6 +298,16 @@ impl Machine {
     /// Set `coolant` on or off.
     pub fn set_coolant(&mut self, coolant: bool) {
         self.coolant = coolant;
+    }
+
+    /// Set active plane.
+    pub fn set_plane(&mut self, plane: Plane) {
+        self.plane = plane;
+    }
+
+    /// Toggle between absolute or relative positioning.
+    pub fn set_positioning(&mut self, positioning: Positioning) {
+        self.positioning = positioning;
     }
 }
 
