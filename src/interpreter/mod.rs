@@ -3,12 +3,14 @@
 use crate::parser::lexer::LexerError;
 use crate::parser::parser::*;
 use crate::{machine::*, parser::lexer::tokenize};
-use std::fmt::Display;
-use std::{fmt::Debug, fs, io};
+use std::{
+    fmt::{Debug, Display},
+    fs, io,
+};
 
 pub struct Interpreter {
     machine: Machine,
-    lines: Vec<String>,
+    blocks: Vec<String>,
 }
 
 impl Interpreter {
@@ -23,29 +25,121 @@ impl Interpreter {
     /// # Errors:
     /// - [`InterpreterError::FileError`] -- An error occured when accessing the file at `filepath`.
     pub fn build(machine: Machine, filepath: &str) -> Result<Self, InterpreterError> {
-        let lines: Vec<String> = fs::read_to_string(filepath)?
+        let blocks: Vec<String> = fs::read_to_string(filepath)?
             .lines()
             .map(|line| line.trim_end_matches(';').trim().to_owned())
             .collect();
 
         // `lines` will now be a vector of strings, with no ';' and leading or trailing whitespaces
 
-        Ok(Interpreter { machine, lines })
+        Ok(Interpreter { machine, blocks })
     }
 
-    fn run_block(block: &str, machine: &mut Machine) -> Result<(), InterpreterError> {
-        let codes = parse(tokenize(block)?)?;
-        println!("Output: {codes:?}");
+    pub fn run(&mut self) -> Result<(), InterpreterError> {
+        let mut current = 0;
+
+        'lineloop: while current < self.blocks.len() {
+            let block = &self.blocks[current];
+
+            let codes = parse(tokenize(block)?)?;
+
+            println!("Block: {block}\nCodes: {codes:?}\n");
+
+            for code in codes {
+                match code {
+                    Code::G(gcode) => match gcode {
+                        GCode::RapidMove(partial_point) => todo!(),
+                        GCode::FeedMove { p_point, f } => todo!(),
+                        GCode::CWArcMove { p_point, method, f } => todo!(),
+                        GCode::CCWArcMove { p_point, method, f } => todo!(),
+                        GCode::Dwell(_) => todo!(),
+                        GCode::XYPlane => todo!(),
+                        GCode::XZPlane => todo!(),
+                        GCode::YZPlane => todo!(),
+                        GCode::ImperialMode => todo!(),
+                        GCode::MetricMode => todo!(),
+                        GCode::CancelCutterComp => todo!(),
+                        GCode::LeftCutterComp(_) => todo!(),
+                        GCode::RightCutterComp(_) => todo!(),
+                        GCode::ToolLenCompAdd(_) => todo!(),
+                        GCode::ToolLenCompSubtract(_) => todo!(),
+                        GCode::CancelLenComp => todo!(),
+                        GCode::MachineCoord(partial_point) => todo!(),
+                        GCode::WorkCoord => todo!(),
+                        GCode::CancelCanned => todo!(),
+                        GCode::AbsoluteMode => todo!(),
+                        GCode::IncrementalMode => todo!(),
+                        GCode::FeedMinute => todo!(),
+                        GCode::FeedRev => todo!(),
+                        GCode::InitialReturn => todo!(),
+                        GCode::RetractReturn => todo!(),
+                    },
+
+                    Code::M(mcode) => match mcode {
+                        MCode::Stop => self.wait()?,
+
+                        MCode::OptionalStop => self.wait()?,
+
+                        MCode::SpindleFwd(s) => self.machine.spindle_on_cw(s)?,
+
+                        MCode::SpindleRev(s) => self.machine.spindle_on_ccw(s)?,
+
+                        MCode::SpindleStop => self.machine.spindle_off(),
+
+                        MCode::ToolChange(t) => self.machine.tool_change(t)?,
+
+                        MCode::CoolantOn => self.machine.set_coolant(true),
+
+                        MCode::CoolantOff => self.machine.set_coolant(false),
+
+                        MCode::End => {
+                            println!("Program end detected");
+                            break 'lineloop;
+                        }
+                    },
+
+                    Code::F(f) => self.machine.set_feed(f),
+
+                    Code::N(_) => (),
+
+                    Code::O(_) => (),
+
+                    Code::S(s) => self.machine.set_speed(s),
+
+                    Code::T(t) => self.machine.set_next_tool(t),
+
+                    Code::X(x) => {
+                        self.machine
+                            .set_pos_partial(PartialPoint::new((Some(x), None, None)))?
+                    }
+
+                    Code::Y(y) => {
+                        self.machine
+                            .set_pos_partial(PartialPoint::new((None, Some(y), None)))?
+                    }
+
+                    Code::Z(z) => {
+                        self.machine
+                            .set_pos_partial(PartialPoint::new((None, None, Some(z))))?
+                    }
+                }
+            }
+
+            current += 1;
+        }
 
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<&mut Self, InterpreterError> {
-        for line in &self.lines {
-            Interpreter::run_block(line.as_str(), &mut self.machine)?;
-        }
+    /// `Stop` M-Code helper.
+    /// Waits for the user to press 'Enter' to continue.
+    fn wait(&self) -> Result<(), io::Error> {
+        println!("Program stopped.\nPress Enter to continue...");
 
-        Ok(self)
+        match io::stdin().read_line(&mut String::new()) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     // have 3 levels of debug.
@@ -62,26 +156,30 @@ pub enum InterpreterError {
     FileError(io::Error),
     LexerError(LexerError),
     ParserError(ParserError),
+    MachineError(MachineError),
 }
 
-/// Convert I/O Errors to InterpreterError.
 impl From<io::Error> for InterpreterError {
     fn from(e: io::Error) -> Self {
         Self::FileError(e)
     }
 }
 
-/// Convert Lexer Errors to InterpreterError.
 impl From<LexerError> for InterpreterError {
     fn from(e: LexerError) -> Self {
         Self::LexerError(e)
     }
 }
 
-/// Convert Parser Errors to InterpreterError.
 impl From<ParserError> for InterpreterError {
     fn from(e: ParserError) -> Self {
         Self::ParserError(e)
+    }
+}
+
+impl From<MachineError> for InterpreterError {
+    fn from(e: MachineError) -> Self {
+        Self::MachineError(e)
     }
 }
 
@@ -99,6 +197,9 @@ impl Display for InterpreterError {
                 ),
                 Self::ParserError(e) => format!(
                     "Parser Error:\nThe following error occured when parsing the 'G-Code':\n{e}."
+                ),
+                Self::MachineError(e) => format!(
+                    "Machine Error:\nThe following error occured when trying to change the Machine state:\n{e}."
                 ),
             }
         )
@@ -118,10 +219,10 @@ mod tests {
 
         fs::write(TEST_FILE, c).unwrap();
 
-        let mut ip = Interpreter::build(m, TEST_FILE).unwrap();
+        let mut i = Interpreter::build(m, TEST_FILE).unwrap();
 
         assert_eq!(
-            ip.lines,
+            i.blocks,
             vec![
                 String::from("G00 X0. Y0."),
                 String::new(),
@@ -129,7 +230,7 @@ mod tests {
             ]
         );
 
-        ip.run();
+        i.run();
 
         fs::remove_file(TEST_FILE).unwrap();
     }

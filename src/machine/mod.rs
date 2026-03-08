@@ -49,6 +49,14 @@ pub enum Positioning {
     Incremental,
 }
 
+/// Possible ways to turn spindle on.
+#[derive(Default, Debug)]
+pub enum CircularDirection {
+    #[default]
+    Clockwise,
+    CounterClockwise,
+}
+
 /// Represents the current state of a [`Machine`](crate::machine).
 #[derive(Debug)]
 pub struct Machine {
@@ -79,6 +87,7 @@ pub struct Machine {
     /// Commanded RPM for the spindle.
     speed: Option<Int>,
     spindle_on: bool,
+    spindle_dir: CircularDirection,
 
     /// Commanded cutting feed rate.
     feed: Option<Float>,
@@ -137,6 +146,7 @@ impl Machine {
                 next_tool: None,
                 speed: None,
                 spindle_on: false,
+                spindle_dir: CircularDirection::default(),
                 feed: None,
                 coolant: false,
                 plane: Plane::default(),
@@ -182,13 +192,23 @@ impl Machine {
     /// Returns a **mutable reference** to `self` for chaining on success,
     /// and [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
-    pub fn set_pos(&mut self, pos: Point) -> Result<&mut Self, MachineError> {
+    pub fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
             Err(MachineError::Overtravel)
         } else {
             self.pos = pos;
-            Ok(self)
+            Ok(())
         }
+    }
+
+    /// Same as [`Machine::set_pos`], but accepts a [`PartialPoint`] if not all the axes need to
+    /// move.
+    pub fn set_pos_partial(&mut self, new_pos: PartialPoint) -> Result<(), MachineError> {
+        self.set_pos(Point::new(
+            new_pos.x().unwrap_or(self.pos.x()),
+            new_pos.y().unwrap_or(self.pos.y()),
+            new_pos.z().unwrap_or(self.pos.z()),
+        ))
     }
 
     /// Returns a [`Point`] indicating the new position, after moving by `mv`.
@@ -202,18 +222,104 @@ impl Machine {
             self.pos.z() + mv.z().unwrap_or(0.0),
         )
     }
+
+    /// Set *feedrate* to use.
+    pub fn set_feed(&mut self, feed: Float) {
+        self.feed = Some(feed);
+    }
+
+    /// Set *spindle RPMs* to use.
+    pub fn set_speed(&mut self, speed: Int) {
+        self.speed = Some(speed);
+    }
+
+    /// Turn spindle off.
+    pub fn spindle_off(&mut self) {
+        self.spindle_on = false;
+    }
+
+    /// Prelaod *next tool* to use.
+    pub fn set_next_tool(&mut self, next_tool: Int) {
+        self.next_tool = Some(next_tool);
+    }
+
+    /// Turn spindle on clockwise, if not already on.
+    /// Optionally accepts new *spindle speed*, otherwise uses speed for previous block if present.
+    ///
+    /// Returns [`MachineError::NoSpindleSpeed`] if no spindle speed was commanded before and
+    /// `speed` provided is also `None`.
+    pub fn spindle_on_cw(&mut self, speed: Option<Int>) -> Result<(), MachineError> {
+        self.speed = speed.or(self.speed);
+        self.spindle_dir = CircularDirection::Clockwise;
+
+        match self.speed {
+            Some(_) => {
+                self.spindle_on = true;
+                Ok(())
+            }
+            None => Err(MachineError::NoSpindleSpeed),
+        }
+    }
+
+    /// Turn spindle on anti-clockwise, if not already on.
+    /// Optionally accepts new *spindle speed*, otherwise uses speed for previous block if present.
+    ///
+    /// Returns [`MachineError::NoSpindleSpeed`] if no spindle speed was commanded before and
+    /// `speed` provided is also `None`.
+    pub fn spindle_on_ccw(&mut self, speed: Option<Int>) -> Result<(), MachineError> {
+        self.speed = speed.or(self.speed);
+        self.spindle_dir = CircularDirection::CounterClockwise;
+
+        match self.speed {
+            Some(_) => {
+                self.spindle_on = true;
+                Ok(())
+            }
+            None => Err(MachineError::NoSpindleSpeed),
+        }
+    }
+
+    /// Changes current `tool` to:
+    /// - `new_tool`, if the value is `Some`.
+    /// - `next_tool`, if a tool was preloaded.
+    ///
+    /// `next_tool` will be always be set to `None` after the tool change.
+    ///
+    /// Returns [`MachineError::NoTool`] if no `next_tool` was commanded before and
+    /// `new_tool` provided is also `None`.
+    pub fn tool_change(&mut self, new_tool: Option<Int>) -> Result<(), MachineError> {
+        self.next_tool = new_tool.or(self.next_tool);
+
+        match self.next_tool {
+            Some(t) => {
+                self.tool = t;
+                self.next_tool = None;
+                Ok(())
+            }
+            None => Err(MachineError::NoTool),
+        }
+    }
+
+    /// Set `coolant` on or off.
+    pub fn set_coolant(&mut self, coolant: bool) {
+        self.coolant = coolant;
+    }
 }
 
 /// Possible errors that can happen during machine construction.
 #[derive(Debug, PartialEq)]
 pub enum MachineError {
-    /// Negative value(s) detected during machine construction
+    /// Negative value(s) detected during machine construction.
     NegativeTravels,
     TravelsTooLong,
     TravelsTooShort,
-    /// The resulting machine would be an odd shape
+    /// The resulting machine would be an odd shape.
     WrongRatio,
     Overtravel,
+    /// Spindle On was commanded, but no spindle speed was provided.
+    NoSpindleSpeed,
+    /// Tool change was commanded, but no tool number was provided.
+    NoTool,
 }
 
 impl Display for MachineError {
@@ -234,8 +340,15 @@ impl Display for MachineError {
                 Self::WrongRatio => format!(
                     "The resultant machine would have a particular axis too long or too short.\nPlease reconsider axis lengths."
                 ),
-                Self::Overtravel => format!("
-                    Overtravel:\nAt least one axis of the machine overtravels because of the last move.")
+                Self::Overtravel => format!(
+                    "Overtravel:\nAt least one axis of the machine overtravels because of the last move."
+                ),
+                Self::NoSpindleSpeed => format!(
+                    "No Spindle Speed Commanded:\nA spindle action was commanded, but no 'S' was detected throughout the program."
+                ),
+                Self::NoTool => format!(
+                    "No Tool Commanded:\nA tool change was commanded, but no 'T' was detected on the same block and no tool was preloaded."
+                ),
             }
         )
     }
