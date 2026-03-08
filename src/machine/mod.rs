@@ -309,6 +309,18 @@ impl Machine {
     pub fn set_positioning(&mut self, positioning: Positioning) {
         self.positioning = positioning;
     }
+
+    // have 3 methods:
+    // set machine pos, if g54 is 0 and absolute mode is set
+    // set absolute pos after applying the offset if g54 if present and in absolute mode
+    // move machine relatively from current pos if incremental mode is set, regardless if g54 was
+    // commanded or not
+    //
+    // or
+    // move absolutely, automatically deals with g54
+    // move incrementally by delta
+    //
+    // set machine pos, for special cases
 }
 
 /// Possible errors that can happen during machine construction.
