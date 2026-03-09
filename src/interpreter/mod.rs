@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn construct_interpreter() {
         let c = "G00 X0. Y0.;\n\nG43 H1;\n";
-        let m = Machine::build(Point::new(1000.0, 500.0, 500.0)).unwrap();
+        let m = Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()).unwrap();
 
         fs::write(TEST_FILE, c).unwrap();
 

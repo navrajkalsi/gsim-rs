@@ -152,6 +152,20 @@ impl Point {
     pub fn under(&self, other: &Self) -> bool {
         self.0 < other.0 || self.1 < other.1 || self.2 < other.2
     }
+
+    /// Treats all the axes values in *Metric* system, and converts them to *Imperial* system.
+    pub fn to_imperial(&mut self) {
+        self.0 /= 25.4;
+        self.1 /= 25.4;
+        self.2 /= 25.4;
+    }
+
+    /// Treats all the axes values in *Imperial* system, and converts them to *Metric* system.
+    pub fn to_metric(&mut self) {
+        self.0 *= 25.4;
+        self.1 *= 25.4;
+        self.2 *= 25.4;
+    }
 }
 
 /// Same as [`Point`] but the fields can be `None`.

@@ -25,7 +25,7 @@ const MAX_RATIO: Point = Point::new(2.0, 2.0, 1.5);
 const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
 
 /// Possible unit standards for measurable values.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, PartialEq)]
 pub enum Unit {
     Imperial,
     #[default]
@@ -62,6 +62,7 @@ pub enum CircularDirection {
 pub struct Machine {
     /// Interpret state values in the selected `units`.
     /// The Code the machine executes MAY OR MAY NOT be in the same units.
+    /// All stored values must be in this unit standard.
     units: Unit,
 
     /// Interpret [`Code`]s in the selected `code_units`.
@@ -108,10 +109,12 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// Constructs a new instance of [`Machine`] using the [`Unit::default`] measuring system and
-    /// all axes at [`HOME_POS`].
+    /// Constructs a new instance of [`Machine`] with all axes at [`HOME_POS`].
     ///
-    /// Accepts a [`Point`] indicating positive extremes of the Machine to construct.
+    /// Accepts a [`Point`], indicating positive extremes of the Machine to construct,
+    /// and the measuring system [`Unit`] to use for machine moves.
+    ///
+    /// The *G-Code* that the machine executes need not be in the same [`Unit`]s.
     ///
     /// Returns a new `Machine` instance on success or [`MachineError`] on failure.
     ///
@@ -124,7 +127,7 @@ impl Machine {
     /// At least one axis is shorter than what the constructor supports.
     /// - [`MachineError::WrongRatio`] --
     /// At least two axes have weird values.
-    pub fn build(max_travels: Point) -> Result<Self, MachineError> {
+    pub fn build(max_travels: Point, units: Unit) -> Result<Self, MachineError> {
         let ratio = max_travels.ratio();
 
         if max_travels.any_negative() {
@@ -137,7 +140,7 @@ impl Machine {
             Err(MachineError::WrongRatio)
         } else {
             Ok(Machine {
-                units: Unit::default(),
+                units,
                 code_units: Unit::default(),
                 max_travels,
                 work_offset: Point::default(),
@@ -157,21 +160,31 @@ impl Machine {
         }
     }
 
-    /// Returns the standard [`Unit`] in which [`Code`] values will be interpreted.
-    pub fn code_units(&self) -> &Unit {
-        &self.code_units
-    }
-
     /// Interpret [`Code`] values in a new [`Unit`] standard.
     pub fn set_code_units(&mut self, code_units: Unit) {
         self.code_units = code_units;
     }
 
+    /// Accepts a `point` in `code_unis`.
+    /// Returns a new [`Point`] after converting the units to Machine units.
+    fn to_machine_units(&self, mut point: Point) -> Point {
+        if self.units == Unit::Imperial && self.code_units == Unit::Metric {
+            point.to_imperial();
+        } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
+            point.to_metric();
+        }
+
+        point
+    }
+
+    /// Return *maximum* travel for each axis of the [`Machine`].
     pub fn max_travels(&self) -> &Point {
         &self.max_travels
     }
 
     /// Returns `G54` work coordinate system.
+    ///
+    /// This offset is applied each time the machine has to move in absolute mode.
     pub fn work_offset(&self) -> &Point {
         &self.work_offset
     }
@@ -189,9 +202,13 @@ impl Machine {
     }
 
     /// Set the current machine position for all axes.
+    /// Respects the current unit selections for both [`Machine`] and [`Code`].
+    ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
     fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
+        let pos = self.to_machine_units(pos);
+
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
             Err(MachineError::Overtravel)
         } else {
@@ -210,12 +227,12 @@ impl Machine {
         self.speed = Some(speed);
     }
 
-    /// Prelaod *next tool* to use.
+    /// Preload the *next tool* to use.
     pub fn set_next_tool(&mut self, next_tool: Int) {
         self.next_tool = Some(next_tool);
     }
 
-    /// Turn spindle on , if not already on.
+    /// Turn spindle on, if not already on.
     ///
     /// Accepts [`CircularDirection`] as *spindle direction* and optionally accepts
     /// new *spindle speed*, otherwise uses speed from previous blocks, if present.
@@ -311,6 +328,9 @@ impl Machine {
     ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
+    ///
+    /// Respects the current unit selections for both [`Machine`] and [`Code`],
+    /// and any unit conversions are performed as necessary.
     pub fn move_machine(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
         match self.positioning {
             Positioning::Absolute => self.move_absolute(pos),
@@ -326,6 +346,9 @@ impl Machine {
     ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
+    ///
+    /// This function also respects the current unit selections for both [`Machine`] and [`Code`],
+    /// and any unit conversions are performed as necessary.
     pub fn move_machine_pos(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
         let new_pos = Point::new(
             pos.x().unwrap_or(self.pos().x()),
@@ -335,18 +358,6 @@ impl Machine {
 
         self.set_pos(new_pos)
     }
-
-    // have 3 methods:
-    // set machine pos, if g54 is 0 and absolute mode is set
-    // set absolute pos after applying the offset if g54 if present and in absolute mode
-    // move machine relatively from current pos if incremental mode is set, regardless if g54 was
-    // commanded or not
-    //
-    // or
-    // move absolutely, automatically deals with g54
-    // move incrementally by delta
-    //
-    // set machine pos, for special cases
 }
 
 /// Possible errors that can happen during machine construction.
@@ -404,7 +415,7 @@ mod tests {
     #[test]
     fn construct_neg_travels() {
         assert_eq!(
-            Machine::build(Point::new(150.0, -500.0, 500.0)).unwrap_err(),
+            Machine::build(Point::new(150.0, -500.0, 500.0), Unit::default()).unwrap_err(),
             MachineError::NegativeTravels
         );
     }
@@ -412,7 +423,7 @@ mod tests {
     #[test]
     fn construct_long_travels() {
         assert_eq!(
-            Machine::build(Point::new(2000.0, 1000.0, 500.0)).unwrap_err(),
+            Machine::build(Point::new(2000.0, 1000.0, 500.0), Unit::default()).unwrap_err(),
             MachineError::TravelsTooLong
         );
     }
@@ -420,7 +431,7 @@ mod tests {
     #[test]
     fn construct_short_travels() {
         assert_eq!(
-            Machine::build(Point::new(100.0, 75.0, 75.0)).unwrap_err(),
+            Machine::build(Point::new(100.0, 75.0, 75.0), Unit::default()).unwrap_err(),
             MachineError::TravelsTooShort
         );
     }
@@ -428,7 +439,7 @@ mod tests {
     #[test]
     fn construct_wrong_ratio() {
         assert_eq!(
-            Machine::build(Point::new(1500.0, 100.0, 100.0)).unwrap_err(),
+            Machine::build(Point::new(1500.0, 100.0, 100.0), Unit::default()).unwrap_err(),
             MachineError::WrongRatio
         );
     }
@@ -436,14 +447,14 @@ mod tests {
     #[test]
     // Must pass
     fn construct_good() {
-        assert!(Machine::build(Point::new(1000.0, 750.0, 500.0)).is_ok());
+        assert!(Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).is_ok());
     }
 
     // Test Machine methods
 
     #[test]
     fn overtravel_set() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0)).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).unwrap();
 
         assert_eq!(
             m.set_pos(Point::new(-100.0, 500.0, 300.0)).unwrap_err(),
@@ -454,5 +465,36 @@ mod tests {
             m.set_pos(Point::new(1200.0, 500.0, 300.0)).unwrap_err(),
             MachineError::Overtravel
         );
+    }
+
+    #[test]
+    fn unit_standards() {
+        // machine metric and code metric
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+        m.set_code_units(Unit::Metric);
+        m.move_machine(PartialPoint::new((Some(25.4), Some(25.4), Some(25.4))))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
+
+        // machine imperial and code imperial
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        m.set_code_units(Unit::Imperial);
+        m.move_machine(PartialPoint::new((Some(1.0), Some(1.0), Some(1.0))))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
+
+        // machine imperial and code metric
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        m.set_code_units(Unit::Metric);
+        m.move_machine(PartialPoint::new((Some(25.4), Some(25.4), Some(25.4))))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
+
+        // machine metric and code imperial
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+        m.set_code_units(Unit::Imperial);
+        m.move_machine(PartialPoint::new((Some(1.0), Some(1.0), Some(1.0))))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
     }
 }
