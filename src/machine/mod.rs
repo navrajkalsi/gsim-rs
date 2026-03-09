@@ -25,7 +25,7 @@ const MAX_RATIO: Point = Point::new(2.0, 2.0, 1.5);
 const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
 
 /// Possible unit standards for measurable values.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Unit {
     Imperial,
     #[default]
@@ -141,7 +141,7 @@ impl Machine {
         } else {
             Ok(Machine {
                 units,
-                code_units: Unit::default(),
+                code_units: units,
                 max_travels,
                 work_offset: Point::default(),
                 pos: Point::default(),
@@ -472,29 +472,140 @@ mod tests {
         // machine metric and code metric
         let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new((Some(25.4), Some(25.4), Some(25.4))))
+        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(25.4)))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
 
         // machine imperial and code imperial
         let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new((Some(1.0), Some(1.0), Some(1.0))))
+        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(1.0)))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
 
         // machine imperial and code metric
         let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new((Some(25.4), Some(25.4), Some(25.4))))
+        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(25.4)))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
 
         // machine metric and code imperial
         let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new((Some(1.0), Some(1.0), Some(1.0))))
+        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(1.0)))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
+    }
+
+    #[test]
+    fn absolute_move() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+
+        // with no g54 offset
+        m.move_absolute(PartialPoint::new(Some(100.0), None, None))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
+
+        // with g54 offset
+        m.set_work_offset(Point::new(100.0, 100.0, 100.0));
+        m.move_absolute(PartialPoint::new(Some(100.0), Some(0.0), None))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(200.0, 100.0, 0.0));
+
+        // overtravel
+        assert_eq!(
+            m.move_absolute(PartialPoint::new(Some(901.0), Some(0.0), None))
+                .unwrap_err(),
+            MachineError::Overtravel
+        ); // tries to move X to 1001.0
+    }
+
+    #[test]
+    fn incremental_move() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+
+        // with no g54 offset
+        m.move_incremental(PartialPoint::new(Some(100.0), None, None))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
+
+        // with g54 offset
+        m.set_work_offset(Point::new(100.0, 100.0, 100.0)); // has no effect
+        m.move_incremental(PartialPoint::new(Some(200.0), Some(0.0), None))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(300.0, 0.0, 0.0));
+
+        // overtravel
+        assert_eq!(
+            m.move_incremental(PartialPoint::new(Some(100.0), Some(751.0), None))
+                .unwrap_err(),
+            MachineError::Overtravel
+        ); // tries to move Y to 751.0
+    }
+
+    #[test]
+    fn machine_move() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+
+        // with no g54 offset
+        m.move_machine_pos(PartialPoint::new(Some(100.0), None, Some(500.0)))
+            .unwrap();
+        assert_eq!(m.pos(), &Point::new(100.0, 0.0, 500.0));
+
+        // with g54 offset
+        m.set_work_offset(Point::new(100.0, 100.0, 100.0));
+        m.move_machine_pos(PartialPoint::new(Some(200.0), Some(100.0), None))
+            .unwrap(); // Z will be saved from previous move
+        assert_eq!(m.pos(), &Point::new(200.0, 100.0, 500.0));
+
+        // overtravel
+        assert_eq!(
+            m.move_machine_pos(PartialPoint::new(Some(0.0), Some(0.0), Some(-1.0)))
+                .unwrap_err(),
+            MachineError::Overtravel
+        ); // tries to move Z to -1.0
+    }
+
+    #[test]
+    fn spindle() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+
+        assert_eq!(
+            m.spindle_on(CircularDirection::default(), None)
+                .unwrap_err(),
+            MachineError::NoSpindleSpeed
+        );
+
+        // no speed required when preset before
+        m.set_speed(1000);
+        assert!(m.spindle_on(CircularDirection::default(), None).is_ok());
+        assert_eq!(m.speed, Some(1000));
+
+        // providing new speed overwrites previous speed
+        assert!(
+            m.spindle_on(CircularDirection::default(), Some(500))
+                .is_ok()
+        );
+        assert_eq!(m.speed, Some(500));
+    }
+
+    #[test]
+    fn tool() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+
+        assert_eq!(m.tool_change(None).unwrap_err(), MachineError::NoTool);
+
+        // no tool required when preset before
+        m.set_next_tool(1);
+        assert!(m.tool_change(None).is_ok());
+        assert_eq!(m.tool, 1);
+        assert_eq!(m.next_tool, None); // next tool should always be reset
+
+        // providing new tool overwrites any preloaded tool
+        m.set_next_tool(5);
+        assert!(m.tool_change(Some(10)).is_ok());
+        assert_eq!(m.tool, 10);
+        assert_eq!(m.next_tool, None);
     }
 }

@@ -175,8 +175,8 @@ pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
 impl PartialPoint {
     /// Constructs a [`PartialPoint`] using [`Option<Float>`] for each axis.
     ///
-    /// The fields represent X, Y, and Z axis respectively and are required.
-    pub fn new((x, y, z): (Option<Float>, Option<Float>, Option<Float>)) -> Self {
+    /// The fields represent X, Y, and Z axis respectively and are *optional*.
+    pub fn new(x: Option<Float>, y: Option<Float>, z: Option<Float>) -> Self {
         PartialPoint(x, y, z)
     }
 

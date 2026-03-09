@@ -88,17 +88,17 @@ impl Interpreter {
 
                     Code::X(x) => {
                         self.machine
-                            .move_machine(PartialPoint::new((Some(x), None, None)))?
+                            .move_machine(PartialPoint::new(Some(x), None, None))?
                     }
 
                     Code::Y(y) => {
                         self.machine
-                            .move_machine(PartialPoint::new((None, Some(y), None)))?
+                            .move_machine(PartialPoint::new(None, Some(y), None))?
                     }
 
                     Code::Z(z) => {
                         self.machine
-                            .move_machine(PartialPoint::new((None, None, Some(z))))?
+                            .move_machine(PartialPoint::new(None, None, Some(z)))?
                     }
                 }
             }
@@ -122,6 +122,7 @@ impl Interpreter {
 
     fn execute_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
         match gcode {
+            _ => (),
             GCode::RapidMove(partial_point) => todo!(),
             GCode::FeedMove { p_point, f } => todo!(),
             GCode::CWArcMove { p_point, method, f } => todo!(),
