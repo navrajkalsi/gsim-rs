@@ -54,9 +54,13 @@ impl Interpreter {
 
                         MCode::OptionalStop => self.wait()?,
 
-                        MCode::SpindleFwd(s) => self.machine.spindle_on_cw(s)?,
+                        MCode::SpindleFwd(s) => {
+                            self.machine.spindle_on(CircularDirection::Clockwise, s)?
+                        }
 
-                        MCode::SpindleRev(s) => self.machine.spindle_on_ccw(s)?,
+                        MCode::SpindleRev(s) => self
+                            .machine
+                            .spindle_on(CircularDirection::CounterClockwise, s)?,
 
                         MCode::SpindleStop => self.machine.spindle_off(),
 
@@ -84,17 +88,17 @@ impl Interpreter {
 
                     Code::X(x) => {
                         self.machine
-                            .set_pos_partial(PartialPoint::new((Some(x), None, None)))?
+                            .move_machine(PartialPoint::new((Some(x), None, None)))?
                     }
 
                     Code::Y(y) => {
                         self.machine
-                            .set_pos_partial(PartialPoint::new((None, Some(y), None)))?
+                            .move_machine(PartialPoint::new((None, Some(y), None)))?
                     }
 
                     Code::Z(z) => {
                         self.machine
-                            .set_pos_partial(PartialPoint::new((None, None, Some(z))))?
+                            .move_machine(PartialPoint::new((None, None, Some(z))))?
                     }
                 }
             }
@@ -146,12 +150,12 @@ impl Interpreter {
             GCode::ToolLenCompSubtract(_) => todo!(),
             GCode::CancelLenComp => todo!(),
 
-            GCode::MachineCoord(partial_point) => self.machine.set_pos_partial(partial_point)?,
+            GCode::MachineCoord(partial_point) => self.machine.move_machine_pos(partial_point)?,
 
             // always make the machine center as g54 offset
             GCode::WorkCoord => self.machine.set_work_offset(Point::new(
-                self.machine.pos().x() / 2.0,
-                self.machine.pos().y() / 2.0,
+                self.machine.max_travels().x() / 2.0,
+                self.machine.max_travels().y() / 2.0,
                 0.0,
             )),
 

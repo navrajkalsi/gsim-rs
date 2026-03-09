@@ -167,6 +167,10 @@ impl Machine {
         self.code_units = code_units;
     }
 
+    pub fn max_travels(&self) -> &Point {
+        &self.max_travels
+    }
+
     /// Returns `G54` work coordinate system.
     pub fn work_offset(&self) -> &Point {
         &self.work_offset
@@ -184,38 +188,16 @@ impl Machine {
         &self.pos
     }
 
-    /// Set the current absolute machine position for all axes.
+    /// Set the current machine position for all axes.
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
-    pub fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
+    fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
             Err(MachineError::Overtravel)
         } else {
             self.pos = pos;
             Ok(())
         }
-    }
-
-    /// Same as [`Machine::set_pos`], but accepts a [`PartialPoint`] if not all the axes need to
-    /// move.
-    pub fn set_pos_partial(&mut self, new_pos: PartialPoint) -> Result<(), MachineError> {
-        self.set_pos(Point::new(
-            new_pos.x().unwrap_or(self.pos.x()),
-            new_pos.y().unwrap_or(self.pos.y()),
-            new_pos.z().unwrap_or(self.pos.z()),
-        ))
-    }
-
-    /// Returns a [`Point`] indicating the new position, after moving by `mv`.
-    /// Accepts a [`PartialPoint`] `mv` and does not change the fields corresponding to `None`.
-    ///
-    /// **This is not verified to be inside the machine travels**.
-    pub fn new_pos(&self, mv: &PartialPoint) -> Point {
-        Point::new(
-            self.pos.x() + mv.x().unwrap_or(0.0),
-            self.pos.y() + mv.y().unwrap_or(0.0),
-            self.pos.z() + mv.z().unwrap_or(0.0),
-        )
     }
 
     /// Set *feedrate* to use.
@@ -228,24 +210,25 @@ impl Machine {
         self.speed = Some(speed);
     }
 
-    /// Turn spindle off.
-    pub fn spindle_off(&mut self) {
-        self.spindle_on = false;
-    }
-
     /// Prelaod *next tool* to use.
     pub fn set_next_tool(&mut self, next_tool: Int) {
         self.next_tool = Some(next_tool);
     }
 
-    /// Turn spindle on clockwise, if not already on.
-    /// Optionally accepts new *spindle speed*, otherwise uses speed for previous block if present.
+    /// Turn spindle on , if not already on.
+    ///
+    /// Accepts [`CircularDirection`] as *spindle direction* and optionally accepts
+    /// new *spindle speed*, otherwise uses speed from previous blocks, if present.
     ///
     /// Returns [`MachineError::NoSpindleSpeed`] if no spindle speed was commanded before and
     /// `speed` provided is also `None`.
-    pub fn spindle_on_cw(&mut self, speed: Option<Int>) -> Result<(), MachineError> {
+    pub fn spindle_on(
+        &mut self,
+        dir: CircularDirection,
+        speed: Option<Int>,
+    ) -> Result<(), MachineError> {
         self.speed = speed.or(self.speed);
-        self.spindle_dir = CircularDirection::Clockwise;
+        self.spindle_dir = dir;
 
         match self.speed {
             Some(_) => {
@@ -256,22 +239,9 @@ impl Machine {
         }
     }
 
-    /// Turn spindle on anti-clockwise, if not already on.
-    /// Optionally accepts new *spindle speed*, otherwise uses speed for previous block if present.
-    ///
-    /// Returns [`MachineError::NoSpindleSpeed`] if no spindle speed was commanded before and
-    /// `speed` provided is also `None`.
-    pub fn spindle_on_ccw(&mut self, speed: Option<Int>) -> Result<(), MachineError> {
-        self.speed = speed.or(self.speed);
-        self.spindle_dir = CircularDirection::CounterClockwise;
-
-        match self.speed {
-            Some(_) => {
-                self.spindle_on = true;
-                Ok(())
-            }
-            None => Err(MachineError::NoSpindleSpeed),
-        }
+    /// Turn spindle off.
+    pub fn spindle_off(&mut self) {
+        self.spindle_on = false;
     }
 
     /// Changes current `tool` to:
@@ -308,6 +278,62 @@ impl Machine {
     /// Toggle between absolute or relative positioning.
     pub fn set_positioning(&mut self, positioning: Positioning) {
         self.positioning = positioning;
+    }
+
+    /// Moves the machine axes to absolute coordinates present in `pos`.
+    /// Applies `work_offset`, if present, before making the move.
+    fn move_absolute(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
+        let new_pos = Point::new(
+            pos.x()
+                .map_or(self.pos().x(), |x| self.work_offset().x() + x),
+            pos.y()
+                .map_or(self.pos().y(), |y| self.work_offset().y() + y),
+            pos.z()
+                .map_or(self.pos().z(), |z| self.work_offset().z() + z),
+        );
+
+        self.set_pos(new_pos)
+    }
+
+    /// Moves the machine axes relatively from current position.
+    /// `work_offset` has no effect on behaviour of this function.
+    fn move_incremental(&mut self, delta: PartialPoint) -> Result<(), MachineError> {
+        let new_pos = Point::new(
+            self.pos().x() + delta.x().unwrap_or(0.0),
+            self.pos().y() + delta.y().unwrap_or(0.0),
+            self.pos().z() + delta.z().unwrap_or(0.0),
+        );
+
+        self.set_pos(new_pos)
+    }
+
+    /// Moves machine after checking for [`Positioning`] setting of the machine.
+    ///
+    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// indicating failure.
+    pub fn move_machine(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
+        match self.positioning {
+            Positioning::Absolute => self.move_absolute(pos),
+            Positioning::Incremental => self.move_incremental(pos),
+        }
+    }
+
+    /// Moves `Some` variants of `pos` to the value inside.
+    ///
+    /// This function differs from [`move_machine`](Self::move_machine) in the way that,
+    /// it does not consider any `work_offset` & `positioning` setting of the [`Machine`] and just
+    /// moves the machine axes to desired location.
+    ///
+    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// indicating failure.
+    pub fn move_machine_pos(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
+        let new_pos = Point::new(
+            pos.x().unwrap_or(self.pos().x()),
+            pos.y().unwrap_or(self.pos().y()),
+            pos.z().unwrap_or(self.pos().z()),
+        );
+
+        self.set_pos(new_pos)
     }
 
     // have 3 methods:
