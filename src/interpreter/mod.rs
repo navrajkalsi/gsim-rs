@@ -122,9 +122,10 @@ impl Interpreter {
 
     fn execute_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
         match gcode {
-            _ => (),
-            GCode::RapidMove(partial_point) => todo!(),
-            GCode::FeedMove { p_point, f } => todo!(),
+            GCode::RapidMove(pos) => self.machine.rapid_move(pos)?,
+
+            GCode::FeedMove { p_point, f } => self.machine.feed_move(p_point, f)?,
+
             GCode::CWArcMove { p_point, method, f } => todo!(),
             GCode::CCWArcMove { p_point, method, f } => todo!(),
 
@@ -151,7 +152,7 @@ impl Interpreter {
             GCode::ToolLenCompSubtract(_) => todo!(),
             GCode::CancelLenComp => todo!(),
 
-            GCode::MachineCoord(partial_point) => self.machine.move_machine_pos(partial_point)?,
+            GCode::MachineCoord(pos) => self.machine.move_machine_pos(pos)?,
 
             // always make the machine center as g54 offset
             GCode::WorkCoord => self.machine.set_work_offset(Point::new(

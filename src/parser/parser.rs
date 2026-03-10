@@ -5,6 +5,8 @@
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
+use crate::machine::Plane;
+
 use super::{lexer::*, *};
 use std::{
     cmp::PartialEq,
@@ -165,6 +167,15 @@ impl Point {
         self.0 *= 25.4;
         self.1 *= 25.4;
         self.2 *= 25.4;
+    }
+
+    /// Calculates distance between `self` and another [`Point`] on a certain plane.
+    pub fn dist(&self, other: &Self, plane: Plane) -> Float {
+        match plane {
+            Plane::XY => ((self.x() - other.x()).powi(2) + (self.y() - other.y()).powi(2)).sqrt(),
+            Plane::XZ => ((self.x() - other.x()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
+            Plane::YZ => ((self.y() - other.y()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
+        }
     }
 }
 
@@ -538,6 +549,12 @@ impl GCode {
                 // at most 2 axis can be specified, and at least one axis should be present
                 if let CircleMethod::RelativePoint(rel_point) = &method {
                     if rel_point.is_some() || rel_point.is_none() {
+                        return Err(ParserError::InvalidParamForGCode(suffix));
+                    }
+                }
+                // R must not be more or less than 180(pi)
+                else if let CircleMethod::FixedRadius(rad) = &method {
+                    if *rad == 0.0 {
                         return Err(ParserError::InvalidParamForGCode(suffix));
                     }
                 }
