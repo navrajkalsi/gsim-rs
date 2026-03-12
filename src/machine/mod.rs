@@ -7,7 +7,6 @@
 
 use crate::parser::{Float, Int, parser::*};
 use std::{
-    f64::consts::PI,
     fmt::{Debug, Display},
     ops::Neg,
 };
@@ -37,7 +36,7 @@ pub enum Unit {
 }
 
 /// Possible planes for a 3-axis machine.
-#[derive(Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Plane {
     #[default]
     XY,
@@ -436,18 +435,175 @@ impl Machine {
     }
 }
 
-fn circle_info(
-    current_pos: &Point,
-    new_pos: &Point,
-    method: CircleMethod,
-    plane: Plane,
-) -> (Point, Float) {
-    match method {
-        CircleMethod::RelativePoint(center) => todo!(),
-        CircleMethod::FixedRadius(rad) => {
-            assert!(rad != 0.0, "Invalid radius passed parser. Logic Error!.");
+struct PlanarPoint(Plane, Float, Float);
 
-            unimplemented!()
+impl PlanarPoint {
+    fn new(plane: Plane, first: Float, second: Float) -> Self {
+        Self(plane, first, second)
+    }
+
+    fn plane(&self) -> Plane {
+        self.0
+    }
+
+    fn first(&self) -> Float {
+        self.1
+    }
+
+    fn second(&self) -> Float {
+        self.2
+    }
+
+    /// Both points must be on the same plane.
+    fn dist(&self, other: &Self) -> Float {
+        assert_eq!(
+            self.plane(),
+            other.plane(),
+            "The method is only supposed to find distance between points on the same plane."
+        );
+
+        ((self.first() - other.first()).powi(2) + (self.second() - other.second()).powi(2)).sqrt()
+    }
+}
+
+fn circle_info(
+    current_pos: &PlanarPoint,
+    new_pos: &PlanarPoint,
+    method: CircleMethod,
+    dir: CircularDirection,
+) -> Result<(PlanarPoint, Float), MachineError> {
+    assert_eq!(
+        current_pos.plane(),
+        new_pos.plane(),
+        "Points plane mistmatch."
+    );
+
+    // plane to create the circle on
+    let plane = current_pos.plane();
+
+    match method {
+        CircleMethod::RelativePoint(rel_center) => {
+            if rel_center.is_none() || rel_center.is_some() {
+                panic!("Inalid Relative Center passed parser. Logic Error!");
+            }
+
+            // absolute center on the same plane as both the points
+            let center = match plane {
+                Plane::XY if rel_center.z().is_some() => return Err(MachineError::CenterOffPlane),
+
+                Plane::XZ if rel_center.y().is_some() => return Err(MachineError::CenterOffPlane),
+
+                Plane::YZ if rel_center.x().is_some() => return Err(MachineError::CenterOffPlane),
+
+                Plane::XY => PlanarPoint::new(
+                    plane,
+                    rel_center
+                        .x()
+                        .map_or(current_pos.first(), |x| current_pos.first() + x),
+                    rel_center
+                        .y()
+                        .map_or(current_pos.second(), |y| current_pos.second() + y),
+                ),
+
+                Plane::XZ => PlanarPoint::new(
+                    plane,
+                    rel_center
+                        .x()
+                        .map_or(current_pos.first(), |x| current_pos.first() + x),
+                    rel_center
+                        .z()
+                        .map_or(current_pos.second(), |z| current_pos.second() + z),
+                ),
+
+                Plane::YZ => PlanarPoint::new(
+                    plane,
+                    rel_center
+                        .y()
+                        .map_or(current_pos.first(), |y| current_pos.first() + y),
+                    rel_center
+                        .z()
+                        .map_or(current_pos.second(), |z| current_pos.second() + z),
+                ),
+            };
+
+            let radius = current_pos.dist(&center);
+
+            // in this method the distance between the points cannot be greater than the diameter
+
+            // new point not at the same distance.
+            if (new_pos.dist(&center) - radius).abs() > 1e-10 {
+                Err(MachineError::InvalidCircle)
+            } else {
+                Ok((center, radius))
+            }
+        }
+
+        CircleMethod::FixedRadius(radius) => {
+            assert!(
+                radius.abs() > 1e-10,
+                "Invalid radius passed parser. Logic Error!."
+            );
+
+            // if radius is negative, make it positive and make the function choose the major arc
+            // otherwise choose minor arc on positive r value
+            let (radius, minor) = if radius.signum() == 1.0 {
+                (radius, true)
+            } else if radius.signum() == -1.0 {
+                (radius.neg(), false)
+            } else {
+                panic!("Provided number is Not a Number (NaN).");
+            };
+
+            let dist = current_pos.dist(&new_pos);
+
+            // distance more than diameter
+            if dist > 2.0 * radius.abs() {
+                return Err(MachineError::InvalidCircle);
+            }
+
+            let midpoint = PlanarPoint::new(
+                plane,
+                current_pos.first().midpoint(new_pos.first()),
+                current_pos.second().midpoint(new_pos.second()),
+            );
+
+            // how much is the midpoint off from the current position
+            // plane is irrelevant in this.
+            let delta = PlanarPoint::new(
+                plane,
+                midpoint.first() - current_pos.first(),
+                midpoint.second() - current_pos.second(),
+            );
+
+            // points are on the diameter
+            if (2.0 * radius - dist).abs() < 1e-10 {
+                return Ok((midpoint, radius));
+            }
+
+            // make dist as distance to midpoint only
+            let dist = dist / 2.0;
+
+            // length of line joining midpoint and center, the perpendicular bisector
+            let bisector = (radius.powi(2) - dist.powi(2)).sqrt();
+
+            // TODO create diagram to prove the result for all 4 quadrants
+            let center = match (minor, dir) {
+                (true, CircularDirection::Clockwise)
+                | (false, CircularDirection::CounterClockwise) => PlanarPoint::new(
+                    plane,
+                    midpoint.first() + (bisector * delta.second()) / dist,
+                    midpoint.second() - (bisector * delta.first()) / dist,
+                ),
+
+                (true, CircularDirection::CounterClockwise)
+                | (false, CircularDirection::Clockwise) => PlanarPoint::new(
+                    plane,
+                    midpoint.first() - (bisector * delta.second()) / dist,
+                    midpoint.second() + (bisector * delta.first()) / dist,
+                ),
+            };
+
+            Ok((center, radius))
         }
     }
 }
@@ -468,6 +624,10 @@ pub enum MachineError {
     NoTool,
     /// Feed move was commanded, but no feed was provided.
     NoFeed,
+    /// Circle not possible due to invalid radius.
+    InvalidCircle,
+    /// Provided center point does not lie on the selected plane.
+    CenterOffPlane,
 }
 
 impl Display for MachineError {
