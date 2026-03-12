@@ -435,6 +435,7 @@ impl Machine {
     }
 }
 
+#[derive(PartialEq)]
 struct PlanarPoint(Plane, Float, Float);
 
 impl PlanarPoint {
@@ -455,34 +456,47 @@ impl PlanarPoint {
     }
 
     /// Both points must be on the same plane.
-    fn dist(&self, other: &Self) -> Float {
-        assert_eq!(
-            self.plane(),
-            other.plane(),
-            "The method is only supposed to find distance between points on the same plane."
-        );
-
-        ((self.first() - other.first()).powi(2) + (self.second() - other.second()).powi(2)).sqrt()
+    fn dist(&self, other: &Self) -> Result<Float, MachineError> {
+        if self.plane() == other.plane() {
+            Ok(
+                ((self.first() - other.first()).powi(2) + (self.second() - other.second()).powi(2))
+                    .sqrt(),
+            )
+        } else {
+            Err(MachineError::PointsOffPlane)
+        }
     }
 }
 
+// reference:
+// https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically
+/// Errors:
+/// - [`MachineError::PointsOffPlane`] -- Both points do not lie on the requested plane.
+/// - [`MachineError::PointsIntersect`] -- Both provided points have the same coordinates.
+/// - [`MachineError::CenterOffPlane`] -- The relative center provided does not lie on the
+/// requested plane.
+/// - [`MachineError::InvalidCircle`] -- The provided or calculated radius does not satisfy both
+/// the points.
 fn circle_info(
     current_pos: &PlanarPoint,
     new_pos: &PlanarPoint,
     method: CircleMethod,
     dir: CircularDirection,
 ) -> Result<(PlanarPoint, Float), MachineError> {
-    assert_eq!(
-        current_pos.plane(),
-        new_pos.plane(),
-        "Points plane mistmatch."
-    );
-
     // plane to create the circle on
     let plane = current_pos.plane();
 
+    if new_pos.plane() != plane {
+        return Err(MachineError::PointsOffPlane);
+    }
+
+    if current_pos == new_pos {
+        return Err(MachineError::PointsIntersect);
+    }
+
     match method {
-        CircleMethod::RelativePoint(rel_center) => {
+        CircleMethod::RelativePoint(ref rel_center) => {
+            // all fields cannot be None or Some.
             if rel_center.is_none() || rel_center.is_some() {
                 panic!("Inalid Relative Center passed parser. Logic Error!");
             }
@@ -526,13 +540,13 @@ fn circle_info(
                 ),
             };
 
-            let radius = current_pos.dist(&center);
+            let radius = current_pos.dist(&center)?;
 
             // in this method the distance between the points cannot be greater than the diameter
 
             // new point not at the same distance.
-            if (new_pos.dist(&center) - radius).abs() > 1e-10 {
-                Err(MachineError::InvalidCircle)
+            if (new_pos.dist(&center)? - radius).abs() > 1e-10 {
+                Err(MachineError::InvalidCircle(method))
             } else {
                 Ok((center, radius))
             }
@@ -545,7 +559,7 @@ fn circle_info(
             );
 
             // if radius is negative, make it positive and make the function choose the major arc
-            // otherwise choose minor arc on positive r value
+            // otherwise choose minor arc on positive R value
             let (radius, minor) = if radius.signum() == 1.0 {
                 (radius, true)
             } else if radius.signum() == -1.0 {
@@ -554,11 +568,11 @@ fn circle_info(
                 panic!("Provided number is Not a Number (NaN).");
             };
 
-            let dist = current_pos.dist(&new_pos);
+            let dist = current_pos.dist(&new_pos)?;
 
             // distance more than diameter
             if dist > 2.0 * radius.abs() {
-                return Err(MachineError::InvalidCircle);
+                return Err(MachineError::InvalidCircle(method));
             }
 
             let midpoint = PlanarPoint::new(
@@ -567,8 +581,8 @@ fn circle_info(
                 current_pos.second().midpoint(new_pos.second()),
             );
 
-            // how much is the midpoint off from the current position
-            // plane is irrelevant in this.
+            // how much is the midpoint off from the current position.
+            // plane is irrelevant in this var.
             let delta = PlanarPoint::new(
                 plane,
                 midpoint.first() - current_pos.first(),
@@ -624,8 +638,12 @@ pub enum MachineError {
     NoTool,
     /// Feed move was commanded, but no feed was provided.
     NoFeed,
-    /// Circle not possible due to invalid radius.
-    InvalidCircle,
+    /// Points of the requested circle do not lie on the same plane.
+    PointsOffPlane,
+    /// Both provided circle points are the same.
+    PointsIntersect,
+    /// Circle not possible due to method specific method requirements.
+    InvalidCircle(CircleMethod),
     /// Provided center point does not lie on the selected plane.
     CenterOffPlane,
 }
@@ -660,6 +678,10 @@ impl Display for MachineError {
                 Self::NoFeed => format!(
                     "No Feed Commanded:\nA feed move was commanded, but no 'F' was detected throughout the program."
                 ),
+                Self::PointsOffPlane => format!(""),
+                Self::PointsIntersect => format!(""),
+                Self::InvalidCircle(method) => format!(""),
+                Self::CenterOffPlane => format!(""),
             }
         )
     }

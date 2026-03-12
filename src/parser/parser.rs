@@ -552,9 +552,9 @@ impl GCode {
                         return Err(ParserError::InvalidParamForGCode(suffix));
                     }
                 }
-                // R must not be more or less than 180(pi)
+                // R must not be 0.
                 else if let CircleMethod::FixedRadius(rad) = &method {
-                    if *rad == 0.0 {
+                    if rad.abs() < 1e-10 {
                         return Err(ParserError::InvalidParamForGCode(suffix));
                     }
                 }
