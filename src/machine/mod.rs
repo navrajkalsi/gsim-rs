@@ -435,28 +435,45 @@ impl Machine {
     }
 }
 
+/// A *tuple struct* that represents a **2D Point** on a specific **Plane**.
 #[derive(PartialEq)]
-struct PlanarPoint(Plane, Float, Float);
+pub struct PlanarPoint(Plane, Float, Float);
 
 impl PlanarPoint {
-    fn new(plane: Plane, first: Float, second: Float) -> Self {
+    /// Constructor for a [`PlanarPoint`].
+    ///
+    /// For a given [`Plane`], *first* represents the value for first axis letter and *second*
+    /// represents the second axis letter.
+    /// For example:
+    /// ```
+    /// PlanarPoint::new(Plane::XY, 1.0, 2.0); // Constructs point with X = 1.0 & Y = 2.0.
+    /// PlanarPoint::new(Plane::XZ, 3.0, 4.0); // Constructs point with X = 3.0 & Z = 4.0.
+    /// PlanarPoint::new(Plane::YZ, 5.0, 6.0); // Constructs point with Y = 5.0 & Z = 6.0.
+    /// ```
+    pub fn new(plane: Plane, first: Float, second: Float) -> Self {
         Self(plane, first, second)
     }
 
-    fn plane(&self) -> Plane {
+    /// Returns selected plane for the point.
+    pub fn plane(&self) -> Plane {
         self.0
     }
 
-    fn first(&self) -> Float {
+    /// Returns the first axis value for the selected plane.
+    pub fn first(&self) -> Float {
         self.1
     }
 
-    fn second(&self) -> Float {
+    /// Returns the second axis value for the selected plane.
+    pub fn second(&self) -> Float {
         self.2
     }
 
-    /// Both points must be on the same plane.
-    fn dist(&self, other: &Self) -> Result<Float, MachineError> {
+    /// Calculates distance between two [`PlanarPoint`]s.
+    ///
+    /// Both the points must lie on the **same plane**, otherwise [`MachineError::PointsOffPlane`]
+    /// is returned.
+    pub fn dist(&self, other: &Self) -> Result<Float, MachineError> {
         if self.plane() == other.plane() {
             Ok(
                 ((self.first() - other.first()).powi(2) + (self.second() - other.second()).powi(2))
@@ -468,9 +485,24 @@ impl PlanarPoint {
     }
 }
 
-// reference:
-// https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically
-/// Errors:
+/// Validate if an *arc* is possible between two points and return its properties.
+/// This function takes care of all the geometric Math for circular interpolation paths.
+///
+/// Accepts:
+/// - Start and end points of the arc as [`PlanarPoint`]s, which must lie on the same plane.
+/// - [`CircleMethod`] to use for calculating the radius of possible arc(s).
+/// - [`CircularDirection`] for selecting a particular center point, in case more than one circles
+/// are possible.
+///
+/// On success, returns a *tuple* consisting of two fields:
+/// - The *center [`PlanarPoint`]* of the circle that satisfies the given conditions.
+/// - The *radius* of the said circle.
+///
+/// On failure, returns [`MachineError`].
+///
+/// # Reference: [`Math Stack Exchange`](https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically)
+///
+/// # Errors:
 /// - [`MachineError::PointsOffPlane`] -- Both points do not lie on the requested plane.
 /// - [`MachineError::PointsIntersect`] -- Both provided points have the same coordinates.
 /// - [`MachineError::CenterOffPlane`] -- The relative center provided does not lie on the
@@ -678,10 +710,23 @@ impl Display for MachineError {
                 Self::NoFeed => format!(
                     "No Feed Commanded:\nA feed move was commanded, but no 'F' was detected throughout the program."
                 ),
-                Self::PointsOffPlane => format!(""),
-                Self::PointsIntersect => format!(""),
-                Self::InvalidCircle(method) => format!(""),
-                Self::CenterOffPlane => format!(""),
+                Self::PointsOffPlane => format!(
+                    "Points are not detected to be on the same plane:\nBoth the points must be on the same plane to be considered valid."
+                ),
+                Self::PointsIntersect => format!(
+                    "Ambiguous Circle Detected:\nThe start and end points of the requested circle are same and therefore the circle cannot be constructed. "
+                ),
+                Self::InvalidCircle(method) => match method {
+                    CircleMethod::RelativePoint(_) => format!(
+                        "Invalid Circle Requested:\nThe start and end points of the requested circle are not found to be at the same distance from the specified center, which is invalid."
+                    ),
+                    CircleMethod::FixedRadius(_) => format!(
+                        "Invalid Circle Requested:\nThe distance between the start and end points is found to be more than the diameter provided, which is invalid."
+                    ),
+                },
+                Self::CenterOffPlane => format!(
+                    "Invalid Relative Center Point Detected:\nThe relative center provided does not lie only on the selected plane, which is invalid."
+                ),
             }
         )
     }

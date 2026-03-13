@@ -80,7 +80,7 @@ impl Point {
     ///
     /// The fields represent X, Y, and Z axis respectively and are necessary.
     pub const fn new(x: Float, y: Float, z: Float) -> Self {
-        Point(x, y, z)
+        Self(x, y, z)
     }
 
     /// Returns a tuple of [`Float`] values for each axis.
