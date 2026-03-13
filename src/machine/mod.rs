@@ -436,7 +436,7 @@ impl Machine {
 }
 
 /// A *tuple struct* that represents a **2D Point** on a specific **Plane**.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct PlanarPoint(Plane, Float, Float);
 
 impl PlanarPoint {
@@ -931,5 +931,66 @@ mod tests {
         assert!(m.tool_change(Some(10)).is_ok());
         assert_eq!(m.tool, 10);
         assert_eq!(m.next_tool, None);
+    }
+
+    // test to retrieve circle properties.
+    #[test]
+    fn test_circle_info() {
+        // rel center
+        let start = PlanarPoint::new(Plane::XY, -3.0, 4.0);
+        let end = PlanarPoint::new(Plane::XY, 3.0, 4.0);
+
+        let method = CircleMethod::RelativePoint(PartialPoint::new(Some(3.0), Some(-4.0), None));
+        let (center, radius) =
+            circle_info(&start, &end, method.clone(), CircularDirection::Clockwise).unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 0.0);
+
+        let method = CircleMethod::RelativePoint(PartialPoint::new(Some(3.0), Some(4.0), None));
+        let (center, radius) =
+            circle_info(&start, &end, method.clone(), CircularDirection::Clockwise).unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 8.0);
+
+        // positive radius should get minor arc
+        let method = CircleMethod::FixedRadius(5.0);
+        let (center, radius) =
+            circle_info(&start, &end, method.clone(), CircularDirection::Clockwise).unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 0.0);
+
+        let (center, radius) = circle_info(
+            &start,
+            &end,
+            method.clone(),
+            CircularDirection::CounterClockwise,
+        )
+        .unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 8.0);
+
+        // negative radius should get major arc
+        let method = CircleMethod::FixedRadius(-5.0);
+        let (center, radius) =
+            circle_info(&start, &end, method.clone(), CircularDirection::Clockwise).unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 8.0);
+
+        let (center, radius) =
+            circle_info(&start, &end, method, CircularDirection::CounterClockwise).unwrap();
+
+        assert_eq!(radius, 5.0);
+        assert_eq!(center.first(), 0.0);
+        assert_eq!(center.second(), 0.0);
     }
 }

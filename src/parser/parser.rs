@@ -180,7 +180,7 @@ impl Point {
 }
 
 /// Same as [`Point`] but the fields can be `None`.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct PartialPoint(Option<Float>, Option<Float>, Option<Float>);
 
 impl PartialPoint {
@@ -243,7 +243,7 @@ impl PartialPoint {
 
 /// Circular Interpolation helper.
 /// Both relative point and radius must not appear in the same block.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K**.
     RelativePoint(PartialPoint),
