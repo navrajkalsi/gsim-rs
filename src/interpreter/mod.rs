@@ -126,8 +126,17 @@ impl Interpreter {
 
             GCode::FeedMove { p_point, f } => self.machine.feed_move(p_point, f)?,
 
-            GCode::CWArcMove { p_point, method, f } => todo!(),
-            GCode::CCWArcMove { p_point, method, f } => todo!(),
+            GCode::CWArcMove { p_point, method, f } => {
+                self.machine
+                    .circular_move(p_point, method, CircularDirection::Clockwise, f)?
+            }
+
+            GCode::CCWArcMove { p_point, method, f } => self.machine.circular_move(
+                p_point,
+                method,
+                CircularDirection::CounterClockwise,
+                f,
+            )?,
 
             GCode::Dwell(p) => {
                 println!("Dwelling for {p} seconds.");

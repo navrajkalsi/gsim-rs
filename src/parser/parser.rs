@@ -239,6 +239,20 @@ impl PartialPoint {
     pub fn is_some(&self) -> bool {
         self.0.is_some() && self.1.is_some() && self.2.is_some()
     }
+
+    /// Treats all the axes values in *Metric* system, and converts them to *Imperial* system.
+    pub fn to_imperial(&mut self) {
+        self.0 = self.0.map(|x| x / 25.4);
+        self.1 = self.1.map(|y| y / 25.4);
+        self.2 = self.2.map(|z| z / 25.4);
+    }
+
+    /// Treats all the axes values in *Imperial* system, and converts them to *Metric* system.
+    pub fn to_metric(&mut self) {
+        self.0 = self.0.map(|x| x * 25.4);
+        self.1 = self.1.map(|y| y * 25.4);
+        self.2 = self.2.map(|z| z * 25.4);
+    }
 }
 
 /// Circular Interpolation helper.

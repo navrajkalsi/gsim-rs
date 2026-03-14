@@ -336,6 +336,70 @@ impl Machine {
         }
     }
 
+    pub fn circular_move(
+        &mut self,
+        mut pos: PartialPoint,
+        method: CircleMethod,
+        dir: CircularDirection,
+        feed: Option<Float>,
+    ) -> Result<(PlanarPoint, Float), MachineError> {
+        if let Some(f) = feed {
+            self.set_feed(f);
+        }
+
+        if self.feed.is_none() {
+            return Err(MachineError::NoFeed);
+        }
+
+        let start_pos = self.pos();
+        let mut end_pos = start_pos.clone();
+        // retain None variants as start_pos
+        self.to_machine_units_partial(&mut pos); // pos will now be in same units as start_pos
+        end_pos.set_optional(pos.x(), pos.y(), pos.z());
+
+        let (start_pos_planar, end_pos_planar) = match self.plane {
+            Plane::XY => (
+                PlanarPoint::new(self.plane, start_pos.x(), start_pos.y()),
+                PlanarPoint::new(self.plane, end_pos.x(), end_pos.y()),
+            ),
+            Plane::XZ => (
+                PlanarPoint::new(self.plane, start_pos.x(), start_pos.z()),
+                PlanarPoint::new(self.plane, end_pos.x(), end_pos.z()),
+            ),
+            Plane::YZ => (
+                PlanarPoint::new(self.plane, start_pos.y(), start_pos.z()),
+                PlanarPoint::new(self.plane, end_pos.y(), end_pos.z()),
+            ),
+        };
+
+        // convert `method` units
+        let method = match method {
+            CircleMethod::RelativePoint(mut rel_center) => {
+                self.to_machine_units_partial(&mut rel_center);
+                CircleMethod::RelativePoint(rel_center)
+            }
+            CircleMethod::FixedRadius(mut rad) => {
+                if self.units == Unit::Imperial && self.code_units == Unit::Metric {
+                    rad /= 25.4;
+                } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
+                    rad *= 25.4;
+                };
+
+                CircleMethod::FixedRadius(rad)
+            }
+        };
+
+        let (center, radius) = circle_info(&start_pos_planar, &end_pos_planar, method, dir)?;
+
+        // check if the midpoint of the arc will be in the machine limits
+
+        // now we know the circle is possible
+        // and end_pos is already in machine units
+        self.set_pos_no_conversion(end_pos)?;
+
+        Ok((center, radius))
+    }
+
     /// Moves `Some` variants of `pos` to the value inside.
     ///
     /// This function differs from [`move_machine`](Self::move_machine) in the way that,
@@ -407,9 +471,17 @@ impl Machine {
     ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
-    fn set_pos(&mut self, pos: Point) -> Result<(), MachineError> {
-        let pos = self.to_machine_units(pos);
+    fn set_pos(&mut self, mut pos: Point) -> Result<(), MachineError> {
+        self.to_machine_units(&mut pos);
+        self.set_pos_no_conversion(pos)
+    }
 
+    /// Set the current machine position for all axes.
+    /// Does **NO UNIT CONVERSION**, even if the *machine* and *code* units differ.
+    ///
+    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// indicating failure.
+    fn set_pos_no_conversion(&mut self, pos: Point) -> Result<(), MachineError> {
         if pos.over(&self.max_travels) || pos.under(&HOME_POS) {
             Err(MachineError::Overtravel)
         } else {
@@ -422,16 +494,25 @@ impl Machine {
     // ########## OTHER HELPER METHODS ##########
     //
 
-    /// Accepts a `point` in `code_units`.
-    /// Returns a new [`Point`] after converting the units to Machine units.
-    fn to_machine_units(&self, mut point: Point) -> Point {
+    /// Accepts a *mutable reference to [`Point`]* in `code_units`.
+    /// Converts the units of all fields to Machine units.
+    fn to_machine_units(&self, point: &mut Point) {
         if self.units == Unit::Imperial && self.code_units == Unit::Metric {
-            point.to_imperial();
+            point.to_imperial()
         } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
-            point.to_metric();
+            point.to_metric()
         }
+    }
 
-        point
+    /// Accepts a *mutable reference to [`Point`]* in `code_units`.
+    /// Converts the units of all `Some` variant fields to Machine units.
+    /// `None` variants are not changed.
+    fn to_machine_units_partial(&self, point: &mut PartialPoint) {
+        if self.units == Unit::Imperial && self.code_units == Unit::Metric {
+            point.to_imperial()
+        } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
+            point.to_metric()
+        }
     }
 }
 
