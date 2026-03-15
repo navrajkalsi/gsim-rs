@@ -14,7 +14,7 @@ fn main() {
         Err(e) => panic!("{e}"),
     };
 
-    let mut i = match Interpreter::build(m, "gcode.nc") {
+    let mut i = match Interpreter::build(m, "program.nc") {
         Ok(i) => i,
         Err(e) => panic!("{e}"),
     };

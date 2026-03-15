@@ -1,4 +1,7 @@
 //! # Interpreter
+//!
+//! This module executes [`Code`] blocks on a [`Machine`]
+//! by making the required function calls on the `Machine`.
 
 use crate::parser::lexer::LexerError;
 use crate::parser::parser::*;
@@ -8,6 +11,7 @@ use std::{
     fs, io,
 };
 
+/// Represents an instance of [`Interpreter`](crate::interpreter).
 pub struct Interpreter {
     machine: Machine,
     blocks: Vec<String>,
@@ -35,6 +39,9 @@ impl Interpreter {
         Ok(Interpreter { machine, blocks })
     }
 
+    /// Executes each *code block* sequentially on the *machine*.
+    ///
+    /// Returns [`InterpreterError`] on failure.
     pub fn run(&mut self) -> Result<(), InterpreterError> {
         let mut current = 0;
 
@@ -46,6 +53,7 @@ impl Interpreter {
             println!("Block: {block}\nCodes: {codes:?}\n");
 
             for code in codes {
+                let machine = &mut self.machine;
                 match code {
                     Code::G(gcode) => self.run_gcode(gcode)?,
 
@@ -55,51 +63,46 @@ impl Interpreter {
                         MCode::OptionalStop => self.wait()?,
 
                         MCode::SpindleFwd(s) => {
-                            self.machine.spindle_on(CircularDirection::Clockwise, s)?
+                            machine.spindle_on(CircularDirection::Clockwise, s)?
                         }
 
                         MCode::SpindleRev(s) => self
                             .machine
                             .spindle_on(CircularDirection::CounterClockwise, s)?,
 
-                        MCode::SpindleStop => self.machine.spindle_off(),
+                        MCode::SpindleStop => machine.spindle_off(),
 
-                        MCode::ToolChange(t) => self.machine.tool_change(t)?,
+                        MCode::ToolChange(t) => machine.tool_change(t)?,
 
-                        MCode::CoolantOn => self.machine.set_coolant(true),
+                        MCode::CoolantOn => machine.set_coolant(true),
 
-                        MCode::CoolantOff => self.machine.set_coolant(false),
+                        MCode::CoolantOff => machine.set_coolant(false),
 
                         MCode::End => {
                             println!("Program end detected");
+                            machine.spindle_off();
+                            machine.set_plane(Plane::default());
+                            machine.set_coolant(false);
+                            machine.set_feed_mode(FeedMode::default());
                             break 'lineloop;
                         }
                     },
 
-                    Code::F(f) => self.machine.set_feed(f),
+                    Code::F(f) => machine.set_feed(f),
 
                     Code::N(_) => (),
 
                     Code::O(_) => (),
 
-                    Code::S(s) => self.machine.set_speed(s),
+                    Code::S(s) => machine.set_speed(s),
 
-                    Code::T(t) => self.machine.set_next_tool(t),
+                    Code::T(t) => machine.set_next_tool(t),
 
-                    Code::X(x) => {
-                        self.machine
-                            .move_machine(PartialPoint::new(Some(x), None, None))?
-                    }
+                    Code::X(x) => machine.move_machine(PartialPoint::new(Some(x), None, None))?,
 
-                    Code::Y(y) => {
-                        self.machine
-                            .move_machine(PartialPoint::new(None, Some(y), None))?
-                    }
+                    Code::Y(y) => machine.move_machine(PartialPoint::new(None, Some(y), None))?,
 
-                    Code::Z(z) => {
-                        self.machine
-                            .move_machine(PartialPoint::new(None, None, Some(z)))?
-                    }
+                    Code::Z(z) => machine.move_machine(PartialPoint::new(None, None, Some(z)))?,
                 }
             }
 
@@ -120,6 +123,7 @@ impl Interpreter {
         }
     }
 
+    /// G-Code execution helper for executing 'G' prefix codes.
     fn run_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
         let machine = &mut self.machine;
 
@@ -242,16 +246,16 @@ impl Display for InterpreterError {
             "{}",
             match self {
                 Self::FileError(e) => format!(
-                    "File Access Error:\nThe following error occured when accessing the 'G-Code' file:\n{e}."
+                    "File Access Error:\nThe following error occured when accessing the 'G-Code' file:\n{e}"
                 ),
                 Self::LexerError(e) => format!(
-                    "Lexer Error:\nThe following error occured when tokenizing the 'G-Code':\n{e}."
+                    "Lexer Error:\nThe following error occured when tokenizing the 'G-Code':\n{e}"
                 ),
                 Self::ParserError(e) => format!(
-                    "Parser Error:\nThe following error occured when parsing the 'G-Code':\n{e}."
+                    "Parser Error:\nThe following error occured when parsing the 'G-Code':\n{e}"
                 ),
                 Self::MachineError(e) => format!(
-                    "Machine Error:\nThe following error occured when trying to change the Machine state:\n{e}."
+                    "Machine Error:\nThe following error occured when trying to change the Machine state:\n{e}"
                 ),
             }
         )
@@ -265,6 +269,7 @@ mod tests {
     const TEST_FILE: &'static str = "uniquegcodefile";
 
     #[test]
+    // check if file io works
     fn construct_interpreter() {
         let c = "G00 X0. Y0.;\n\nG43 H1;\n";
         let m = Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()).unwrap();
@@ -282,8 +287,27 @@ mod tests {
             ]
         );
 
-        i.run();
+        i.run().unwrap();
 
         fs::remove_file(TEST_FILE).unwrap();
+    }
+
+    #[test]
+    fn test_run() {
+        let c =
+            " G21;\n G90 \n G1 X50. Y50. Z5. F100.\n G1 Z0.\n G1 X100. Y100. F150.;\n G1 Z5.;\nM30";
+        let m = Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()).unwrap();
+
+        let mut i = Interpreter {
+            blocks: c
+                .lines()
+                .map(|line| line.trim_end_matches(';').trim().to_owned())
+                .collect(),
+            machine: m,
+        };
+
+        i.run().unwrap();
+
+        assert_eq!(i.machine.pos(), &Point::new(100.0, 100.0, 5.));
     }
 }
