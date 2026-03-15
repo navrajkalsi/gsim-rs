@@ -139,20 +139,20 @@ impl Point {
         Self::new(self.0 / self.1, self.0 / self.2, self.1 / self.2)
     }
 
-    /// Compare each axis of `self` with another [`Point`].
+    /// Compare absolute values of each axis of `self` with another [`Point`].
     ///
     /// Returns `false` if all fields of `self` are less than corresponding fields of `other`,
     /// otherwise returns `true` which means at least one field of `self` exceeds that of `other`.
-    pub fn over(&self, other: &Self) -> bool {
-        self.0 > other.0 || self.1 > other.1 || self.2 > other.2
+    pub fn over_abs(&self, other: &Self) -> bool {
+        self.0.abs() > other.0.abs() || self.1.abs() > other.1.abs() || self.2.abs() > other.2.abs()
     }
 
     /// Compare each axis of `self` with another [`Point`].
     ///
     /// Returns `false` if all fields of `self` are greater than corresponding fields of `other`,
     /// otherwise returns `true` which means at least one field of `other` exceeds that of `self`.
-    pub fn under(&self, other: &Self) -> bool {
-        self.0 < other.0 || self.1 < other.1 || self.2 < other.2
+    pub fn under_abs(&self, other: &Self) -> bool {
+        self.0.abs() < other.0.abs() || self.1.abs() < other.1.abs() || self.2.abs() < other.2.abs()
     }
 
     /// Treats all the axes values in *Metric* system, and converts them to *Imperial* system.
@@ -522,9 +522,9 @@ impl GCode {
     /// # Errors
     /// - [`ParserError::InvalidGCode`] -- The code suffix is unknown.
     /// - [`ParserError::InvalidParamForGCode`] -- The required tokens for a GCode variant are
-    /// invalid.
+    ///   invalid.
     /// - [`ParserError::MissingCodeForGCode`] -- The variant of GCode needs another token for
-    /// parsing, that is not present in the block.
+    ///   parsing, that is not present in the block.
     fn parse_from_suffix(suffix: Int, block: &mut Block) -> Result<Self, ParserError> {
         match suffix {
             0 => {
@@ -941,7 +941,7 @@ fn validate_block(mut tokens: Vec<Token>) -> Result<Block, ParserError> {
             };
 
             // check if suffix is supported
-            if GCODES.iter().position(|gcode| gcode.0 == suffix).is_none() {
+            if !GCODES.iter().any(|gcode| gcode.0 == suffix) {
                 return Err(ParserError::InvalidGCode(suffix));
             }
 
@@ -973,7 +973,7 @@ fn validate_block(mut tokens: Vec<Token>) -> Result<Block, ParserError> {
             };
 
             // check if suffix is supported
-            if MCODES.iter().position(|mcode| *mcode == suffix).is_none() {
+            if !MCODES.contains(&suffix) {
                 return Err(ParserError::InvalidMCode(suffix));
             }
 
@@ -1511,7 +1511,7 @@ mod tests {
         let mid = Point::new(200.0, 200.0, 200.0);
 
         // atleast one field is over and under `mid`
-        assert!(p.over(&mid));
-        assert!(p.under(&mid));
+        assert!(p.over_abs(&mid));
+        assert!(p.under_abs(&mid));
     }
 }

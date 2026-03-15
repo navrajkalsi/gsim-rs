@@ -76,15 +76,14 @@ impl Display for LexerError {
             f,
             "{}",
             match self {
-                Self::IllegalChar => format!(
+                Self::IllegalChar =>
                     "Illegal Character Detected:\nThe input contains a Non-ASCII character."
-                ),
+                        .to_string(),
                 Self::NonUsableChar(c) => format!(
                     "Unexpected Character Detected:\nThe input contains the following ASCII character which is not supported: '{c}'."
                 ),
-                Self::EOBFound => format!(
-                    "Semicolon Detected:\nThe input contains a semicolon ';' character, which is invalid."
-                ),
+                Self::EOBFound =>
+                    "Semicolon Detected:\nThe input contains a semicolon ';' character, which is invalid.".to_string(),
                 Self::NoSuffix(prefix) => format!(
                     "Invalid Format:\nNo numeric value found after the following prefix character: {prefix}, which is invalid G-Code."
                 ),
@@ -106,7 +105,7 @@ impl Display for LexerError {
 /// # Errors
 /// - [`LexerError::IllegalChar`] -- The block contains a non-ASCII character.
 /// - [`LexerError::NonUsableChar`] -- The block contains an invalid G-code character which is an ASCII
-/// character.
+///   character.
 /// - [`LexerError::EOBFound`] -- The block contains a semicolon.
 /// - [`LexerError::NoSuffix`] -- The block contains a word that has no numeric suffix.
 /// - [`LexerError::ParseSuffix`] -- The numeric suffix of the block cannot be parse into a type.

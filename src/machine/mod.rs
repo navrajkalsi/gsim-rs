@@ -14,18 +14,33 @@ use std::{
 /// Starting point of a machine with all axes at '0'.
 pub const HOME_POS: Point = Point::new(0.0, 0.0, 0.0);
 
-/// Maximum and Minimum values supported for [`Machine::max_travels`] for this module.
-/// The fields of these [`Point`]s will be treated in [`Unit::default`] system.
-const MAX_TRAVELS: Point = Point::new(1500.0, 1000.0, 1000.0);
-const MIN_TRAVELS: Point = Point::new(150.0, 100.0, 100.0);
+/// Represents *max* and *min* allowable values for a generic type `T`.
+struct Limits<T> {
+    max: T,
+    min: T,
+}
 
-/// Ratio to maintain between axes lengths.
+/// **Absolute** Maximum and Minimum values supported for [`Machine::max_travels`] for this module.
+/// The fields of these [`Point`]s will be treated in [`Unit::default`] system.
+///
+/// Only **Z** axis will be forced to be negative.
+/// Rest can be either positive or negative.
+/// The reason of this restriction is that it is conventional to have **Z HOME_POS** above the
+/// part, which requires that the machine can only travel in **negative Z** direction.
+const TRAVEL_LIMITS: Limits<Point> = Limits {
+    max: Point::new(1500.0, 1000.0, 1000.0),
+    min: Point::new(150.0, 100.0, 100.0),
+};
+
+/// **Absolute** Maximum and Minimum ratios to maintain between axes lengths.
 /// The order of specific axes is as follows:
 /// - X : Y
 /// - X : Z
 /// - Y : Z
-const MAX_RATIO: Point = Point::new(2.0, 2.0, 1.5);
-const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
+const RATIO_LIMITS: Limits<Point> = Limits {
+    max: Point::new(2.0, 2.0, 1.5),
+    min: Point::new(1.0, 1.0, 0.5),
+};
 
 /// Possible rates to move the machine in.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
@@ -200,24 +215,24 @@ impl Machine {
     /// Returns a new `Machine` instance on success or [`MachineError`] on failure.
     ///
     /// # Errors:
-    /// - [`MachineError::NegativeTravels`] --
-    /// At least one axis is detected to have a negative value.
+    /// - [`MachineError::PositiveZ`] --
+    ///   Z axis is detected to have a positive value.
     /// - [`MachineError::TravelsTooLong`] --
-    /// At least one axis is longer than what the constructor supports.
+    ///   At least one axis is longer than what the constructor supports.
     /// - [`MachineError::TravelsTooShort`] --
-    /// At least one axis is shorter than what the constructor supports.
+    ///   At least one axis is shorter than what the constructor supports.
     /// - [`MachineError::WrongRatio`] --
-    /// At least two axes have weird values.
+    ///   At least two axes have weird values.
     pub fn build(max_travels: Point, units: Unit) -> Result<Self, MachineError> {
         let ratio = max_travels.ratio();
 
-        if max_travels.any_negative() {
-            Err(MachineError::NegativeTravels)
-        } else if max_travels.over(&MAX_TRAVELS) {
+        if max_travels.z().is_sign_positive() {
+            Err(MachineError::PositiveZ)
+        } else if max_travels.over_abs(&TRAVEL_LIMITS.max) {
             Err(MachineError::TravelsTooLong)
-        } else if max_travels.under(&MIN_TRAVELS) {
+        } else if max_travels.under_abs(&TRAVEL_LIMITS.min) {
             Err(MachineError::TravelsTooShort)
-        } else if ratio.over(&MAX_RATIO) || ratio.under(&MIN_RATIO) {
+        } else if ratio.over_abs(&RATIO_LIMITS.max) || ratio.under_abs(&RATIO_LIMITS.min) {
             Err(MachineError::WrongRatio)
         } else {
             Ok(Machine {
@@ -344,9 +359,7 @@ impl Machine {
     }
 
     /// Cancel any canned cycles.
-    pub fn cancel_canned(&mut self) {
-        ()
-    }
+    pub fn cancel_canned(&mut self) {}
 
     /// Toggle between `feed per minute` or `feed per rev` modes.
     pub fn set_feed_mode(&mut self, mode: FeedMode) {
@@ -414,7 +427,8 @@ impl Machine {
     /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn set_dia_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
-        Ok(self.d_offset = Some(Offset::build_d(address, dir)?))
+        self.d_offset = Some(Offset::build_d(address, dir)?);
+        Ok(())
     }
 
     /// Sets a `Some` value for `h_offset`.
@@ -424,7 +438,8 @@ impl Machine {
     /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn set_height_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
-        Ok(self.h_offset = Some(Offset::build_h(address, dir)?))
+        self.h_offset = Some(Offset::build_h(address, dir)?);
+        Ok(())
     }
 
     //
@@ -657,11 +672,45 @@ impl Machine {
     /// Checks if the given [`Point`] lies with `machine_travels` or not.
     /// Returns [`MachineError::Overtravel`] the point is outside of `machine_travels`.
     fn check_overtravel(&self, point: &Point) -> Result<(), MachineError> {
-        if point.over(&self.max_travels) || point.under(&HOME_POS) {
-            Err(MachineError::Overtravel)
-        } else {
-            Ok(())
-        }
+        match self.max_travels.x().is_sign_positive() {
+            true => {
+                if !(HOME_POS.x()..=self.max_travels.x()).contains(&point.x()) {
+                    return Err(MachineError::Overtravel(b'X', point.x()));
+                }
+            }
+
+            false => {
+                if !(self.max_travels.x()..=HOME_POS.x()).contains(&point.x()) {
+                    return Err(MachineError::Overtravel(b'X', point.x()));
+                }
+            }
+        };
+
+        match self.max_travels.y().is_sign_positive() {
+            true => {
+                if !(HOME_POS.y()..=self.max_travels.y()).contains(&point.y()) {
+                    return Err(MachineError::Overtravel(b'Y', point.y()));
+                }
+            }
+
+            false => {
+                if !(self.max_travels.y()..=HOME_POS.y()).contains(&point.y()) {
+                    return Err(MachineError::Overtravel(b'Y', point.y()));
+                }
+            }
+        };
+
+        match self.max_travels.z().is_sign_positive() {
+            true => panic!("Positive passed Machine construction. Logic Error!"),
+
+            false => {
+                if !(self.max_travels.z()..=HOME_POS.z()).contains(&point.z()) {
+                    return Err(MachineError::Overtravel(b'Z', point.z()));
+                }
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -722,7 +771,7 @@ impl PlanarPoint {
 /// - Start and end points of the arc as [`PlanarPoint`]s, which must lie on the same plane.
 /// - [`CircleMethod`] to use for calculating the radius of possible arc(s).
 /// - [`CircularDirection`] for selecting a particular center point, in case more than one circles
-/// are possible.
+///   are possible.
 ///
 /// On success, returns a *tuple* consisting of two fields:
 /// - The *center [`PlanarPoint`]* of the circle that satisfies the given conditions.
@@ -736,9 +785,9 @@ impl PlanarPoint {
 /// - [`MachineError::PointsOffPlane`] -- Both points do not lie on the requested plane.
 /// - [`MachineError::PointsIntersect`] -- Both provided points have the same coordinates.
 /// - [`MachineError::CenterOffPlane`] -- The relative center provided does not lie on the
-/// requested plane.
+///   requested plane.
 /// - [`MachineError::InvalidCircle`] -- The provided or calculated radius does not satisfy both
-/// the points.
+///   the points.
 fn arc_info(
     current_pos: &PlanarPoint,
     new_pos: &PlanarPoint,
@@ -830,7 +879,7 @@ fn arc_info(
                 panic!("Provided number is Not a Number (NaN).");
             };
 
-            let dist = current_pos.dist(&new_pos)?;
+            let dist = current_pos.dist(new_pos)?;
 
             // distance more than diameter
             if dist > 2.0 * radius.abs() {
@@ -887,13 +936,13 @@ fn arc_info(
 /// Possible errors that can happen during machine construction and interpolation.
 #[derive(Debug, PartialEq)]
 pub enum MachineError {
-    /// Negative value(s) detected during machine construction.
-    NegativeTravels,
+    /// Positive value detected in `max_travels` for Z axis during machine construction.
+    PositiveZ,
     TravelsTooLong,
     TravelsTooShort,
     /// The resulting machine would be an odd shape.
     WrongRatio,
-    Overtravel,
+    Overtravel(u8, Float),
     /// Spindle On was commanded, but no spindle speed was provided.
     NoSpindleSpeed,
     /// Tool change was commanded, but no tool number was provided.
@@ -918,47 +967,38 @@ impl Display for MachineError {
             f,
             "{}",
             match self {
-                Self::NegativeTravels => format!(
-                    "Machine travels cannot be negative.\nPlease provide a valid positive value between: {MAX_TRAVELS:?} and {MIN_TRAVELS:?}"
+                Self::PositiveZ => format!(
+                    "Z Axis travels cannot be positive.\nPlease provide a valid negative value between: -{:?} and -{:?}", TRAVEL_LIMITS.max.z(), TRAVEL_LIMITS.min.z()
                 ),
                 Self::TravelsTooLong => format!(
-                    "Cannot construct a 'Machine' this long.\nPlease provide values less than: {MAX_TRAVELS:?}"
+                    "Cannot construct a 'Machine' this long.\nPlease provide values less than:\nX: {:?}\nY: {:?}\nZ: -{:?}", TRAVEL_LIMITS.max.x(), TRAVEL_LIMITS.max.y(), TRAVEL_LIMITS.max.z()
                 ),
                 Self::TravelsTooShort => format!(
-                    "Cannot construct a 'Machine' this short.\nPlease provide values larger than: {MIN_TRAVELS:?}"
+                    "Cannot construct a 'Machine' this short.\nPlease provide values larger than:\nX: {:?}\nY: {:?}\nZ: -{:?}", TRAVEL_LIMITS.min.x(), TRAVEL_LIMITS.min.y(), TRAVEL_LIMITS.min.z()
                 ),
-                Self::WrongRatio => format!(
-                    "The resultant machine would have a particular axis too long or too short.\nPlease reconsider axis lengths."
+                Self::WrongRatio =>
+                    "The resultant machine would have a particular axis too long or too short.\nPlease reconsider axis lengths.".to_string(),
+                Self::Overtravel(axis, coord) => format!(
+                    "Overtravel:\n'{axis}' of the machine overtravels because of the last move to {coord}."
                 ),
-                Self::Overtravel => format!(
-                    "Overtravel:\nAt least one axis of the machine overtravels because of the last move."
-                ),
-                Self::NoSpindleSpeed => format!(
-                    "No Spindle Speed Commanded:\nA spindle action was commanded, but no 'S' was detected throughout the program."
-                ),
-                Self::NoTool => format!(
-                    "No Tool Commanded:\nA tool change was commanded, but no 'T' was detected on the same block and no tool was preloaded."
-                ),
-                Self::NoFeed => format!(
-                    "No Feed Commanded:\nA feed move was commanded, but no 'F' was detected throughout the program."
-                ),
-                Self::PointsOffPlane => format!(
-                    "Points are not detected to be on the same plane:\nBoth the points must be on the same plane to be considered valid."
-                ),
-                Self::PointsIntersect => format!(
-                    "Ambiguous Circle Detected:\nThe start and end points of the requested circle are same and therefore the circle cannot be constructed. "
-                ),
+                Self::NoSpindleSpeed =>
+                    "No Spindle Speed Commanded:\nA spindle action was commanded, but no 'S' was detected throughout the program.".to_string(),
+                Self::NoTool =>
+                    "No Tool Commanded:\nA tool change was commanded, but no 'T' was detected on the same block and no tool was preloaded.".to_string(),
+                Self::NoFeed =>
+                    "No Feed Commanded:\nA feed move was commanded, but no 'F' was detected throughout the program.".to_string(),
+                Self::PointsOffPlane =>
+                    "Points are not detected to be on the same plane:\nBoth the points must be on the same plane to be considered valid.".to_string(),
+                Self::PointsIntersect =>
+                    "Ambiguous Circle Detected:\nThe start and end points of the requested circle are same and therefore the circle cannot be constructed.".to_string(),
                 Self::InvalidCircle(method) => match method {
-                    CircleMethod::RelativePoint(_) => format!(
-                        "Invalid Circle Requested:\nThe start and end points of the requested circle are not found to be at the same distance from the specified center, which is invalid."
-                    ),
-                    CircleMethod::FixedRadius(_) => format!(
-                        "Invalid Circle Requested:\nThe distance between the start and end points is found to be more than the diameter provided, which is invalid."
-                    ),
+                    CircleMethod::RelativePoint(_) =>
+                        "Invalid Circle Requested:\nThe start and end points of the requested circle are not found to be at the same distance from the specified center, which is invalid.".to_string(),
+                    CircleMethod::FixedRadius(_) =>
+                        "Invalid Circle Requested:\nThe distance between the start and end points is found to be more than the diameter provided, which is invalid.".to_string(),
                 },
-                Self::CenterOffPlane => format!(
-                    "Invalid Relative Center Point Detected:\nThe relative center provided does not lie only on the selected plane, which is invalid."
-                ),
+                Self::CenterOffPlane =>
+                    "Invalid Relative Center Point Detected:\nThe relative center provided does not lie only on the selected plane, which is invalid.".to_string(),
                 Self::OffsetDirection(dir) => match dir {
                     Direction::Up | Direction::Down => format!(
                         "Invalid Offset Direction Detected:\nThe following direction was detected for a Diameter offset, which is invalid: {dir:?}."
@@ -977,17 +1017,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn construct_neg_travels() {
+    fn construct_positive_z() {
         assert_eq!(
-            Machine::build(Point::new(150.0, -500.0, 500.0), Unit::default()).unwrap_err(),
-            MachineError::NegativeTravels
+            Machine::build(Point::new(150.0, 500.0, 500.0), Unit::default()).unwrap_err(),
+            MachineError::PositiveZ
         );
     }
 
     #[test]
     fn construct_long_travels() {
         assert_eq!(
-            Machine::build(Point::new(2000.0, 1000.0, 500.0), Unit::default()).unwrap_err(),
+            Machine::build(Point::new(2000.0, 1000.0, -500.0), Unit::default()).unwrap_err(),
             MachineError::TravelsTooLong
         );
     }
@@ -995,7 +1035,7 @@ mod tests {
     #[test]
     fn construct_short_travels() {
         assert_eq!(
-            Machine::build(Point::new(100.0, 75.0, 75.0), Unit::default()).unwrap_err(),
+            Machine::build(Point::new(100.0, 75.0, -75.0), Unit::default()).unwrap_err(),
             MachineError::TravelsTooShort
         );
     }
@@ -1003,7 +1043,7 @@ mod tests {
     #[test]
     fn construct_wrong_ratio() {
         assert_eq!(
-            Machine::build(Point::new(1500.0, 100.0, 100.0), Unit::default()).unwrap_err(),
+            Machine::build(Point::new(1500.0, 100.0, -100.0), Unit::default()).unwrap_err(),
             MachineError::WrongRatio
         );
     }
@@ -1011,60 +1051,60 @@ mod tests {
     #[test]
     // Must pass
     fn construct_good() {
-        assert!(Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).is_ok());
+        assert!(Machine::build(Point::new(-1000.0, 750.0, -500.0), Unit::default()).is_ok());
     }
 
     // Test Machine methods
 
     #[test]
     fn overtravel_set() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::default()).unwrap();
 
         assert_eq!(
-            m.set_pos(Point::new(-100.0, 500.0, 300.0)).unwrap_err(),
-            MachineError::Overtravel
+            m.set_pos(Point::new(-100.0, 500.0, -300.0)).unwrap_err(),
+            MachineError::Overtravel(b'X', -100.0)
         );
 
         assert_eq!(
-            m.set_pos(Point::new(1200.0, 500.0, 300.0)).unwrap_err(),
-            MachineError::Overtravel
+            m.set_pos(Point::new(1200.0, 500.0, -300.0)).unwrap_err(),
+            MachineError::Overtravel(b'X', 1200.0)
         );
     }
 
     #[test]
     fn unit_standards() {
         // machine metric and code metric
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(25.4)))
+        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)))
             .unwrap();
-        assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
+        assert_eq!(m.pos(), &Point::new(25.4, 25.4, -25.4));
 
         // machine imperial and code imperial
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(1.0)))
+        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)))
             .unwrap();
-        assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
+        assert_eq!(m.pos(), &Point::new(1.0, 1.0, -1.0));
 
         // machine imperial and code metric
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(25.4)))
+        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)))
             .unwrap();
-        assert_eq!(m.pos(), &Point::new(1.0, 1.0, 1.0));
+        assert_eq!(m.pos(), &Point::new(1.0, 1.0, -1.0));
 
         // machine metric and code imperial
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(1.0)))
+        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)))
             .unwrap();
-        assert_eq!(m.pos(), &Point::new(25.4, 25.4, 25.4));
+        assert_eq!(m.pos(), &Point::new(25.4, 25.4, -25.4));
     }
 
     #[test]
     fn absolute_move() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Metric).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Metric).unwrap();
         m.set_positioning(Positioning::Absolute);
 
         // with no g54 offset
@@ -1073,7 +1113,7 @@ mod tests {
         assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
 
         // with g54 offset
-        m.set_work_offset(Point::new(100.0, 100.0, 100.0));
+        m.set_work_offset(Point::new(100.0, 100.0, -100.0));
         m.move_machine(PartialPoint::new(Some(100.0), Some(0.0), None))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(200.0, 100.0, 0.0));
@@ -1082,13 +1122,13 @@ mod tests {
         assert_eq!(
             m.move_machine(PartialPoint::new(Some(901.0), Some(0.0), None))
                 .unwrap_err(),
-            MachineError::Overtravel
+            MachineError::Overtravel(b'X', 1001.0)
         ); // tries to move X to 1001.0
     }
 
     #[test]
     fn incremental_move() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
         m.set_positioning(Positioning::Incremental);
 
         // with no g54 offset
@@ -1097,7 +1137,7 @@ mod tests {
         assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
 
         // with g54 offset
-        m.set_work_offset(Point::new(100.0, 100.0, 100.0)); // has no effect
+        m.set_work_offset(Point::new(100.0, 100.0, -100.0)); // has no effect
         m.move_machine(PartialPoint::new(Some(200.0), Some(0.0), None))
             .unwrap();
         assert_eq!(m.pos(), &Point::new(300.0, 0.0, 0.0));
@@ -1106,36 +1146,36 @@ mod tests {
         assert_eq!(
             m.move_machine(PartialPoint::new(Some(100.0), Some(751.0), None))
                 .unwrap_err(),
-            MachineError::Overtravel
+            MachineError::Overtravel(b'Y', 751.0)
         ); // tries to move Y to 751.0
     }
 
     #[test]
     fn machine_move() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
 
         // with no g54 offset
-        m.move_machine_pos(PartialPoint::new(Some(100.0), None, Some(500.0)))
+        m.move_machine_pos(PartialPoint::new(Some(100.0), None, Some(-500.0)))
             .unwrap();
-        assert_eq!(m.pos(), &Point::new(100.0, 0.0, 500.0));
+        assert_eq!(m.pos(), &Point::new(100.0, 0.0, -500.0));
 
         // with g54 offset
-        m.set_work_offset(Point::new(100.0, 100.0, 100.0));
+        m.set_work_offset(Point::new(100.0, 100.0, -100.0));
         m.move_machine_pos(PartialPoint::new(Some(200.0), Some(100.0), None))
             .unwrap(); // Z will be saved from previous move
-        assert_eq!(m.pos(), &Point::new(200.0, 100.0, 500.0));
+        assert_eq!(m.pos(), &Point::new(200.0, 100.0, -500.0));
 
         // overtravel
         assert_eq!(
-            m.move_machine_pos(PartialPoint::new(Some(0.0), Some(0.0), Some(-1.0)))
+            m.move_machine_pos(PartialPoint::new(Some(0.0), Some(0.0), Some(1.0)))
                 .unwrap_err(),
-            MachineError::Overtravel
-        ); // tries to move Z to -1.0
+            MachineError::Overtravel(b'Z', 1.0)
+        ); // tries to move Z to 1.0
     }
 
     #[test]
     fn spindle() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
 
         assert_eq!(
             m.spindle_on(CircularDirection::default(), None)
@@ -1158,7 +1198,7 @@ mod tests {
 
     #[test]
     fn tool() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::Imperial).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
 
         assert_eq!(m.tool_change(None).unwrap_err(), MachineError::NoTool);
 
@@ -1238,7 +1278,7 @@ mod tests {
 
     #[test]
     fn offset_set() {
-        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).unwrap();
+        let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::default()).unwrap();
 
         assert_eq!(
             m.set_dia_offset(2, Direction::Up).unwrap_err(),

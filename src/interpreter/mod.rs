@@ -1,4 +1,4 @@
-//! # Interpreter
+//! # Intrpreter
 //!
 //! This module executes [`Code`] blocks on a [`Machine`]
 //! by making the required function calls on the `Machine`.
@@ -127,26 +127,23 @@ impl Interpreter {
     fn run_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
         let machine = &mut self.machine;
 
-        Ok(match gcode {
+        match gcode {
             GCode::RapidMove(pos) => machine.rapid_move(pos)?,
 
             GCode::FeedMove { p_point, f } => machine.feed_move(p_point, f)?,
 
             GCode::CWArcMove { p_point, method, f } => {
                 machine.circular_move(p_point, method, CircularDirection::Clockwise, f)?;
-                ()
             }
 
             GCode::CCWArcMove { p_point, method, f } => {
                 machine.circular_move(p_point, method, CircularDirection::CounterClockwise, f)?;
-                ()
             }
 
             GCode::Dwell(p) => {
                 println!("Dwelling for {p} seconds.");
                 let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
                 std::thread::sleep(duration);
-                ()
             }
 
             GCode::XYPlane => machine.set_plane(Plane::XY),
@@ -195,7 +192,9 @@ impl Interpreter {
             GCode::InitialReturn => machine.set_return_level(ReturnLevel::Initial),
 
             GCode::RetractReturn => machine.set_return_level(ReturnLevel::Retract),
-        })
+        };
+
+        Ok(())
     }
 
     // have 3 levels of debug.
@@ -209,33 +208,33 @@ impl Interpreter {
 /// Possible errors that can happen during Interpreting.
 #[derive(Debug)]
 pub enum InterpreterError {
-    FileError(io::Error),
-    LexerError(LexerError),
-    ParserError(ParserError),
-    MachineError(MachineError),
+    File(io::Error),
+    Lexer(LexerError),
+    Parser(ParserError),
+    Machine(MachineError),
 }
 
 impl From<io::Error> for InterpreterError {
     fn from(e: io::Error) -> Self {
-        Self::FileError(e)
+        Self::File(e)
     }
 }
 
 impl From<LexerError> for InterpreterError {
     fn from(e: LexerError) -> Self {
-        Self::LexerError(e)
+        Self::Lexer(e)
     }
 }
 
 impl From<ParserError> for InterpreterError {
     fn from(e: ParserError) -> Self {
-        Self::ParserError(e)
+        Self::Parser(e)
     }
 }
 
 impl From<MachineError> for InterpreterError {
     fn from(e: MachineError) -> Self {
-        Self::MachineError(e)
+        Self::Machine(e)
     }
 }
 
@@ -245,16 +244,16 @@ impl Display for InterpreterError {
             f,
             "{}",
             match self {
-                Self::FileError(e) => format!(
+                Self::File(e) => format!(
                     "File Access Error:\nThe following error occured when accessing the 'G-Code' file:\n{e}"
                 ),
-                Self::LexerError(e) => format!(
+                Self::Lexer(e) => format!(
                     "Lexer Error:\nThe following error occured when tokenizing the 'G-Code':\n{e}"
                 ),
-                Self::ParserError(e) => format!(
+                Self::Parser(e) => format!(
                     "Parser Error:\nThe following error occured when parsing the 'G-Code':\n{e}"
                 ),
-                Self::MachineError(e) => format!(
+                Self::Machine(e) => format!(
                     "Machine Error:\nThe following error occured when trying to change the Machine state:\n{e}"
                 ),
             }
@@ -272,7 +271,7 @@ mod tests {
     // check if file io works
     fn construct_interpreter() {
         let c = "G00 X0. Y0.;\n\nG43 H1;\n";
-        let m = Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()).unwrap();
+        let m = Machine::build(Point::new(-1000.0, -500.0, -500.0), Unit::default()).unwrap();
 
         fs::write(TEST_FILE, c).unwrap();
 
@@ -294,9 +293,8 @@ mod tests {
 
     #[test]
     fn test_run() {
-        let c =
-            " G21;\n G90 \n G1 X50. Y50. Z5. F100.\n G1 Z0.\n G1 X100. Y100. F150.;\n G1 Z5.;\nM30";
-        let m = Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()).unwrap();
+        let c = " G21;\n G90 \n G1 X50. Y50. Z-5. F100.\n G1 Z0.\n G1 X100. Y100. F150.;\n G1 Z-50.;\nM30";
+        let m = Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default()).unwrap();
 
         let mut i = Interpreter {
             blocks: c
@@ -308,6 +306,6 @@ mod tests {
 
         i.run().unwrap();
 
-        assert_eq!(i.machine.pos(), &Point::new(100.0, 100.0, 5.));
+        assert_eq!(i.machine.pos(), &Point::new(100.0, 100.0, -50.0));
     }
 }
