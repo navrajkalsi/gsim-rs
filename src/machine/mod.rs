@@ -60,6 +60,51 @@ pub enum CircularDirection {
     CounterClockwise,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Represents an offset `address` with a `direction`.
+#[derive(Debug, PartialEq)]
+pub struct Offset {
+    address: Int,
+    dir: Direction,
+}
+
+impl Offset {
+    /// Generates a new [`Offset`] to be used with a `D` address.
+    /// The `dir` provided must be [`Direction::Left`] or [`Direction::Right`] for diameter
+    /// offsets.
+    ///
+    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// failure.
+    pub fn build_d(address: Int, dir: Direction) -> Result<Self, MachineError> {
+        if dir == Direction::Up || dir == Direction::Down {
+            Err(MachineError::OffsetDireciton(dir))
+        } else {
+            Ok(Self { address, dir })
+        }
+    }
+
+    /// Generates a new [`Offset`] to be used with a `H` address.
+    /// The `dir` provided must be [`Direction::Up`] or [`Direction::Down`] for height
+    /// offsets.
+    ///
+    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// failure.
+    pub fn build_h(address: Int, dir: Direction) -> Result<Self, MachineError> {
+        if dir == Direction::Left || dir == Direction::Right {
+            Err(MachineError::OffsetDireciton(dir))
+        } else {
+            Ok(Self { address, dir })
+        }
+    }
+}
+
 /// Represents the current state of a [`Machine`](crate::machine).
 #[derive(Debug)]
 pub struct Machine {
@@ -105,10 +150,10 @@ pub struct Machine {
     positioning: Positioning,
 
     /// Selected offset for tool diameter with a `D` code.
-    dia_offset: Option<Int>,
+    d_offset: Option<Offset>,
 
     /// Selected offset for tool height with a `H` code.
-    height_offset: Option<Int>,
+    h_offset: Option<Offset>,
 }
 
 impl Machine {
@@ -157,8 +202,8 @@ impl Machine {
                 coolant: false,
                 plane: Plane::default(),
                 positioning: Positioning::default(),
-                dia_offset: None,
-                height_offset: None,
+                d_offset: None,
+                h_offset: None,
             })
         }
     }
@@ -190,29 +235,29 @@ impl Machine {
 
     /// Interpret [`Code`] values in a new [`Unit`] standard.
     pub fn set_code_units(&mut self, code_units: Unit) {
-        self.code_units = code_units;
+        self.code_units = code_units
     }
 
     /// Set `G54` work coordinate system.
     ///
     /// **This is not verified to be inside the machine travels**.
     pub fn set_work_offset(&mut self, work_offset: Point) {
-        self.work_offset = work_offset;
+        self.work_offset = work_offset
     }
 
     /// Preload the *next tool* to use.
     pub fn set_next_tool(&mut self, next_tool: Int) {
-        self.next_tool = Some(next_tool);
+        self.next_tool = Some(next_tool)
     }
 
     /// Set *spindle RPMs* to use.
     pub fn set_speed(&mut self, speed: Int) {
-        self.speed = Some(speed);
+        self.speed = Some(speed)
     }
 
     /// Turn spindle off.
     pub fn spindle_off(&mut self) {
-        self.spindle_on = false;
+        self.spindle_on = false
     }
 
     /// Set *feedrate* to use.
@@ -224,22 +269,32 @@ impl Machine {
             feed *= 25.4;
         }
 
-        self.feed = Some(feed);
+        self.feed = Some(feed)
     }
 
     /// Set `coolant` on or off.
     pub fn set_coolant(&mut self, coolant: bool) {
-        self.coolant = coolant;
+        self.coolant = coolant
     }
 
     /// Set active plane.
     pub fn set_plane(&mut self, plane: Plane) {
-        self.plane = plane;
+        self.plane = plane
     }
 
     /// Toggle between absolute or relative positioning.
     pub fn set_positioning(&mut self, positioning: Positioning) {
-        self.positioning = positioning;
+        self.positioning = positioning
+    }
+
+    /// Cancel any diameter offset, if active.
+    pub fn cancel_dia_offset(&mut self) {
+        self.d_offset = None
+    }
+
+    /// Cancel any height offset, if active.
+    pub fn cancel_height_offset(&mut self) {
+        self.h_offset = None
     }
 
     //
@@ -289,6 +344,26 @@ impl Machine {
             }
             None => Err(MachineError::NoTool),
         }
+    }
+
+    /// Sets a `Some` value for `d_offset`.
+    /// The `dir` provided must be [`Direction::Left`] or [`Direction::Right`] for diameter
+    /// offsets.
+    ///
+    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// failure.
+    pub fn set_dia_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
+        Ok(self.d_offset = Some(Offset::build_d(address, dir)?))
+    }
+
+    /// Sets a `Some` value for `h_offset`.
+    /// The `dir` provided must be [`Direction::Up`] or [`Direction::Down`] for height
+    /// offsets.
+    ///
+    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// failure.
+    pub fn set_height_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
+        Ok(self.h_offset = Some(Offset::build_h(address, dir)?))
     }
 
     //
@@ -349,7 +424,7 @@ impl Machine {
     /// - [`MachineError::NoFeed`] -- No feed was commanded in previous blocks and is found `None`.
     pub fn circular_move(
         &mut self,
-        mut pos: PartialPoint,
+        pos: PartialPoint,
         method: CircleMethod,
         dir: CircularDirection,
         feed: Option<Float>,
@@ -582,7 +657,11 @@ impl PlanarPoint {
 /// - [`CircularDirection`] for selecting a particular center point, in case more than one circles
 /// are possible.
 ///
-/// Returns an [`Arc`] on success or a [`MachineError`] on failure.
+/// On success, returns a *tuple* consisting of two fields:
+/// - The *center [`PlanarPoint`]* of the circle that satisfies the given conditions.
+/// - The *radius* of the said circle
+///
+/// On failure, returns [`MachineError`].
 ///
 /// # Reference: [`Math Stack Exchange`](https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically)
 ///
@@ -762,6 +841,8 @@ pub enum MachineError {
     InvalidCircle(CircleMethod),
     /// Provided center point does not lie on the selected plane.
     CenterOffPlane,
+    /// Provided direction does not match with offset type.
+    OffsetDireciton(Direction),
 }
 
 impl Display for MachineError {
@@ -811,6 +892,14 @@ impl Display for MachineError {
                 Self::CenterOffPlane => format!(
                     "Invalid Relative Center Point Detected:\nThe relative center provided does not lie only on the selected plane, which is invalid."
                 ),
+                Self::OffsetDireciton(dir) => match dir {
+                    Direction::Up | Direction::Down => format!(
+                        "Invalid Offset Direction Detected:\nThe following direction was detected for a Diameter offset, which is invalid: {dir:?}."
+                    ),
+                    Direction::Left | Direction::Right => format!(
+                        "Invalid Offset Direction Detected:\nThe following direction was detected for a Height offset, which is invalid: {dir:?}."
+                    ),
+                },
             }
         )
     }
@@ -1078,5 +1167,48 @@ mod tests {
         assert_eq!(radius, 5.0);
         assert_eq!(center.first(), 0.0);
         assert_eq!(center.second(), 0.0);
+    }
+
+    #[test]
+    fn offset_set() {
+        let mut m = Machine::build(Point::new(1000.0, 750.0, 500.0), Unit::default()).unwrap();
+
+        assert_eq!(
+            m.set_dia_offset(2, Direction::Up).unwrap_err(),
+            MachineError::OffsetDireciton(Direction::Up)
+        );
+        assert_eq!(
+            m.set_dia_offset(3, Direction::Down).unwrap_err(),
+            MachineError::OffsetDireciton(Direction::Down)
+        );
+        m.set_dia_offset(3, Direction::Left).unwrap();
+        assert_eq!(
+            m.d_offset,
+            Some(Offset {
+                address: 3,
+                dir: Direction::Left
+            })
+        );
+        m.cancel_dia_offset();
+        assert_eq!(m.d_offset, None);
+
+        assert_eq!(
+            m.set_height_offset(2, Direction::Left).unwrap_err(),
+            MachineError::OffsetDireciton(Direction::Left)
+        );
+        assert_eq!(
+            m.set_height_offset(3, Direction::Right).unwrap_err(),
+            MachineError::OffsetDireciton(Direction::Right)
+        );
+        m.set_height_offset(5, Direction::Up).unwrap();
+        assert_eq!(
+            m.h_offset,
+            Some(Offset {
+                address: 5,
+                dir: Direction::Up
+            })
+        );
+        m.cancel_height_offset();
+        assert_eq!(m.h_offset, None);
     }
 }

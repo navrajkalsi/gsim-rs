@@ -121,27 +121,32 @@ impl Interpreter {
     }
 
     fn execute_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
-        match gcode {
+        Ok(match gcode {
             GCode::RapidMove(pos) => self.machine.rapid_move(pos)?,
 
             GCode::FeedMove { p_point, f } => self.machine.feed_move(p_point, f)?,
 
             GCode::CWArcMove { p_point, method, f } => {
                 self.machine
-                    .circular_move(p_point, method, CircularDirection::Clockwise, f)?
+                    .circular_move(p_point, method, CircularDirection::Clockwise, f)?;
+                ()
             }
 
-            GCode::CCWArcMove { p_point, method, f } => self.machine.circular_move(
-                p_point,
-                method,
-                CircularDirection::CounterClockwise,
-                f,
-            )?,
+            GCode::CCWArcMove { p_point, method, f } => {
+                self.machine.circular_move(
+                    p_point,
+                    method,
+                    CircularDirection::CounterClockwise,
+                    f,
+                )?;
+                ()
+            }
 
             GCode::Dwell(p) => {
                 println!("Dwelling for {p} seconds.");
                 let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
                 std::thread::sleep(duration);
+                ()
             }
 
             GCode::XYPlane => self.machine.set_plane(Plane::XY),
@@ -154,12 +159,25 @@ impl Interpreter {
 
             GCode::MetricMode => self.machine.set_code_units(Unit::Metric),
 
-            GCode::CancelCutterComp => todo!(),
-            GCode::LeftCutterComp(_) => todo!(),
-            GCode::RightCutterComp(_) => todo!(),
-            GCode::ToolLenCompAdd(_) => todo!(),
-            GCode::ToolLenCompSubtract(_) => todo!(),
-            GCode::CancelLenComp => todo!(),
+            GCode::CancelCutterComp => self.machine.cancel_dia_offset(),
+
+            GCode::LeftCutterComp(address) => {
+                self.machine.set_dia_offset(address, Direction::Left)?
+            }
+
+            GCode::RightCutterComp(address) => {
+                self.machine.set_dia_offset(address, Direction::Right)?
+            }
+
+            GCode::ToolLenCompAdd(address) => {
+                self.machine.set_height_offset(address, Direction::Up)?
+            }
+
+            GCode::ToolLenCompSubtract(address) => {
+                self.machine.set_height_offset(address, Direction::Down)?
+            }
+
+            GCode::CancelLenComp => self.machine.cancel_height_offset(),
 
             GCode::MachineCoord(pos) => self.machine.move_machine_pos(pos)?,
 
@@ -180,9 +198,7 @@ impl Interpreter {
             GCode::FeedRev => todo!(),
             GCode::InitialReturn => todo!(),
             GCode::RetractReturn => todo!(),
-        };
-
-        Ok(())
+        })
     }
 
     // have 3 levels of debug.
