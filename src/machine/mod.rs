@@ -27,6 +27,30 @@ const MIN_TRAVELS: Point = Point::new(150.0, 100.0, 100.0);
 const MAX_RATIO: Point = Point::new(2.0, 2.0, 1.5);
 const MIN_RATIO: Point = Point::new(1.0, 1.0, 0.5);
 
+/// Possible rates to move the machine in.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum Rate {
+    #[default]
+    Rapid,
+    Feed,
+}
+
+/// Possible ways to interpret given feed rate.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum FeedMode {
+    #[default]
+    PerMinute,
+    PerRev,
+}
+
+/// Possible levels to return to in a canned cycle.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum ReturnLevel {
+    #[default]
+    Initial,
+    Retract,
+}
+
 /// Possible unit standards for measurable values.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Unit {
@@ -52,7 +76,7 @@ pub enum Positioning {
     Incremental,
 }
 
-/// Possible ways to turn spindle on.
+/// Possible ways to turn the spindle.
 #[derive(Default, Debug)]
 pub enum CircularDirection {
     #[default]
@@ -80,11 +104,11 @@ impl Offset {
     /// The `dir` provided must be [`Direction::Left`] or [`Direction::Right`] for diameter
     /// offsets.
     ///
-    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn build_d(address: Int, dir: Direction) -> Result<Self, MachineError> {
         if dir == Direction::Up || dir == Direction::Down {
-            Err(MachineError::OffsetDireciton(dir))
+            Err(MachineError::OffsetDirection(dir))
         } else {
             Ok(Self { address, dir })
         }
@@ -94,11 +118,11 @@ impl Offset {
     /// The `dir` provided must be [`Direction::Up`] or [`Direction::Down`] for height
     /// offsets.
     ///
-    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn build_h(address: Int, dir: Direction) -> Result<Self, MachineError> {
         if dir == Direction::Left || dir == Direction::Right {
-            Err(MachineError::OffsetDireciton(dir))
+            Err(MachineError::OffsetDirection(dir))
         } else {
             Ok(Self { address, dir })
         }
@@ -138,8 +162,14 @@ pub struct Machine {
     spindle_on: bool,
     spindle_dir: CircularDirection,
 
+    /// Active [`Rate`] to use for moves.
+    rate: Rate,
+
     /// Commanded cutting feed rate.
     feed: Option<Float>,
+
+    /// Way in which to interpret the given feed value.
+    feed_mode: FeedMode,
 
     coolant: bool,
 
@@ -154,6 +184,9 @@ pub struct Machine {
 
     /// Selected offset for tool height with a `H` code.
     h_offset: Option<Offset>,
+
+    /// Return level in canned cycles.
+    return_level: ReturnLevel,
 }
 
 impl Machine {
@@ -198,12 +231,15 @@ impl Machine {
                 speed: None,
                 spindle_on: false,
                 spindle_dir: CircularDirection::default(),
+                rate: Rate::default(),
                 feed: None,
+                feed_mode: FeedMode::default(),
                 coolant: false,
                 plane: Plane::default(),
                 positioning: Positioning::default(),
                 d_offset: None,
                 h_offset: None,
+                return_level: ReturnLevel::default(),
             })
         }
     }
@@ -235,7 +271,12 @@ impl Machine {
 
     /// Interpret [`Code`] values in a new [`Unit`] standard.
     pub fn set_code_units(&mut self, code_units: Unit) {
-        self.code_units = code_units
+        self.code_units = code_units;
+
+        // change any existing feed rate to new units
+        if let Some(feed) = self.feed {
+            self.set_feed(feed);
+        }
     }
 
     /// Set `G54` work coordinate system.
@@ -282,7 +323,7 @@ impl Machine {
         self.plane = plane
     }
 
-    /// Toggle between absolute or relative positioning.
+    /// Toggle between `absolute` or `relative` positioning.
     pub fn set_positioning(&mut self, positioning: Positioning) {
         self.positioning = positioning
     }
@@ -295,6 +336,26 @@ impl Machine {
     /// Cancel any height offset, if active.
     pub fn cancel_height_offset(&mut self) {
         self.h_offset = None
+    }
+
+    /// Toggle between `rapid` or `feed` rates.
+    pub fn set_rate(&mut self, rate: Rate) {
+        self.rate = rate
+    }
+
+    /// Cancel any canned cycles.
+    pub fn cancel_canned(&mut self) {
+        ()
+    }
+
+    /// Toggle between `feed per minute` or `feed per rev` modes.
+    pub fn set_feed_mode(&mut self, mode: FeedMode) {
+        self.feed_mode = mode
+    }
+
+    /// Toggle between `inital` or `retract` return planes.
+    pub fn set_return_level(&mut self, level: ReturnLevel) {
+        self.return_level = level
     }
 
     //
@@ -350,7 +411,7 @@ impl Machine {
     /// The `dir` provided must be [`Direction::Left`] or [`Direction::Right`] for diameter
     /// offsets.
     ///
-    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn set_dia_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
         Ok(self.d_offset = Some(Offset::build_d(address, dir)?))
@@ -360,7 +421,7 @@ impl Machine {
     /// The `dir` provided must be [`Direction::Up`] or [`Direction::Down`] for height
     /// offsets.
     ///
-    /// Returns [`MachineError::OffsetDireciton`], if provided `dir` is invalid, indicating
+    /// Returns [`MachineError::OffsetDirection`], if provided `dir` is invalid, indicating
     /// failure.
     pub fn set_height_offset(&mut self, address: Int, dir: Direction) -> Result<(), MachineError> {
         Ok(self.h_offset = Some(Offset::build_h(address, dir)?))
@@ -380,6 +441,7 @@ impl Machine {
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
     pub fn rapid_move(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
+        self.set_rate(Rate::Rapid);
         self.move_machine(pos)
     }
 
@@ -398,6 +460,8 @@ impl Machine {
         pos: PartialPoint,
         feed: Option<Float>,
     ) -> Result<(), MachineError> {
+        self.set_rate(Rate::Feed);
+
         if let Some(f) = feed {
             self.set_feed(f); // takes care of any unit conversion
         }
@@ -405,7 +469,7 @@ impl Machine {
         match self.feed {
             Some(_) => {
                 // move only when feed is detected.
-                Ok(self.move_machine(pos)?)
+                self.move_machine(pos)
             }
             None => Err(MachineError::NoFeed),
         }
@@ -429,6 +493,8 @@ impl Machine {
         dir: CircularDirection,
         feed: Option<Float>,
     ) -> Result<(PlanarPoint, Float), MachineError> {
+        self.set_rate(Rate::Feed);
+
         if let Some(f) = feed {
             self.set_feed(f);
         }
@@ -511,7 +577,8 @@ impl Machine {
     // ########## INTERPOLATION HELPER METHODS ##########
     //
 
-    /// Moves machine after checking for [`Positioning`] setting of the machine.
+    /// Moves machine using [`rate`](Machine::rate),
+    /// after checking for [`Positioning`] setting of the machine.
     ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
@@ -817,7 +884,7 @@ fn arc_info(
     }
 }
 
-/// Possible errors that can happen during machine construction.
+/// Possible errors that can happen during machine construction and interpolation.
 #[derive(Debug, PartialEq)]
 pub enum MachineError {
     /// Negative value(s) detected during machine construction.
@@ -842,7 +909,7 @@ pub enum MachineError {
     /// Provided center point does not lie on the selected plane.
     CenterOffPlane,
     /// Provided direction does not match with offset type.
-    OffsetDireciton(Direction),
+    OffsetDirection(Direction),
 }
 
 impl Display for MachineError {
@@ -892,7 +959,7 @@ impl Display for MachineError {
                 Self::CenterOffPlane => format!(
                     "Invalid Relative Center Point Detected:\nThe relative center provided does not lie only on the selected plane, which is invalid."
                 ),
-                Self::OffsetDireciton(dir) => match dir {
+                Self::OffsetDirection(dir) => match dir {
                     Direction::Up | Direction::Down => format!(
                         "Invalid Offset Direction Detected:\nThe following direction was detected for a Diameter offset, which is invalid: {dir:?}."
                     ),
@@ -1175,11 +1242,11 @@ mod tests {
 
         assert_eq!(
             m.set_dia_offset(2, Direction::Up).unwrap_err(),
-            MachineError::OffsetDireciton(Direction::Up)
+            MachineError::OffsetDirection(Direction::Up)
         );
         assert_eq!(
             m.set_dia_offset(3, Direction::Down).unwrap_err(),
-            MachineError::OffsetDireciton(Direction::Down)
+            MachineError::OffsetDirection(Direction::Down)
         );
         m.set_dia_offset(3, Direction::Left).unwrap();
         assert_eq!(
@@ -1194,11 +1261,11 @@ mod tests {
 
         assert_eq!(
             m.set_height_offset(2, Direction::Left).unwrap_err(),
-            MachineError::OffsetDireciton(Direction::Left)
+            MachineError::OffsetDirection(Direction::Left)
         );
         assert_eq!(
             m.set_height_offset(3, Direction::Right).unwrap_err(),
-            MachineError::OffsetDireciton(Direction::Right)
+            MachineError::OffsetDirection(Direction::Right)
         );
         m.set_height_offset(5, Direction::Up).unwrap();
         assert_eq!(

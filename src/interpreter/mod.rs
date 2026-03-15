@@ -47,7 +47,7 @@ impl Interpreter {
 
             for code in codes {
                 match code {
-                    Code::G(gcode) => self.execute_gcode(gcode)?,
+                    Code::G(gcode) => self.run_gcode(gcode)?,
 
                     Code::M(mcode) => match mcode {
                         MCode::Stop => self.wait()?,
@@ -120,25 +120,21 @@ impl Interpreter {
         }
     }
 
-    fn execute_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
-        Ok(match gcode {
-            GCode::RapidMove(pos) => self.machine.rapid_move(pos)?,
+    fn run_gcode(&mut self, gcode: GCode) -> Result<(), InterpreterError> {
+        let machine = &mut self.machine;
 
-            GCode::FeedMove { p_point, f } => self.machine.feed_move(p_point, f)?,
+        Ok(match gcode {
+            GCode::RapidMove(pos) => machine.rapid_move(pos)?,
+
+            GCode::FeedMove { p_point, f } => machine.feed_move(p_point, f)?,
 
             GCode::CWArcMove { p_point, method, f } => {
-                self.machine
-                    .circular_move(p_point, method, CircularDirection::Clockwise, f)?;
+                machine.circular_move(p_point, method, CircularDirection::Clockwise, f)?;
                 ()
             }
 
             GCode::CCWArcMove { p_point, method, f } => {
-                self.machine.circular_move(
-                    p_point,
-                    method,
-                    CircularDirection::CounterClockwise,
-                    f,
-                )?;
+                machine.circular_move(p_point, method, CircularDirection::CounterClockwise, f)?;
                 ()
             }
 
@@ -149,55 +145,52 @@ impl Interpreter {
                 ()
             }
 
-            GCode::XYPlane => self.machine.set_plane(Plane::XY),
+            GCode::XYPlane => machine.set_plane(Plane::XY),
 
-            GCode::XZPlane => self.machine.set_plane(Plane::XZ),
+            GCode::XZPlane => machine.set_plane(Plane::XZ),
 
-            GCode::YZPlane => self.machine.set_plane(Plane::YZ),
+            GCode::YZPlane => machine.set_plane(Plane::YZ),
 
-            GCode::ImperialMode => self.machine.set_code_units(Unit::Imperial),
+            GCode::ImperialMode => machine.set_code_units(Unit::Imperial),
 
-            GCode::MetricMode => self.machine.set_code_units(Unit::Metric),
+            GCode::MetricMode => machine.set_code_units(Unit::Metric),
 
-            GCode::CancelCutterComp => self.machine.cancel_dia_offset(),
+            GCode::CancelCutterComp => machine.cancel_dia_offset(),
 
-            GCode::LeftCutterComp(address) => {
-                self.machine.set_dia_offset(address, Direction::Left)?
-            }
+            GCode::LeftCutterComp(address) => machine.set_dia_offset(address, Direction::Left)?,
 
-            GCode::RightCutterComp(address) => {
-                self.machine.set_dia_offset(address, Direction::Right)?
-            }
+            GCode::RightCutterComp(address) => machine.set_dia_offset(address, Direction::Right)?,
 
-            GCode::ToolLenCompAdd(address) => {
-                self.machine.set_height_offset(address, Direction::Up)?
-            }
+            GCode::ToolLenCompAdd(address) => machine.set_height_offset(address, Direction::Up)?,
 
             GCode::ToolLenCompSubtract(address) => {
-                self.machine.set_height_offset(address, Direction::Down)?
+                machine.set_height_offset(address, Direction::Down)?
             }
 
-            GCode::CancelLenComp => self.machine.cancel_height_offset(),
+            GCode::CancelLenComp => machine.cancel_height_offset(),
 
-            GCode::MachineCoord(pos) => self.machine.move_machine_pos(pos)?,
+            GCode::MachineCoord(pos) => machine.move_machine_pos(pos)?,
 
             // always make the machine center as g54 offset
-            GCode::WorkCoord => self.machine.set_work_offset(Point::new(
-                self.machine.max_travels().x() / 2.0,
-                self.machine.max_travels().y() / 2.0,
+            GCode::WorkCoord => machine.set_work_offset(Point::new(
+                machine.max_travels().x() / 2.0,
+                machine.max_travels().y() / 2.0,
                 0.0,
             )),
 
-            GCode::CancelCanned => todo!(),
+            GCode::CancelCanned => machine.cancel_canned(),
 
-            GCode::AbsoluteMode => self.machine.set_positioning(Positioning::Absolute),
+            GCode::AbsoluteMode => machine.set_positioning(Positioning::Absolute),
 
-            GCode::IncrementalMode => self.machine.set_positioning(Positioning::Incremental),
+            GCode::IncrementalMode => machine.set_positioning(Positioning::Incremental),
 
-            GCode::FeedMinute => todo!(),
-            GCode::FeedRev => todo!(),
-            GCode::InitialReturn => todo!(),
-            GCode::RetractReturn => todo!(),
+            GCode::FeedMinute => machine.set_feed_mode(FeedMode::PerMinute),
+
+            GCode::FeedRev => machine.set_feed_mode(FeedMode::PerRev),
+
+            GCode::InitialReturn => machine.set_return_level(ReturnLevel::Initial),
+
+            GCode::RetractReturn => machine.set_return_level(ReturnLevel::Retract),
         })
     }
 
