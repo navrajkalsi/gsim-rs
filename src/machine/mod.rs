@@ -42,15 +42,18 @@ const RATIO_LIMITS: Limits<Point> = Limits {
     min: Point::new(1.0, 1.0, 0.5),
 };
 
-/// Possible rates to move the machine in.
+/// Possible motion types to move the machine in.
+/// Represents **Group 1** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum Rate {
+pub enum Motion {
     #[default]
     Rapid,
     Feed,
+    Arc(CircularDirection),
 }
 
 /// Possible ways to interpret given feed rate.
+/// Represents **Group 5** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum FeedMode {
     #[default]
@@ -67,6 +70,7 @@ pub enum ReturnLevel {
 }
 
 /// Possible unit standards for measurable values.
+/// Represents **Group 6** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Unit {
     Imperial,
@@ -75,6 +79,7 @@ pub enum Unit {
 }
 
 /// Possible planes for a 3-axis machine.
+/// Represents **Group 2** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Plane {
     #[default]
@@ -84,6 +89,7 @@ pub enum Plane {
 }
 
 /// Possible ways to interpret axis commands.
+/// Represents **Group 3** G-Codes.
 #[derive(Default, Debug)]
 pub enum Positioning {
     #[default]
@@ -92,7 +98,7 @@ pub enum Positioning {
 }
 
 /// Possible ways to turn the spindle.
-#[derive(Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum CircularDirection {
     #[default]
     Clockwise,
@@ -177,8 +183,8 @@ pub struct Machine {
     spindle_on: bool,
     spindle_dir: CircularDirection,
 
-    /// Active [`Rate`] to use for moves.
-    rate: Rate,
+    /// Active [`Motion`] type to use for moves.
+    motion: Motion,
 
     /// Commanded cutting feed rate.
     feed: Option<Float>,
@@ -246,7 +252,7 @@ impl Machine {
                 speed: None,
                 spindle_on: false,
                 spindle_dir: CircularDirection::default(),
-                rate: Rate::default(),
+                motion: Motion::default(),
                 feed: None,
                 feed_mode: FeedMode::default(),
                 coolant: false,
@@ -353,9 +359,9 @@ impl Machine {
         self.h_offset = None
     }
 
-    /// Toggle between `rapid` or `feed` rates.
-    pub fn set_rate(&mut self, rate: Rate) {
-        self.rate = rate
+    /// Toggle between motion types.
+    pub fn set_motion(&mut self, motion: Motion) {
+        self.motion = motion
     }
 
     /// Cancel any canned cycles.
@@ -456,7 +462,7 @@ impl Machine {
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
     pub fn rapid_move(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
-        self.set_rate(Rate::Rapid);
+        self.set_motion(Motion::Rapid);
         self.move_machine(pos)
     }
 
@@ -475,7 +481,7 @@ impl Machine {
         pos: PartialPoint,
         feed: Option<Float>,
     ) -> Result<(), MachineError> {
-        self.set_rate(Rate::Feed);
+        self.set_motion(Motion::Feed);
 
         if let Some(f) = feed {
             self.set_feed(f); // takes care of any unit conversion
@@ -501,14 +507,14 @@ impl Machine {
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
     /// - [`MachineError::NoFeed`] -- No feed was commanded in previous blocks and is found `None`.
-    pub fn circular_move(
+    pub fn arc_move(
         &mut self,
         pos: PartialPoint,
         method: CircleMethod,
         dir: CircularDirection,
         feed: Option<Float>,
     ) -> Result<(PlanarPoint, Float), MachineError> {
-        self.set_rate(Rate::Feed);
+        self.set_motion(Motion::Arc(dir));
 
         if let Some(f) = feed {
             self.set_feed(f);

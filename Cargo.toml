@@ -6,3 +6,4 @@ description = "G-Code simulator in Rust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+ratatui = "0.30.0"

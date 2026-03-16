@@ -1,3 +1,5 @@
+use gsim_rs::parse_args;
+
 use crate::{
     interpreter::Interpreter,
     machine::{Machine, Unit},
@@ -9,6 +11,7 @@ mod machine;
 mod parser;
 
 fn main() {
+    parse_args().unwrap();
     let m = match Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()) {
         Ok(m) => m,
         Err(e) => panic!("{e}"),
