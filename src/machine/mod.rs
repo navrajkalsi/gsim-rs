@@ -52,32 +52,6 @@ pub enum Motion {
     Arc(CircularDirection),
 }
 
-/// Possible ways to interpret given feed rate.
-/// Represents **Group 5** G-Codes.
-#[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum FeedMode {
-    #[default]
-    PerMinute,
-    PerRev,
-}
-
-/// Possible levels to return to in a canned cycle.
-#[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum ReturnLevel {
-    #[default]
-    Initial,
-    Retract,
-}
-
-/// Possible unit standards for measurable values.
-/// Represents **Group 6** G-Codes.
-#[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum Unit {
-    Imperial,
-    #[default]
-    Metric,
-}
-
 /// Possible planes for a 3-axis machine.
 /// Represents **Group 2** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
@@ -97,14 +71,34 @@ pub enum Positioning {
     Incremental,
 }
 
-/// Possible ways to turn the spindle.
+/// Possible ways to interpret given feed rate.
+/// Represents **Group 5** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum CircularDirection {
+pub enum FeedMode {
     #[default]
-    Clockwise,
-    CounterClockwise,
+    PerMinute,
+    PerRev,
 }
 
+/// Possible unit standards for measurable values.
+/// Represents **Group 6** G-Codes.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum Unit {
+    Imperial,
+    #[default]
+    Metric,
+}
+
+/// Represents an offset `address` with a `direction`.
+/// Used in representing **Group 7** & **Group 8** G-Codes.
+#[derive(Debug, PartialEq)]
+pub struct Offset {
+    address: Int,
+    dir: Direction,
+}
+
+/// Possible directions for [`Offset`]s.
+/// Used in representing **Group 7** & **Group 8** G-Codes.
 #[derive(Debug, PartialEq)]
 pub enum Direction {
     Left,
@@ -113,11 +107,21 @@ pub enum Direction {
     Down,
 }
 
-/// Represents an offset `address` with a `direction`.
-#[derive(Debug, PartialEq)]
-pub struct Offset {
-    address: Int,
-    dir: Direction,
+/// Possible levels to return to in a canned cycle.
+/// Represents **Group 10** G-Codes.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum ReturnLevel {
+    #[default]
+    Initial,
+    Retract,
+}
+
+/// Possible *spindle rotation* & *circular interpolation* directions.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum CircularDirection {
+    #[default]
+    Clockwise,
+    CounterClockwise,
 }
 
 impl Offset {
