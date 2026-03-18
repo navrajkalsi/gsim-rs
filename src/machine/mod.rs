@@ -23,9 +23,9 @@ struct Limits<T> {
 /// **Absolute** Maximum and Minimum values supported for [`Machine::max_travels`] for this module.
 /// The fields of these [`Point`]s will be treated in [`Unit::default`] system.
 ///
-/// Only **Z** axis will be forced to be negative.
-/// Rest can be either positive or negative.
-/// The reason of this restriction is that it is conventional to have **Z HOME_POS** above the
+/// Only **Z axis** will be forced to be negative.
+/// Rest of the axes can be either positive or negative.
+/// The reason for this restriction is that it is conventional to have **Z HOME_POS** above the
 /// part, which requires that the machine can only travel in **negative Z** direction.
 const TRAVEL_LIMITS: Limits<Point> = Limits {
     max: Point::new(1500.0, 1000.0, 1000.0),
@@ -42,7 +42,7 @@ const RATIO_LIMITS: Limits<Point> = Limits {
     min: Point::new(1.0, 1.0, 0.5),
 };
 
-/// Possible motion types to move the machine in.
+/// Possible motion types to move the machine with.
 /// Represents **Group 1** G-Codes.
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Motion {
@@ -217,7 +217,7 @@ pub struct Machine {
 impl Machine {
     /// Constructs a new instance of [`Machine`] with all axes at [`HOME_POS`].
     ///
-    /// Accepts a [`Point`], indicating positive extremes of the Machine to construct,
+    /// Accepts a [`Point`], indicating extremes of the Machine to construct,
     /// and the measuring system [`Unit`] to use for machine moves.
     ///
     /// The *G-Code* that the machine executes need not be in the same [`Unit`]s.
@@ -602,7 +602,7 @@ impl Machine {
     // ########## INTERPOLATION HELPER METHODS ##########
     //
 
-    /// Moves machine using [`rate`](Machine::rate),
+    /// Moves machine using [`motion`](Machine::motion) type,
     /// after checking for [`Positioning`] setting of the machine.
     ///
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,

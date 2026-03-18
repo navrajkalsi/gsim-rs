@@ -1,28 +1,6 @@
-use gsim_rs::parse_args;
-
-use crate::{
-    interpreter::Interpreter,
-    machine::{Machine, Unit},
-    parser::parser::Point,
-};
-
-mod interpreter;
-mod machine;
-mod parser;
+use crate::source::Source;
+mod source;
 
 fn main() {
-    parse_args().unwrap();
-    let m = match Machine::build(Point::new(1000.0, 500.0, 500.0), Unit::default()) {
-        Ok(m) => m,
-        Err(e) => panic!("{e}"),
-    };
-
-    let mut i = match Interpreter::build(m, "program.nc") {
-        Ok(i) => i,
-        Err(e) => panic!("{e}"),
-    };
-
-    if let Err(e) = i.run() {
-        println!("{e}");
-    }
+    let _ = Source::from_file("");
 }
