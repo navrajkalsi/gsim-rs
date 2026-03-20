@@ -6,4 +6,4 @@ description = "G-Code simulator in Rust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-clap = "4.6.0"
+clap = { version = "4.6.0", features = ["derive"] }

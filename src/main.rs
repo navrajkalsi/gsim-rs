@@ -1,7 +1,9 @@
-use crate::{config::Config, error::GSimError, source::Source};
 mod config;
 mod error;
 mod source;
+
+use crate::{config::Config, error::GSimError, source::Source};
+use clap::Parser;
 
 fn main() {
     // log error and exit
@@ -13,9 +15,13 @@ fn main() {
 
 // helper function to facilitate error logging in main
 fn run() -> Result<(), GSimError> {
-    let config = Config::build().unwrap();
+    let config = Config::parse();
 
-    let src = Source::from_file(config.file.as_str())?;
+    if config.debug() {
+        println!("config:\n{config:?}");
+    }
+
+    let src = Source::from_file(config.filepath())?;
 
     Ok(())
 }

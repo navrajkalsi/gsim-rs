@@ -3,64 +3,27 @@
 //! This module is responsible for parsing the **command line arguments**,
 //! and preparing them for the program.
 
+use clap::Parser;
+
 /// **Parsed** command line arguments.
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
 pub struct Config {
-    pub file: String,
-    pub debug: bool,
+    /// Path of the input G-Code file.
+    file: String,
+    /// Turn debugging information on.
+    #[arg(short, long)]
+    debug: bool,
 }
 
 impl Config {
-    pub fn build() -> Result<Self, ConfigError> {
-        let mut args = std::env::args();
-        args.next().expect("At least one element must be present.");
-
-        let mut nonflags = args.by_ref().filter(|arg| !arg.starts_with('-'));
-        let file = nonflags.next();
-
-        if file.is_none() {
-            return Err(ConfigError::NoFile);
-        } else if nonflags.next().is_some() {
-            return Err(ConfigError::AmbiguousFile);
-        }
-
-        let mut debug = None;
-
-        for mut arg in args {
-            arg.remove(0);
-            if arg.starts_with('-') {
-                return Err(ConfigError::LongArg);
-            }
-
-            for c in arg.chars() {
-                match c {
-                    'd' => {
-                        if debug.is_some() {
-                            return Err(ConfigError::DuplicateFlag(c));
-                        } else {
-                            debug = Some(c);
-                        }
-                    }
-                    _ => return Err(ConfigError::UnexpectedFlag(c)),
-                }
-            }
-        }
-
-        Ok(Config {
-            file: file.unwrap(),
-            debug: debug.is_some(),
-        })
+    /// Returns the **file path** of the input G-Code file as a string slice.
+    pub fn filepath(&self) -> &str {
+        self.file.as_str()
     }
-}
 
-/// Possible errors that can happen during parsing command line arguments.
-pub enum ConfigError {
-    /// No G-Code file path provided.
-    NoFile,
-    /// More than one required file paths detected.
-    AmbiguousFile,
-    /// Long arg with prefix '--' detected.
-    LongArg,
-    ///
-    DuplicateFlag(char),
-    UnexpectedFlag(char),
+    /// Returns the current **debug** setting.
+    pub fn debug(&self) -> bool {
+        self.debug
+    }
 }
