@@ -1,4 +1,5 @@
-use crate::{error::GSimError, source::Source};
+use crate::{config::Config, error::GSimError, source::Source};
+mod config;
 mod error;
 mod source;
 
@@ -12,7 +13,9 @@ fn main() {
 
 // helper function to facilitate error logging in main
 fn run() -> Result<(), GSimError> {
-    let src = Source::from_file("program.gcode")?;
+    let config = Config::build().unwrap();
+
+    let src = Source::from_file(config.file.as_str())?;
 
     Ok(())
 }
