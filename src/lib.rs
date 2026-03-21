@@ -1,6 +1,7 @@
 mod config;
 mod error;
 pub mod lexer;
+pub mod parser;
 pub mod source;
 
 use crate::{config::Config, error::GSimError, lexer::Lexer, source::Source};

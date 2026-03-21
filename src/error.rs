@@ -3,7 +3,7 @@
 //! This module is responsible for organizing different types of errors,
 //! produced by different modules.
 
-use crate::{Source, lexer::LexerError};
+use super::lexer::LexerError;
 
 /// Reset output formatting.
 pub const RESET: &str = "\x1b[0m";
@@ -11,15 +11,12 @@ pub const RESET: &str = "\x1b[0m";
 pub const RED: &str = "\x1b[1;31m";
 /// Format output text in BOLD YELLOW.
 pub const YELLOW: &str = "\x1b[1;33m";
-/// Format output text with an underline.
-pub const UNDERLINE: &str = "\x1b[4m";
-pub const RESET_UNDERLINE: &str = "\x1b[24m";
 
 /// General Cumulative Error type, supporting each individual module errors.
 pub enum GSimError {
     /// Wraps an [`std::io::Error`] produced when reading or accessing the G-Code source file.
     Source(std::io::Error),
-    /// Wraps a [`LexerError`] produced when tokenizing a [`Source`].
+    /// Wraps a [`LexerError`] produced when tokenizing a [`Source`](crate::source::Source).
     Lexer(LexerError),
 }
 

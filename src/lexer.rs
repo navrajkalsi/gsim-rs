@@ -1,14 +1,14 @@
 //! # Lexer
 //!
-//! The Lexer is responsible for converting [`Source`] (with  raw **ASCII G-Code lines**),
+//! This module is responsible for converting [`Source`] (with  raw **ASCII G-Code lines**),
 //! into usable [`Token`]s (represented as [`Lexer`]), which then can then be parsed.
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
 use std::fmt::Display;
 
-use crate::error::{RED, RESET};
-use crate::source::Source;
+use super::error::{RED, RESET};
+use super::source::Source;
 
 /// Prefix **ASCII** character for codes.
 pub type Prefix = u8;
