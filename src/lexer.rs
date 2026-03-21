@@ -88,8 +88,9 @@ impl Block {
                 // suffix complete
                 Some(prefix) => {
                     if *byte == b' ' || byte.is_ascii_alphabetic() {
+                        // map the suffix start index to a string slice containing the suffix
                         let suffix =
-                            parse_suffix(suffix_opt.map(|start| line[start..index + 1]), prefix)?;
+                            parse_suffix(suffix_opt.map(|start| &line[start..index]), prefix)?;
 
                         // add to vec and read next
                         tokens.push(Token { prefix, suffix });
@@ -105,7 +106,7 @@ impl Block {
                     } else if byte.is_ascii_digit() || *byte == b'.' || *byte == b'-' {
                         match suffix_opt {
                             None => suffix_opt = Some(index),
-                            Some(suffix_str) => {
+                            Some(_) => {
                                 if *byte == b'-' {
                                     // cannot have - in the middle of suffix
                                     return Err(LexerError::NonUsableChar(*byte));
@@ -123,7 +124,7 @@ impl Block {
 
         // parse last suffix, if present
         if let Some(prefix) = prefix_opt {
-            let suffix = parse_suffix(&suffix_opt, prefix)?;
+            let suffix = parse_suffix(suffix_opt.map(|start| &line[start..line.len()]), prefix)?;
 
             // add to vec and read next
             tokens.push(Token { prefix, suffix });
@@ -260,20 +261,20 @@ mod tests {
         let tokens = Block::tokenize(whitespace.as_str());
         let expected = Block(vec![
             Token {
-                prefix: b'G',
-                suffix: Suffix::Int(1),
-            },
-            Token {
-                prefix: b'X',
-                suffix: Suffix::Float(0.0),
+                prefix: b'Z',
+                suffix: Suffix::Float(-1.0),
             },
             Token {
                 prefix: b'Y',
                 suffix: Suffix::Float(0.0),
             },
             Token {
-                prefix: b'Z',
-                suffix: Suffix::Float(-1.0),
+                prefix: b'X',
+                suffix: Suffix::Float(0.0),
+            },
+            Token {
+                prefix: b'G',
+                suffix: Suffix::Int(1),
             },
         ]);
 
@@ -292,22 +293,23 @@ mod tests {
         // with whitespace
         let whitespace = String::from("g01 x0.0 y.0 z-1.");
         let tokens = Block::tokenize(whitespace.as_str());
+        // stored in REVERSE
         let expected = Block(vec![
             Token {
-                prefix: b'G',
-                suffix: Suffix::Int(1),
-            },
-            Token {
-                prefix: b'X',
-                suffix: Suffix::Float(0.0),
+                prefix: b'Z',
+                suffix: Suffix::Float(-1.0),
             },
             Token {
                 prefix: b'Y',
                 suffix: Suffix::Float(0.0),
             },
             Token {
-                prefix: b'Z',
-                suffix: Suffix::Float(-1.0),
+                prefix: b'X',
+                suffix: Suffix::Float(0.0),
+            },
+            Token {
+                prefix: b'G',
+                suffix: Suffix::Int(1),
             },
         ]);
 
