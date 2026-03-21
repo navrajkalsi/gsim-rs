@@ -77,14 +77,6 @@ G0 Z2.0
 G0 X23.0 Y23.0
 G1 Z-2.0 F300
 G1 X57.0 F800
-G1 Y27.0 | G1 X23.0 | G1 Y31.0 | G1 X57.0 | G1 Y35.0
-G1 X23.0 | G1 Y39.0 | G1 X57.0 | G1 Y43.0 | G1 X23.0
-G1 Y47.0 | G1 X57.0 | G1 Y51.0 | G1 X23.0 | G1 Y55.0
-G1 X57.0 | G1 Y57.0  | G1 X23.0
-
-G0 X20.0 Y20.0
-G1 Z-2.0 F300
-G1 X80.0 F600 | G1 Y80.0 | G1 X20.0 | G1 Y20.0
 
 ; --- Pocket Passes 3–5 (Z-3, Z-4, Z-5) ---
 ; (Pattern repeats identically — abbreviated here)

@@ -3,7 +3,7 @@ mod error;
 pub mod lexer;
 pub mod source;
 
-use crate::{config::Config, error::GSimError, source::Source};
+use crate::{config::Config, error::GSimError, lexer::Lexer, source::Source};
 use clap::Parser;
 
 // helper function to facilitate error logging in main
@@ -15,6 +15,16 @@ pub fn run() -> Result<(), GSimError> {
     }
 
     let src = Source::from_file(config.filepath())?;
+
+    if config.debug() {
+        println!("source:\n{src:?}");
+    }
+
+    let lexer = Lexer::tokenize(src)?;
+
+    if config.debug() {
+        println!("lexer:\n{lexer:?}");
+    }
 
     Ok(())
 }
