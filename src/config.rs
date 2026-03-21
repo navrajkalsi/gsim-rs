@@ -5,7 +5,7 @@
 
 use clap::Parser;
 
-/// **Parsed** command line arguments.
+/// Command line arguments.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Config {

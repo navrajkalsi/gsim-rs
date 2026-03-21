@@ -4,11 +4,14 @@
 //! produced by different modules.
 
 /// Reset output formatting.
-const RESET: &'static str = "\x1b[0m";
+pub const RESET: &str = "\x1b[0m";
 /// Format output text in BOLD RED.
-const RED: &'static str = "\x1b[1;91m";
+pub const RED: &str = "\x1b[1;31m";
 /// Format output text in BOLD YELLOW.
-const YELLOW: &'static str = "\x1b[1;93m";
+pub const YELLOW: &str = "\x1b[1;33m";
+/// Format output text with an underline.
+pub const UNDERLINE: &str = "\x1b[4m";
+pub const RESET_UNDERLINE: &str = "\x1b[24m";
 
 /// General Cumulative Error type, supporting each individual module errors.
 pub enum GSimError {

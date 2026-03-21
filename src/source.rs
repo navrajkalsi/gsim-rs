@@ -1,48 +1,34 @@
 //! # Source
 //!
 //! This module is responsible for reading in **raw G-Code text**,
-//! and preparing it for the [`Lexer`](crate::parser::lexer) to be tokenized.
+//! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
 use std::str::Lines;
 
 /// Stores the data from the source file.
-/// The data is sanitized and ready to be tokenized.
+/// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
 pub struct Source(Vec<String>);
 
 impl Source {
-    /// Constructs a new [`Source`], by reading a file at `path`,
-    /// ready to be tokenized by the [`Lexer`](crate::parser::lexer).
+    /// Constructs a new [`Source`], by reading a file at `path`.
     ///
-    /// Returns a new `Source` on success,
-    /// or [`io::Error`](std::io::Error) on failure to *read the raw file*.
+    /// Returns a [`io::Error`](std::io::Error) on failure to *read the raw file*.
     ///
-    /// The `Source` returned is sanitized to have **NO**:
-    /// - **comments**, starting with `(`.
-    /// - **deleted blocks**, starting with `/`.
-    /// - **end-of-block symbol**, the `;` character.
-    /// - **transmission symbol**, the `%` character.
-    /// - **empty lines.**
+    /// See [`from_lines`](Self::from_lines) for sanitization details.
     pub fn from_file(path: &str) -> Result<Self, std::io::Error> {
         let data = std::fs::read_to_string(path)?;
 
         Ok(Self::from_lines(data.lines()))
     }
 
-    /// Constructs a new [`Source`], from a provided [`String`]
-    /// ready to be tokenized by the [`Lexer`](crate::parser::lexer).
+    /// Constructs a new [`Source`], from a provided *string slice*.
     ///
-    /// The `Source` returned is sanitized to have **NO**:
-    /// - **comments**, starting with `(`.
-    /// - **deleted blocks**, starting with `/`.
-    /// - **end-of-block symbol**, the `;` character.
-    /// - **transmission symbol**, the `%` character.
-    /// - **empty lines.**
+    /// See [`from_lines`](Self::from_lines) for sanitization details.
     pub fn from_string(data: &str) -> Self {
         Self::from_lines(data.lines())
     }
 
-    /// Constructs a new [`Source`], from [`Lines`]
-    /// ready to be tokenized by the [`Lexer`](crate::parser::lexer).
+    /// Constructs a new [`Source`], from [`Lines`].
     ///
     /// The `Source` returned is sanitized to have **NO**:
     /// - **comments**, starting with `(`.
