@@ -28,6 +28,24 @@ pub enum Suffix {
     Float(Float),
 }
 
+impl Suffix {
+    /// Tries to *optionally* return the value inside of the [`Suffix::Int`] variant.
+    pub fn int(&self) -> Option<Int> {
+        match self {
+            Suffix::Int(i) => Some(*i),
+            Suffix::Float(_) => None,
+        }
+    }
+
+    /// Tries to *optionally* return the value inside of the [`Suffix::Float`] variant.
+    pub fn float(&self) -> Option<Float> {
+        match self {
+            Suffix::Int(_) => None,
+            Suffix::Float(f) => Some(*f),
+        }
+    }
+}
+
 /// A token represents a single **G-Code field**.
 ///
 /// A field begins with a single alphabet([`Prefix`]),
@@ -69,9 +87,12 @@ impl Block {
                 return Err(LexerError::IllegalChar);
             } else if byte.is_ascii_control() {
                 return Err(LexerError::NonUsableChar(*byte));
-            } else if *byte == b';' || *byte == b'(' || *byte == b'%' {
-                panic!("Invalid character passed Source sanitization. Logic Error!");
             }
+
+            debug_assert!(
+                *byte != b';' && *byte != b'(' && *byte != b'%',
+                "Invalid character passed Source sanitization. Logic Error!"
+            );
 
             match prefix_opt {
                 // start new word
