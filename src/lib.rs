@@ -27,5 +27,11 @@ pub fn run() -> Result<(), GSimError> {
         println!("lexer:\n{lexer:?}");
     }
 
+    let parser = crate::parser::Parser::parse(lexer)?;
+
+    if config.debug() {
+        println!("parser:\n{parser:?}");
+    }
+
     Ok(())
 }

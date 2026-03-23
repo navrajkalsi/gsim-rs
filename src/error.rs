@@ -4,6 +4,7 @@
 //! produced by different modules.
 
 use super::lexer::LexerError;
+use super::parser::ParserError;
 
 /// Reset output formatting.
 pub const RESET: &str = "\x1b[0m";
@@ -18,6 +19,8 @@ pub enum GSimError {
     Source(std::io::Error),
     /// Wraps a [`LexerError`] produced when tokenizing a [`Source`](crate::source::Source).
     Lexer(LexerError),
+    /// Wraps a [`ParserError`] produced when parsing a [`Lexer`](crate::lexer::Lexer).
+    Parser(ParserError),
 }
 
 impl std::fmt::Display for GSimError {
@@ -30,6 +33,10 @@ impl std::fmt::Display for GSimError {
             Self::Lexer(e) => write!(
                 f,
                 "{RED}Lexer Error:{RESET} The following error occurred when tokenizing the G-Code:\n\t{YELLOW}{e}{RESET}"
+            ),
+            Self::Parser(e) => write!(
+                f,
+                "{RED}Parser Error:{RESET} The following error occurred when parsing the G-Code:\n\t{YELLOW}{e}{RESET}"
             ),
         }
     }
@@ -44,5 +51,11 @@ impl From<std::io::Error> for GSimError {
 impl From<LexerError> for GSimError {
     fn from(e: LexerError) -> Self {
         Self::Lexer(e)
+    }
+}
+
+impl From<ParserError> for GSimError {
+    fn from(e: ParserError) -> Self {
+        Self::Parser(e)
     }
 }
