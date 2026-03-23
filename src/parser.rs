@@ -862,6 +862,19 @@ pub enum MCode {
 }
 
 impl MCode {
+    /// Provides the numeric value, suffix of a [`MCode`],
+    /// by returning a primitive discriminant of the enumeration.
+    ///
+    /// The returned number would be the same one that was tokeniezed
+    /// by the [`Lexer`] as the [`Suffix`].
+    ///
+    /// # SAFETY
+    /// It is certain that [`MCode`] enum specifies a primitive representation,
+    /// therefore the discriminant may be accessed via *unsafe pointer casting*.
+    pub fn suffix(&self) -> Int {
+        unsafe { *(self as *const Self as *const usize) }
+    }
+
     /// Tries to construct a [`MCode`] by parsing a [`Code::M`].
     ///
     /// Accepts a [`Code::M`] variant of [`Code`],
@@ -884,6 +897,7 @@ impl MCode {
                 6 => Self::ToolChange(codes.t.take()),
                 8 => Self::CoolantOn,
                 9 => Self::CoolantOff,
+                30 => Self::End,
 
                 _ => return Err(ParserError::InvalidMCode(m)),
             };
@@ -943,6 +957,21 @@ impl CodeBlock {
             mcode,
             codes,
         })
+    }
+
+    /// Returns a **mutable reference** to parsed [`GCodes`].
+    pub fn gcodes(&mut self) -> &mut GCodes {
+        &mut self.gcodes
+    }
+
+    /// Returns a `Optional` parsed [`MCode`].
+    pub fn mcode(&mut self) -> Option<MCode> {
+        self.mcode.take()
+    }
+
+    /// Returns a **mutable reference** to parsed [`Codes`].
+    pub fn codes(&mut self) -> &mut Codes {
+        &mut self.codes
     }
 }
 
@@ -1076,22 +1105,42 @@ impl Display for ParserError {
 
 #[cfg(test)]
 mod tests {
-    use super::{lexer::tokenize, *};
+    use crate::source::Source;
+
+    use super::*;
 
     // helper for tests
-    fn tokenize_parse(tokens: &str) -> Result<Vec<Code>, ParserError> {
-        parse(tokenize(tokens).unwrap())
+    // returns a parsed vector of gcodes
+    fn tokenize_parse(tokens: &str) -> Result<Vec<GCode>, ParserError> {
+        Ok(
+            Parser::parse(Lexer::tokenize(Source::from_string(tokens)).unwrap())?
+                .0
+                .pop()
+                .unwrap()
+                .gcodes
+                .codes,
+        )
+    }
+
+    // helper for tests
+    // returns a parsed mcode
+    fn tokenize_parse_m(tokens: &str) -> Result<MCode, ParserError> {
+        Ok(
+            Parser::parse(Lexer::tokenize(Source::from_string(tokens)).unwrap())?
+                .0
+                .pop()
+                .unwrap()
+                .mcode
+                .unwrap(),
+        )
     }
 
     #[test]
     // Test to get the suffix of a code by accessing its discriminant.
     fn get_code_suffix() {
-        assert_eq!(
-            Code::G(GCode::RapidMove(PartialPoint(None, None, None))).suffix(),
-            Suffix::Int(0)
-        );
+        assert_eq!(GCode::RapidMove(PartialPoint(None, None, None)).suffix(), 0);
 
-        assert_eq!(Code::M(MCode::Stop).suffix(), Suffix::Int(0));
+        assert_eq!(MCode::Stop.suffix(), 0);
     }
 
     #[test]
@@ -1155,44 +1204,10 @@ mod tests {
     }
 
     #[test]
-    // Test all groups are correct.
-    fn parse_gcode_groups() {
-        for (suffix, group) in GCODES {
-            assert_eq!(
-                *group,
-                GCode::group_from_suffix(*suffix).expect("Every suffix must be valid.")
-            );
-        }
-    }
-
-    #[test]
-    // Test that all codes inside GCODES array parse.
-    // also tests the group() and suffix() methods as well.
-    fn parse_valid_gcodes() {
-        let tokens = tokenize("X0. I0. D1 H1").unwrap();
-        let block = validate_block(tokens).unwrap();
-
-        for (suffix, group) in GCODES {
-            let gcode = GCode::parse_from_suffix(*suffix, &mut block.clone())
-                .expect("Every suffix must generate a valid GCode variant.");
-
-            // test suffix method
-            assert_eq!(*suffix, gcode.suffix());
-
-            // test group method
-            assert_eq!(*group, gcode.group());
-        }
-    }
-
-    #[test]
     fn parse_rapid_move() {
         assert_eq!(
             tokenize_parse("G0 X0. Y0.").unwrap(),
-            vec![Code::G(GCode::RapidMove(PartialPoint(
-                Some(0.0),
-                Some(0.0),
-                None
-            )))]
+            vec![GCode::RapidMove(PartialPoint(Some(0.0), Some(0.0), None))]
         );
     }
 
@@ -1200,10 +1215,10 @@ mod tests {
     fn parse_feed_move() {
         assert_eq!(
             tokenize_parse("G1 X0. Y0. F20.").unwrap(),
-            vec![Code::G(GCode::FeedMove {
-                p_point: PartialPoint(Some(0.0), Some(0.0), None),
-                f: Some(20.0)
-            })]
+            vec![GCode::FeedMove {
+                pos: PartialPoint(Some(0.0), Some(0.0), None),
+                feed: Some(20.0)
+            }]
         );
     }
 
@@ -1211,20 +1226,20 @@ mod tests {
     fn parse_cw_arc() {
         assert_eq!(
             tokenize_parse("G2 X0. I1. J2. F20.").unwrap(),
-            vec![Code::G(GCode::CWArcMove {
-                p_point: PartialPoint(Some(0.0), None, None),
+            vec![GCode::CWArcMove {
+                pos: PartialPoint(Some(0.0), None, None),
                 method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
-                f: Some(20.0)
-            })]
+                feed: Some(20.0)
+            }]
         );
 
         assert_eq!(
             tokenize_parse("G2 Y0. R20. F20.").unwrap(),
-            vec![Code::G(GCode::CWArcMove {
-                p_point: PartialPoint(None, Some(0.0), None),
+            vec![GCode::CWArcMove {
+                pos: PartialPoint(None, Some(0.0), None),
                 method: CircleMethod::FixedRadius(20.0),
-                f: Some(20.0)
-            })]
+                feed: Some(20.0)
+            }]
         );
     }
 
@@ -1232,34 +1247,28 @@ mod tests {
     fn parse_ccw_arc() {
         assert_eq!(
             tokenize_parse("G3 X0. I1. J2. F20.").unwrap(),
-            vec![Code::G(GCode::CCWArcMove {
-                p_point: PartialPoint(Some(0.0), None, None),
+            vec![GCode::CCWArcMove {
+                pos: PartialPoint(Some(0.0), None, None),
                 method: CircleMethod::RelativePoint(PartialPoint(Some(1.0), Some(2.0), None)),
-                f: Some(20.0)
-            })]
+                feed: Some(20.0)
+            }]
         );
 
         assert_eq!(
             tokenize_parse("G3 Y0. R20. F20.").unwrap(),
-            vec![Code::G(GCode::CCWArcMove {
-                p_point: PartialPoint(None, Some(0.0), None),
+            vec![GCode::CCWArcMove {
+                pos: PartialPoint(None, Some(0.0), None),
                 method: CircleMethod::FixedRadius(20.0),
-                f: Some(20.0)
-            })]
+                feed: Some(20.0)
+            }]
         );
     }
 
     #[test]
     fn parse_dwell() {
-        assert_eq!(
-            tokenize_parse("G4 X10.").unwrap(),
-            vec![Code::G(GCode::Dwell(10.0))]
-        );
+        assert_eq!(tokenize_parse("G4 X10.").unwrap(), vec![GCode::Dwell(10.0)]);
 
-        assert_eq!(
-            tokenize_parse("G4 P1000").unwrap(),
-            vec![Code::G(GCode::Dwell(1.0))]
-        );
+        assert_eq!(tokenize_parse("G4 P1000").unwrap(), vec![GCode::Dwell(1.0)]);
 
         assert_eq!(
             tokenize_parse("G4").unwrap_err(),
@@ -1269,50 +1278,35 @@ mod tests {
 
     #[test]
     fn parse_planes() {
-        assert_eq!(
-            tokenize_parse("G17").unwrap(),
-            vec![Code::G(GCode::XYPlane)]
-        );
+        assert_eq!(tokenize_parse("G17").unwrap(), vec![GCode::XYPlane]);
 
-        assert_eq!(
-            tokenize_parse("G18").unwrap(),
-            vec![Code::G(GCode::XZPlane)]
-        );
+        assert_eq!(tokenize_parse("G18").unwrap(), vec![GCode::XZPlane]);
 
-        assert_eq!(
-            tokenize_parse("G19").unwrap(),
-            vec![Code::G(GCode::YZPlane)]
-        );
+        assert_eq!(tokenize_parse("G19").unwrap(), vec![GCode::YZPlane]);
     }
 
     #[test]
     fn parse_unit_modes() {
-        assert_eq!(
-            tokenize_parse("G20").unwrap(),
-            vec![Code::G(GCode::ImperialMode)]
-        );
+        assert_eq!(tokenize_parse("G20").unwrap(), vec![GCode::ImperialMode]);
 
-        assert_eq!(
-            tokenize_parse("G21").unwrap(),
-            vec![Code::G(GCode::MetricMode)]
-        );
+        assert_eq!(tokenize_parse("G21").unwrap(), vec![GCode::MetricMode]);
     }
 
     #[test]
     fn parse_cutter_comp() {
         assert_eq!(
             tokenize_parse("G40").unwrap(),
-            vec![Code::G(GCode::CancelCutterComp)]
+            vec![GCode::CancelCutterComp]
         );
 
         assert_eq!(
             tokenize_parse("G41 D1").unwrap(),
-            vec![Code::G(GCode::LeftCutterComp(1))]
+            vec![GCode::LeftCutterComp(1)]
         );
 
         assert_eq!(
             tokenize_parse("G42 D1").unwrap(),
-            vec![Code::G(GCode::RightCutterComp(1))]
+            vec![GCode::RightCutterComp(1)]
         );
     }
 
@@ -1320,18 +1314,15 @@ mod tests {
     fn parse_len_comp() {
         assert_eq!(
             tokenize_parse("G43 H1").unwrap(),
-            vec![Code::G(GCode::ToolLenCompAdd(1))]
+            vec![GCode::ToolLenCompAdd(1)]
         );
 
         assert_eq!(
             tokenize_parse("G44 H1").unwrap(),
-            vec![Code::G(GCode::ToolLenCompSubtract(1))]
+            vec![GCode::ToolLenCompSubtract(1)]
         );
 
-        assert_eq!(
-            tokenize_parse("G49").unwrap(),
-            vec![Code::G(GCode::CancelLenComp)]
-        );
+        assert_eq!(tokenize_parse("G49").unwrap(), vec![GCode::CancelLenComp]);
     }
 
     #[test]
@@ -1343,148 +1334,88 @@ mod tests {
 
         assert_eq!(
             tokenize_parse("G53 X0. Z0.").unwrap(),
-            vec![Code::G(GCode::MachineCoord(PartialPoint(
+            vec![GCode::MachineCoord(PartialPoint(
                 Some(0.0),
                 None,
                 Some(0.0)
-            )))]
+            ))]
         );
     }
 
     #[test]
     fn parse_workpiece_coord() {
-        assert_eq!(
-            tokenize_parse("G54").unwrap(),
-            vec![Code::G(GCode::WorkCoord)]
-        );
+        assert_eq!(tokenize_parse("G54").unwrap(), vec![GCode::WorkCoord]);
     }
 
     #[test]
     fn parse_canned_cycles() {
-        assert_eq!(
-            tokenize_parse("G80").unwrap(),
-            vec![Code::G(GCode::CancelCanned)]
-        );
+        assert_eq!(tokenize_parse("G80").unwrap(), vec![GCode::CancelCanned]);
     }
 
     #[test]
     fn parse_positioning_modes() {
-        assert_eq!(
-            tokenize_parse("G90").unwrap(),
-            vec![Code::G(GCode::AbsoluteMode)]
-        );
+        assert_eq!(tokenize_parse("G90").unwrap(), vec![GCode::AbsoluteMode]);
 
-        assert_eq!(
-            tokenize_parse("G91").unwrap(),
-            vec![Code::G(GCode::IncrementalMode)]
-        );
+        assert_eq!(tokenize_parse("G91").unwrap(), vec![GCode::IncrementalMode]);
     }
 
     #[test]
     fn parse_feed_modes() {
-        assert_eq!(
-            tokenize_parse("G94").unwrap(),
-            vec![Code::G(GCode::FeedMinute)]
-        );
+        assert_eq!(tokenize_parse("G94").unwrap(), vec![GCode::FeedMinute]);
 
-        assert_eq!(
-            tokenize_parse("G95").unwrap(),
-            vec![Code::G(GCode::FeedRev)]
-        );
+        assert_eq!(tokenize_parse("G95").unwrap(), vec![GCode::FeedRev]);
     }
 
     #[test]
     fn parse_return_canned() {
-        assert_eq!(
-            tokenize_parse("G98").unwrap(),
-            vec![Code::G(GCode::InitialReturn)]
-        );
+        assert_eq!(tokenize_parse("G98").unwrap(), vec![GCode::InitialReturn]);
 
-        assert_eq!(
-            tokenize_parse("G99").unwrap(),
-            vec![Code::G(GCode::RetractReturn)]
-        );
-    }
-
-    #[test]
-    // Test that all codes inside MCODES array parse.
-    fn parse_valid_mcodes() {
-        let tokens = tokenize("").unwrap();
-        let block = validate_block(tokens).unwrap();
-
-        for suffix in MCODES {
-            let gcode = MCode::parse_from_suffix(*suffix, &mut block.clone())
-                .expect("Every suffix must generate a valid MCode variant.");
-
-            // test suffix method
-            assert_eq!(*suffix, gcode.suffix());
-        }
+        assert_eq!(tokenize_parse("G99").unwrap(), vec![GCode::RetractReturn]);
     }
 
     #[test]
     fn parse_stop() {
-        assert_eq!(tokenize_parse("M00").unwrap(), vec![Code::M(MCode::Stop)]);
+        assert_eq!(tokenize_parse_m("M00").unwrap(), MCode::Stop);
     }
 
     #[test]
     fn parse_optional_stop() {
-        assert_eq!(
-            tokenize_parse("M01").unwrap(),
-            vec![Code::M(MCode::OptionalStop)]
-        );
+        assert_eq!(tokenize_parse_m("M01").unwrap(), MCode::OptionalStop);
     }
 
     #[test]
     fn parse_spindle() {
         assert_eq!(
-            tokenize_parse("M03 S1000").unwrap(),
-            vec![Code::M(MCode::SpindleFwd(Some(1000)))]
+            tokenize_parse_m("M03 S1000").unwrap(),
+            MCode::SpindleFwd(Some(1000))
         );
+        assert_eq!(tokenize_parse_m("M03").unwrap(), MCode::SpindleFwd(None));
         assert_eq!(
-            tokenize_parse("M03").unwrap(),
-            vec![Code::M(MCode::SpindleFwd(None))]
+            tokenize_parse_m("M04 S1000").unwrap(),
+            MCode::SpindleRev(Some(1000))
         );
-        assert_eq!(
-            tokenize_parse("M04 S1000").unwrap(),
-            vec![Code::M(MCode::SpindleRev(Some(1000)))]
-        );
-        assert_eq!(
-            tokenize_parse("M04").unwrap(),
-            vec![Code::M(MCode::SpindleRev(None))]
-        );
-        assert_eq!(
-            tokenize_parse("M05").unwrap(),
-            vec![Code::M(MCode::SpindleStop)]
-        );
+        assert_eq!(tokenize_parse_m("M04").unwrap(), MCode::SpindleRev(None));
+        assert_eq!(tokenize_parse_m("M05").unwrap(), MCode::SpindleStop);
     }
 
     #[test]
     fn parse_tool_change() {
         assert_eq!(
-            tokenize_parse("M06 T1").unwrap(),
-            vec![Code::M(MCode::ToolChange(Some(1)))]
+            tokenize_parse_m("M06 T1").unwrap(),
+            MCode::ToolChange(Some(1))
         );
-        assert_eq!(
-            tokenize_parse("M06").unwrap(),
-            vec![Code::M(MCode::ToolChange(None))]
-        );
+        assert_eq!(tokenize_parse_m("M06").unwrap(), MCode::ToolChange(None));
     }
 
     #[test]
     fn parse_coolant() {
-        assert_eq!(
-            tokenize_parse("M08").unwrap(),
-            vec![Code::M(MCode::CoolantOn)]
-        );
-        assert_eq!(
-            tokenize_parse("M09").unwrap(),
-            vec![Code::M(MCode::CoolantOff)]
-        );
+        assert_eq!(tokenize_parse_m("M08").unwrap(), MCode::CoolantOn);
+        assert_eq!(tokenize_parse_m("M09").unwrap(), MCode::CoolantOff);
     }
 
     #[test]
     fn parse_program_end() {
-        assert_eq!(tokenize_parse("M30").unwrap(), vec![Code::M(MCode::End)]);
+        assert_eq!(tokenize_parse_m("M30").unwrap(), MCode::End);
     }
 
     #[test]
@@ -1492,12 +1423,11 @@ mod tests {
     fn point_set() {
         let mut p = Point::new(0.0, 0.0, 0.0);
 
-        assert_eq!(p.set(1.0, 2.0, 3.0).get(), (1.0, 2.0, 3.0));
+        p.set(1.0, 2.0, 3.0);
+        assert_eq!(p.get(), (1.0, 2.0, 3.0));
 
-        assert_eq!(
-            p.set_optional(Some(-1.0), None, Some(-3.0)).get(),
-            (-1.0, 2.0, -3.0)
-        );
+        p.set_optional(Some(-1.0), None, Some(-3.0));
+        assert_eq!(p.get(), (-1.0, 2.0, -3.0));
     }
 
     #[test]
