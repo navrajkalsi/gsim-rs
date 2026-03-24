@@ -394,6 +394,7 @@ impl Iterator for Codes {
     ///
     /// This function will **never return** the [`Code::G`] or [`Code::M`] variants of [`Code`].
     fn next(&mut self) -> Option<Self::Item> {
+        #![allow(clippy::redundant_closure)]
         if self.d.is_some() {
             self.d.take().map(|d| Code::D(d))
         } else if self.f.is_some() {
@@ -611,10 +612,10 @@ impl GCode {
                         }
                     }
                     // R must not be 0.
-                    else if let CircleMethod::FixedRadius(rad) = &method {
-                        if rad.abs() < 1e-10 {
-                            return Err(ParserError::InvalidParamForGCode(g));
-                        }
+                    else if let CircleMethod::FixedRadius(rad) = &method
+                        && rad.abs() < 1e-10
+                    {
+                        return Err(ParserError::InvalidParamForGCode(g));
                     }
 
                     if g == 2 {

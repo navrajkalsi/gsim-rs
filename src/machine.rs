@@ -557,7 +557,7 @@ impl Machine {
         // convert `method` units
         let method = match method {
             CircleMethod::RelativePoint(mut rel_center) => {
-                self.to_machine_units_partial(&mut rel_center);
+                self.to_machine_units(&mut rel_center);
                 CircleMethod::RelativePoint(rel_center)
             }
             CircleMethod::FixedRadius(mut rad) => {
@@ -594,7 +594,7 @@ impl Machine {
     /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
     pub fn move_machine_pos(&mut self, mut pos: PartialPoint) -> Result<(), MachineError> {
-        self.to_machine_units_partial(&mut pos);
+        self.to_machine_units(&mut pos);
 
         let new_pos = Point::new(
             pos.x().unwrap_or(self.pos().x()),
@@ -631,7 +631,7 @@ impl Machine {
     ///
     /// Returns a new [`Point`] with each axis filled.
     fn new_pos(&self, mut pos: PartialPoint) -> Point {
-        self.to_machine_units_partial(&mut pos);
+        self.to_machine_units(&mut pos);
 
         match self.positioning {
             Positioning::Absolute => Point::new(
@@ -667,19 +667,9 @@ impl Machine {
     //
 
     /// Accepts a *mutable reference to [`Point`]* in `code_units`.
-    /// Converts the units of all fields to Machine units.
-    fn to_machine_units(&self, point: &mut Point) {
-        if self.units == Unit::Imperial && self.code_units == Unit::Metric {
-            point.to_imperial()
-        } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
-            point.to_metric()
-        }
-    }
-
-    /// Accepts a *mutable reference to [`Point`]* in `code_units`.
     /// Converts the units of all `Some` variant fields to Machine units.
     /// `None` variants are not changed.
-    fn to_machine_units_partial(&self, point: &mut PartialPoint) {
+    fn to_machine_units(&self, point: &mut PartialPoint) {
         if self.units == Unit::Imperial && self.code_units == Unit::Metric {
             point.to_imperial()
         } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
