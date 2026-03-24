@@ -4,10 +4,12 @@
 //! and is responsible for converting a sequence of G-code [`Block`]s (represented as [`Lexer`]),
 //! to a sequence of [`CodeBlock`]s (represented as [`Parser`].
 //!
+//! This parser is **stateless** and does not deal with any state logic across blocks.
+//!
 //! This module makes the following translations to Lexer structures:
-//! -- [`Token`] -> [`Code`]
-//! -- [`Block`] -> [`CodeBlock`]
-//! -- [`Lexer`] -> [`Parser`]
+//! - [`Token`] -> [`Code`]
+//! - [`Block`] -> [`CodeBlock`]
+//! - [`Lexer`] -> [`Parser`]
 //!
 //! Reference used: [Tomassetti](https://tomassetti.me/guide-parsing-algorithms-terminology/)
 
