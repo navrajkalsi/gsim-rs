@@ -387,6 +387,18 @@ impl Machine {
         self.ret_lvl = level
     }
 
+    /// Sets the following machine variables to their defaults:
+    /// - **Spindle** -- Off
+    /// - **Plane** -- XY
+    /// - **Coolant** -- Off
+    /// - **Feed Mode** -- Feed Per Minute
+    pub fn reset(&mut self) {
+        self.spindle_off();
+        self.set_plane(Plane::default());
+        self.set_coolant(false);
+        self.set_feed_mode(FeedMode::default());
+    }
+
     //
     // ########## PUBLIC SETTERS, CAN FAIL ##########
     //
@@ -999,7 +1011,8 @@ impl Display for MachineError {
             ),
             Self::Overtravel(axis, coord) => write!(
                 f,
-                "Overtravel Detected:{RESET}\n\t\t'{RED}{axis}{RESET}' axis of the machine overtravels because of the last move to {RED}{coord}{RESET}."
+                "Overtravel Detected:{RESET}\n\t\t'{RED}{}{RESET}' axis of the machine overtravels because of the last move of {RED}{coord}{RESET} units.",
+                *axis as char
             ),
             Self::NoSpindleSpeed => write!(
                 f,

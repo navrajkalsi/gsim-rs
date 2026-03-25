@@ -3,6 +3,9 @@
 //! This module is responsible for organizing different types of errors,
 //! produced by different modules.
 
+use crate::interpreter::InterpreterError;
+use crate::machine::MachineError;
+
 use super::lexer::LexerError;
 use super::parser::ParserError;
 
@@ -21,6 +24,10 @@ pub enum GSimError {
     Lexer(LexerError),
     /// Wraps a [`ParserError`] produced when parsing a [`Lexer`](crate::lexer::Lexer).
     Parser(ParserError),
+    /// Wraps a [`MachineError`] produced when creating a [`Machine`](crate::machine::Machine).
+    Machine(MachineError),
+    /// Wraps an [`InterpreterError`] produced when changing the state of a [`Machine`](crate::machine::Machine).
+    Interpreter(InterpreterError),
 }
 
 impl std::fmt::Display for GSimError {
@@ -37,6 +44,14 @@ impl std::fmt::Display for GSimError {
             Self::Parser(e) => write!(
                 f,
                 "{RED}Parser Error:{RESET} The following error occurred when parsing the G-Code:\n\t{YELLOW}{e}{RESET}"
+            ),
+            Self::Machine(e) => write!(
+                f,
+                "{RED}Machine Error:{RESET} The following error occurred during machine creation:\n\t{YELLOW}{e}{RESET}"
+            ),
+            Self::Interpreter(e) => write!(
+                f,
+                "{RED}Interpreter Error:{RESET} The following error occurred chaning the state of the machine:\n\t{YELLOW}{e}{RESET}"
             ),
         }
     }
@@ -57,5 +72,17 @@ impl From<LexerError> for GSimError {
 impl From<ParserError> for GSimError {
     fn from(e: ParserError) -> Self {
         Self::Parser(e)
+    }
+}
+
+impl From<MachineError> for GSimError {
+    fn from(e: MachineError) -> Self {
+        Self::Machine(e)
+    }
+}
+
+impl From<InterpreterError> for GSimError {
+    fn from(e: InterpreterError) -> Self {
+        Self::Interpreter(e)
     }
 }

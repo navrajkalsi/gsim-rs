@@ -1,11 +1,20 @@
 mod config;
 mod error;
+mod interpreter;
 pub mod lexer;
-pub mod machine;
+mod machine;
 pub mod parser;
 pub mod source;
 
-use crate::{config::Config, error::GSimError, lexer::Lexer, source::Source};
+use crate::{
+    config::Config,
+    error::GSimError,
+    interpreter::Interpreter,
+    lexer::Lexer,
+    machine::{Machine, Unit},
+    parser::Point,
+    source::Source,
+};
 use clap::Parser;
 
 // helper function to facilitate error logging in main
@@ -33,6 +42,14 @@ pub fn run() -> Result<(), GSimError> {
     if config.debug() {
         println!("parser:\n{parser:?}");
     }
+
+    let machine = Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?;
+
+    if config.debug() {
+        println!("machine:\n{machine:?}");
+    }
+
+    Interpreter::execute(parser, machine)?;
 
     Ok(())
 }

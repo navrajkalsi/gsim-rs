@@ -42,9 +42,9 @@ G0 Z10.0                 ; Safe Z clearance above work
 ; --- Pocket Pass 1 — Z-1.0 ---
 G0 X23.0 Y23.0           ; Move above pocket start (3mm inset from corner)
 G0 Z2.0                  ; Approach Z
-G1 Z-1.0 F300            ; Plunge to first depth (slow plunge)
+G1 Z-1.0 F300.            ; Plunge to first depth (slow plunge)
 
-G1 X57.0 F800            ; Row 1  →
+G1 X57.0 F800.            ; Row 1  →
 G1 Y27.0                 ; Step over
 G1 X23.0                 ; Row 2  ←
 G1 Y31.0
@@ -66,8 +66,8 @@ G1 X23.0                 ; Row 10 ←
 
 ; --- Pocket finishing pass (perimeter cleanup) at Z-1.0 ---
 G0 X20.0 Y20.0
-G1 Z-1.0 F300
-G1 X80.0 F600            ; Bottom edge
+G1 Z-1.0 F300.
+G1 X80.0 F600.            ; Bottom edge
 G1 Y80.0                 ; Right edge
 G1 X20.0                 ; Top edge
 G1 Y20.0                 ; Left edge
@@ -75,8 +75,8 @@ G1 Y20.0                 ; Left edge
 ; --- Pocket Pass 2 — Z-2.0 ---
 G0 Z2.0
 G0 X23.0 Y23.0
-G1 Z-2.0 F300
-G1 X57.0 F800
+G1 Z-2.0 F300.
+G1 X57.0 F800.
 
 ; --- Pocket Passes 3–5 (Z-3, Z-4, Z-5) ---
 ; (Pattern repeats identically — abbreviated here)
@@ -94,10 +94,10 @@ G0 Z10.0                 ; Retract to safe Z
 ; --- Contour Pass 1 (roughing — Z-5.0, 0.2mm radial allowance) ---
 G0 X-6.2 Y-6.2           ; Start outside part (tool radius + allowance)
 G0 Z2.0
-G1 Z-5.0 F300            ; Plunge full depth
+G1 Z-5.0 F300.            ; Plunge full depth
 G41 D1                   ; Cutter comp LEFT (D1 = tool radius register)
 
-G1 X106.2 F600           ; Bottom edge
+G1 X106.2 F600.           ; Bottom edge
 G1 Y106.2                ; Right edge
 G1 X-6.2                 ; Top edge
 G1 Y-6.2                 ; Left edge — back to start
@@ -108,32 +108,15 @@ G0 Z10.0
 ; --- Contour Pass 2 (finishing — full depth, no allowance) ---
 G0 X-6.0 Y-6.0
 G0 Z2.0
-G1 Z-5.0 F300
+G1 Z-5.0 F300.
 G41 D1
 
-G1 X106.0 F400           ; Slower feed for finish quality
+G1 X106.0 F400.           ; Slower feed for finish quality
 G1 Y106.0
 G1 X-6.0
 G1 Y-6.0
 
 G40
-G0 Z10.0
-
-; ============================================================
-; OPERATION 3: DRILLING — 4x CORNER HOLES
-; Hole diameter: 6mm | Depth: 8mm through
-; Positions: X10Y10, X90Y10, X90Y90, X10Y90
-; Canned cycle G81 (standard drill)
-; ============================================================
-
-G81 R2.0 Z-8.0 F200      ; Drill canned cycle: R-plane 2mm, depth -8mm
-
-X10.0 Y10.0              ; Hole 1 — bottom-left
-X90.0 Y10.0              ; Hole 2 — bottom-right
-X90.0 Y90.0              ; Hole 3 — top-right
-X10.0 Y90.0              ; Hole 4 — top-left
-
-G80                      ; Cancel canned cycle
 G0 Z10.0
 
 ; ============================================================
@@ -144,11 +127,11 @@ G0 Z10.0
 
 G0 X50.0 Y40.0           ; Move to start point (center - radius on Y)
 G0 Z2.0
-G1 Z-1.5 F200            ; First depth pass
-G2 X50.0 Y40.0 I0.0 J10.0 F500  ; Full circle CW (I=0, J=radius to center)
+G1 Z-1.5 F200.            ; First depth pass
+G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle CW (I=0, J=radius to center)
 
-G1 Z-3.0 F200            ; Second depth pass
-G2 X50.0 Y40.0 I0.0 J10.0 F500  ; Full circle
+G1 Z-3.0 F200.            ; Second depth pass
+G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle
 
 G0 Z10.0
 
@@ -157,9 +140,7 @@ G0 Z10.0
 ; ============================================================
 M9                       ; Coolant OFF
 M5                       ; Spindle OFF
-G91                      ; Relative positioning
-G28 Z0                   ; Return Z to machine home
-G90                      ; Back to absolute
-G28 X0 Y0                ; Return X/Y to machine home
+G53 Z0.                   ; Return Z to machine home
+G53 X0. Y0.                ; Return X/Y to machine home
 M30                      ; Program end and rewind
 %                        ; End of program flag
