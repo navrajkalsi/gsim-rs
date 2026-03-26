@@ -1,4 +1,4 @@
-//! # Intrpreter
+//! # Interpreter
 //!
 //! This module executes [`CodeBlock`]s (represented as [`Parser`])
 //! on a [`Machine`] by accessing its public API.
@@ -28,7 +28,7 @@ impl Interpreter {
         Self { parser, machine }
     }
 
-    /// Executes each [`CodeBlock`](crate::parser::CodeBlock) of the [`Parser`] sequentially on the [`Machine`].
+    /// Executes each [`CodeBlock`] of the [`Parser`] sequentially on the [`Machine`].
     ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
     pub fn execute(&mut self) -> Result<(), InterpreterError> {
