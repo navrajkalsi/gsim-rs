@@ -9,10 +9,10 @@ use crate::{
     error::{RED, RESET},
     lexer::Prefix,
     machine::{
-        CircularDirection, Direction, FeedMode, Machine, MachineError, Plane, Positioning,
+        CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, Plane, Positioning,
         ReturnLevel, Unit,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, Point},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Point},
 };
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
@@ -143,18 +143,16 @@ impl Interpreter {
                 let mut excess = Codes::new();
 
                 match code {
-                    Code::D(_) => return Err(InterpreterError::ExcessCode(b'D')),
-
                     Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
-
-                    Code::H(_) => return Err(InterpreterError::ExcessCode(b'H')),
-
                     Code::M(_) => unreachable!("The parser will not emit M code with other codes."),
+
+                    Code::D(_) => return Err(InterpreterError::ExcessCode(b'D')),
+                    Code::H(_) => return Err(InterpreterError::ExcessCode(b'H')),
+                    Code::P(_) => return Err(InterpreterError::ExcessCode(b'P')),
+                    Code::Q(_) => return Err(InterpreterError::ExcessCode(b'Q')),
 
                     // ignore line & program numbers
                     Code::N(_) | Code::O(_) => (),
-
-                    Code::P(_) => return Err(InterpreterError::ExcessCode(b'P')),
 
                     Code::S(s) => machine.set_speed(s),
 
@@ -169,8 +167,28 @@ impl Interpreter {
                     | Code::X(_)
                     | Code::Y(_)
                     | Code::Z(_) => excess.push(code).unwrap(),
+                };
 
-                    Code::Q(_) => return Err(InterpreterError::ExcessCode(b'Q')),
+                // from excess codes, only interpolation is possible
+                //
+                // it is worth noting that an single block cannot be interpreted twice,
+                // that is, a block will not have two interpolations,
+                // because everyblock needs x, y or z, and there are no duplicates.
+                match machine.motion() {
+                    Motion::Rapid => machine.rapid_move(excess.take_partial_point())?,
+
+                    // feed would be set from the for loop, if provided
+                    Motion::Feed => machine.feed_move(excess.take_partial_point(), None)?,
+
+                    Motion::Arc(dir) => {
+                        let (pos, method, feed) = excess.take_circular()?;
+                        machine.arc_move(pos, method, *dir, feed)?;
+                    }
+                };
+
+                // single move should consume all the excess codes
+                if let Some(code) = excess.next() {
+                    return Err(InterpreterError::ExcessCode(code.prefix()));
                 }
             }
         }
@@ -195,6 +213,7 @@ impl Interpreter {
 pub enum InterpreterError {
     File(io::Error),
     Machine(MachineError),
+    Parser(ParserError),
     /// At least one code from a code block exists that was not consumed.
     ExcessCode(Prefix),
 }
@@ -211,6 +230,12 @@ impl From<MachineError> for InterpreterError {
     }
 }
 
+impl From<ParserError> for InterpreterError {
+    fn from(e: ParserError) -> Self {
+        Self::Parser(e)
+    }
+}
+
 impl Display for InterpreterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
@@ -218,9 +243,12 @@ impl Display for InterpreterError {
                 f,
                 "File Access Error:{RESET}\n\t\tError encountered while trying to read input from user."
             ),
+
             // no need to format new error,
-            // just print machine error as interpreter error which is formatted
+            // just print machine & parser error as interpreter error which is formatted
             Self::Machine(e) => write!(f, "{e}"),
+            Self::Parser(e) => write!(f, "{e}"),
+
             Self::ExcessCode(c) => write!(
                 f,
                 "Excess Code Detected:{RESET}\n\t\tThe code block contains the following code, which could not be consumed and may be redundant: {RED}{}{RESET}.",

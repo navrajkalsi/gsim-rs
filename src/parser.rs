@@ -371,7 +371,7 @@ impl Codes {
     }
 
     /// Constructs a new [`PartialPoint`] by **consuming** `x`, `y`, & `z` field values from `self`.
-    fn take_partial_point(&mut self) -> PartialPoint {
+    pub fn take_partial_point(&mut self) -> PartialPoint {
         PartialPoint::new(self.x.take(), self.y.take(), self.z.take())
     }
 
@@ -383,6 +383,55 @@ impl Codes {
     /// Removes the `f` field from `self` and returns it.
     fn take_feed(&mut self) -> Option<Float> {
         self.f.take()
+    }
+
+    /// Tries to parse a [`Codes`] for circular interpolation codes,
+    /// by removing any information regarding circular interpolation from it.
+    ///
+    /// Returns a tuple containing:
+    /// - [`PartialPoint`] -- Destination coordinates.
+    /// - [`CircleMethod`] -- Method to use for the circle.
+    /// - [`Option<Float>`] -- Feedrate, if provided.
+    pub fn take_circular(
+        &mut self,
+    ) -> Result<(PartialPoint, CircleMethod, Option<Float>), ParserError> {
+        let pos = self.take_partial_point();
+        let feed = self.take_feed();
+
+        // both circle methods mean invalid input
+        if self.r.is_some() && (self.i.is_some() || self.j.is_some() || self.k.is_some()) {
+            return Err(ParserError::AmbiguousCircleMethod);
+        }
+
+        // branch based on if 'R' prefix exists or not
+        let method = if let Some(r) = self.r.take() {
+            CircleMethod::FixedRadius(r)
+        } else {
+            CircleMethod::RelativePoint(self.take_partial_point_ijk())
+        };
+
+        // destination coords are required for arcs.
+        if pos.are_none() {
+            return Err(ParserError::InvalidCircle(None));
+        }
+
+        match &method {
+            // relative center must be on a single plane only, that is,
+            // at most 2 axis can be specified, and at least one axis should be present
+            CircleMethod::RelativePoint(rel_point) => {
+                if rel_point.are_some() || rel_point.are_none() {
+                    return Err(ParserError::InvalidCircle(Some(method)));
+                }
+            }
+            // R must not be 0.
+            CircleMethod::FixedRadius(rad) => {
+                if rad.abs() < 1e-10 {
+                    return Err(ParserError::InvalidCircle(Some(method)));
+                }
+            }
+        }
+
+        Ok((pos, method, feed))
     }
 }
 
@@ -589,34 +638,7 @@ impl GCode {
                 },
 
                 2 | 3 => {
-                    let pos = codes.take_partial_point();
-                    let feed = codes.take_feed();
-
-                    // branch based on if 'R' prefix exists or not
-                    let method = if let Some(r) = codes.r.take() {
-                        CircleMethod::FixedRadius(r)
-                    } else {
-                        CircleMethod::RelativePoint(codes.take_partial_point_ijk())
-                    };
-
-                    // destination coords are required for arcs.
-                    if pos.are_none() {
-                        return Err(ParserError::InvalidParamForGCode(g));
-                    }
-
-                    // relative center must be on a single plane only, that is,
-                    // at most 2 axis can be specified, and at least one axis should be present
-                    if let CircleMethod::RelativePoint(rel_point) = &method {
-                        if rel_point.are_some() || rel_point.are_none() {
-                            return Err(ParserError::InvalidParamForGCode(g));
-                        }
-                    }
-                    // R must not be 0.
-                    else if let CircleMethod::FixedRadius(rad) = &method
-                        && rad.abs() < 1e-10
-                    {
-                        return Err(ParserError::InvalidParamForGCode(g));
-                    }
+                    let (pos, method, feed) = codes.take_circular()?;
 
                     if g == 2 {
                         Self::CWArcMove { pos, method, feed }
@@ -1031,6 +1053,10 @@ pub enum ParserError {
     InvalidParamForGCode(Int),
     /// Missing token required for a GCode variant.
     MissingCodeForGCode(Prefix),
+    /// The code block contains codes for both variants of circle methods.
+    AmbiguousCircleMethod,
+    /// Conditions for a particular circle method were not met, or the end coords are missing.
+    InvalidCircle(Option<CircleMethod>),
     /// Prefix and suffix make an invalid M-code.
     InvalidMCode(Int),
     /// Missing token required for a MCode variant.
@@ -1085,6 +1111,28 @@ impl Display for ParserError {
                 "Required Code not found for G-Code:{RESET}\n\t\tThe following prefix code was not found: '{RED}{}{RESET}'.",
                 *prefix as char
             ),
+
+            Self::AmbiguousCircleMethod => write!(
+                f,
+                "Ambiguous Circle Method Detected:{RESET}\n\t\tThe code block contains codes from each of the two circular methods, which is invalid."
+            ),
+
+            Self::InvalidCircle(opt) => match opt {
+                Some(method) => match method {
+                    CircleMethod::RelativePoint(_) => write!(
+                        f,
+                        "Invalid Circle Detected:{RESET}\n\t\tThe relative center of the requested arc must lie on one single plane."
+                    ),
+                    CircleMethod::FixedRadius(_) => write!(
+                        f,
+                        "Invalid Circle Detected:{RESET}\n\t\tThe radius of the requested arc is detected to be zero, which is invalid."
+                    ),
+                },
+                None => write!(
+                    f,
+                    "Invalid Circle Detected:{RESET}\n\t\tNo end coordinates were detected for the requested arc."
+                ),
+            },
 
             Self::InvalidMCode(suffix) => write!(
                 f,

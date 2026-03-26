@@ -296,6 +296,11 @@ impl Machine {
         &self.pos
     }
 
+    /// Returns the current active [`Motion`] variant of the machine.
+    pub fn motion(&self) -> &Motion {
+        &self.motion
+    }
+
     //
     // ########## PUBLIC SETTERS ##########
     //
