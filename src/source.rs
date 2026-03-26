@@ -5,10 +5,21 @@
 
 use std::str::Lines;
 
+/// Represents a sanitized line.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Line(String);
+
+impl Line {
+    /// Extracts a string slice containing the entire [`Line`].
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
 #[derive(Debug)]
-pub struct Source(Vec<String>);
+pub struct Source(Vec<Line>);
 
 impl Source {
     /// Constructs a new [`Source`], by reading a file at `path`.
@@ -60,12 +71,12 @@ impl Source {
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
 
         // reverse and collect to easily pop when needed
-        Self(filtered.rev().collect())
+        Self(filtered.rev().map(|line| Line(line)).collect())
     }
 }
 
 impl Iterator for Source {
-    type Item = String;
+    type Item = Line;
 
     /// **Optionally** returns the next line to operate on.
     ///
@@ -344,17 +355,20 @@ mod tests {
     #[test]
     fn good() {
         std::fs::write(TESTFILE, TESTCODE).unwrap();
-        let result: Vec<String> = RESULT.lines().map(|line| line.trim().to_string()).collect();
+        let result: Vec<Line> = RESULT
+            .lines()
+            .map(|line| Line(line.trim().to_string()))
+            .collect();
 
         // file
         let src = Source::from_file(TESTFILE).unwrap();
-        let collected: Vec<String> = src.collect();
+        let collected: Vec<Line> = src.collect();
         std::fs::remove_file(TESTFILE).unwrap();
         assert_eq!(result, collected);
 
         // text
         let src = Source::from_string(TESTCODE);
-        let collected: Vec<String> = src.collect();
+        let collected: Vec<Line> = src.collect();
         assert_eq!(result, collected);
     }
 }

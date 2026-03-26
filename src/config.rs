@@ -14,6 +14,9 @@ pub struct Config {
     /// Turn debugging information on.
     #[arg(short, long)]
     debug: bool,
+    /// Print verbose output.
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 impl Config {
@@ -25,5 +28,10 @@ impl Config {
     /// Returns the current **debug** setting.
     pub fn debug(&self) -> bool {
         self.debug
+    }
+
+    /// Returns the current **verbose** setting.
+    pub fn verbose(&self) -> bool {
+        self.verbose
     }
 }

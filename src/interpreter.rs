@@ -47,12 +47,7 @@ impl Interpreter {
                     }
 
                     GCode::CCWArcMove { pos, method, feed } => {
-                        _ = machine.arc_move(
-                            pos,
-                            method,
-                            CircularDirection::CounterClockwise,
-                            feed,
-                        )?
+                        machine.arc_move(pos, method, CircularDirection::CounterClockwise, feed)?
                     }
 
                     GCode::Dwell(p) => {
@@ -244,16 +239,16 @@ impl Display for InterpreterError {
                 "File Access Error:{RESET}\n\t\tError encountered while trying to read input from user."
             ),
 
-            // no need to format new error,
-            // just print machine & parser error as interpreter error which is formatted
-            Self::Machine(e) => write!(f, "{e}"),
-            Self::Parser(e) => write!(f, "{e}"),
-
             Self::ExcessCode(c) => write!(
                 f,
                 "Excess Code Detected:{RESET}\n\t\tThe code block contains the following code, which could not be consumed and may be redundant: {RED}{}{RESET}.",
                 *c as char
             ),
+
+            // no need to format new error,
+            // just print machine & parser error as interpreter error which is formatted
+            Self::Machine(e) => write!(f, "{e}"),
+            Self::Parser(e) => write!(f, "{e}"),
         }
     }
 }
