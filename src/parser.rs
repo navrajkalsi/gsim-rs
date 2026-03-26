@@ -331,7 +331,7 @@ pub struct Codes {
 
 impl Codes {
     /// Constructs a new [`Codes`], ready to store non 'G' or non 'M' prefixed, unique codes.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -341,7 +341,7 @@ impl Codes {
     ///
     /// # Panics
     /// Panics if called with [`Code::G`] or [`Code::M`] variants.
-    fn push(&mut self, code: Code) -> Result<(), ParserError> {
+    pub fn push(&mut self, code: Code) -> Result<(), ParserError> {
         match code {
             Code::D(d) if self.d.is_none() => self.d = Some(d),
             Code::H(h) if self.h.is_none() => self.h = Some(h),

@@ -49,7 +49,9 @@ pub fn run() -> Result<(), GSimError> {
         println!("machine:\n{machine:?}");
     }
 
-    Interpreter::execute(parser, machine)?;
+    let mut interpreter = Interpreter::new(parser, machine);
+
+    interpreter.execute()?;
 
     Ok(())
 }

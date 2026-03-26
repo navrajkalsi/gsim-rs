@@ -482,7 +482,7 @@ impl Machine {
     /// the move, indicating failure.
     pub fn rapid_move(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
         self.set_motion(Motion::Rapid);
-        self.move_machine(pos)
+        self.move_machine(pos, None, None)
     }
 
     /// Moves machine after checking for [`Positioning`] setting of the machine in **Feed** rate.
@@ -501,18 +501,7 @@ impl Machine {
         feed: Option<Float>,
     ) -> Result<(), MachineError> {
         self.set_motion(Motion::Feed);
-
-        if let Some(f) = feed {
-            self.set_feed(f); // takes care of any unit conversion
-        }
-
-        match self.feed {
-            Some(_) => {
-                // move only when feed is detected.
-                self.move_machine(pos)
-            }
-            None => Err(MachineError::NoFeed),
-        }
+        self.move_machine(pos, feed, None)
     }
 
     /// Moves machine in a **circular path**,
@@ -521,11 +510,7 @@ impl Machine {
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions (including for **feedrate**) are performed as necessary.
     ///
-    /// On success, returns a *tuple* consisting of two fields:
-    /// - The *center [`PlanarPoint`]* of the circle that satisfies the given conditions.
-    /// - The *radius* of the said circle.
-    ///
-    /// On failure, returns [`MachineError`].
+    /// Returns [`MachineError`] on failure.
     ///
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
@@ -536,62 +521,9 @@ impl Machine {
         method: CircleMethod,
         dir: CircularDirection,
         feed: Option<Float>,
-    ) -> Result<(PlanarPoint, Float), MachineError> {
+    ) -> Result<(), MachineError> {
         self.set_motion(Motion::Arc(dir));
-
-        if let Some(f) = feed {
-            self.set_feed(f);
-        }
-
-        if self.feed.is_none() {
-            return Err(MachineError::NoFeed);
-        }
-
-        let start_pos = self.pos();
-        // retain None variants as start_pos
-        let end_pos = self.new_pos(pos);
-
-        let (start_pos_planar, end_pos_planar) = match self.plane {
-            Plane::XY => (
-                PlanarPoint::new(self.plane, start_pos.x(), start_pos.y()),
-                PlanarPoint::new(self.plane, end_pos.x(), end_pos.y()),
-            ),
-            Plane::XZ => (
-                PlanarPoint::new(self.plane, start_pos.x(), start_pos.z()),
-                PlanarPoint::new(self.plane, end_pos.x(), end_pos.z()),
-            ),
-            Plane::YZ => (
-                PlanarPoint::new(self.plane, start_pos.y(), start_pos.z()),
-                PlanarPoint::new(self.plane, end_pos.y(), end_pos.z()),
-            ),
-        };
-
-        // convert `method` units
-        let method = match method {
-            CircleMethod::RelativePoint(mut rel_center) => {
-                self.to_machine_units(&mut rel_center);
-                CircleMethod::RelativePoint(rel_center)
-            }
-            CircleMethod::FixedRadius(mut rad) => {
-                if self.units == Unit::Imperial && self.code_units == Unit::Metric {
-                    rad /= 25.4;
-                } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
-                    rad *= 25.4;
-                };
-
-                CircleMethod::FixedRadius(rad)
-            }
-        };
-
-        let (center, radius) = arc_info(&start_pos_planar, &end_pos_planar, method, dir)?;
-
-        // TODO verify if the arc overtravels anywhere between the points
-
-        // now we know the circle is possible
-        // and end_pos is already in machine units
-        self.set_pos(end_pos)?;
-
-        Ok((center, radius))
+        self.move_machine(pos, feed, Some(method))
     }
 
     /// Moves `Some` variants of `pos` to the value inside.
@@ -617,22 +549,106 @@ impl Machine {
         self.set_pos(new_pos)
     }
 
-    //
-    // ########## INTERPOLATION HELPER METHODS ##########
-    //
-
     /// Moves machine using [`motion`](Machine::motion) type,
     /// after checking for [`Positioning`] setting of the machine.
     ///
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions are performed as necessary.
     ///
-    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
-    /// indicating failure.
-    fn move_machine(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
-        let new_pos = self.new_pos(pos);
-        self.set_pos(new_pos)
+    /// Since this is a general functio for each [`Motion`] variant,
+    /// therefore it optionally excepts `feed` & `circle method`,
+    /// for [`Motion::Feed`] & [`Motion::Arc`] respectively.
+    ///
+    /// Returns [`MachineError`] on failure.
+    pub fn move_machine(
+        &mut self,
+        pos: PartialPoint,
+        feed: Option<Float>,
+        method: Option<CircleMethod>,
+    ) -> Result<(), MachineError> {
+        if let Some(f) = feed {
+            self.set_feed(f); // takes care of any unit conversion
+        }
+
+        match self.motion {
+            Motion::Rapid => {
+                let new_pos = self.new_pos(pos);
+                self.set_pos(new_pos)
+            }
+
+            Motion::Feed => {
+                match self.feed {
+                    Some(_) => {
+                        // move only when feed is detected.
+                        let new_pos = self.new_pos(pos);
+                        self.set_pos(new_pos)
+                    }
+                    None => Err(MachineError::NoFeed),
+                }
+            }
+
+            Motion::Arc(dir) => {
+                if self.feed.is_none() {
+                    return Err(MachineError::NoFeed);
+                }
+
+                let method = if let Some(circle) = method {
+                    circle
+                } else {
+                    return Err(MachineError::NoCircleMethod);
+                };
+
+                let start_pos = self.pos();
+                // retain None variants as start_pos
+                let end_pos = self.new_pos(pos);
+
+                let (start_pos_planar, end_pos_planar) = match self.plane {
+                    Plane::XY => (
+                        PlanarPoint::new(self.plane, start_pos.x(), start_pos.y()),
+                        PlanarPoint::new(self.plane, end_pos.x(), end_pos.y()),
+                    ),
+                    Plane::XZ => (
+                        PlanarPoint::new(self.plane, start_pos.x(), start_pos.z()),
+                        PlanarPoint::new(self.plane, end_pos.x(), end_pos.z()),
+                    ),
+                    Plane::YZ => (
+                        PlanarPoint::new(self.plane, start_pos.y(), start_pos.z()),
+                        PlanarPoint::new(self.plane, end_pos.y(), end_pos.z()),
+                    ),
+                };
+
+                // convert `method` units
+                let method = match method {
+                    CircleMethod::RelativePoint(mut rel_center) => {
+                        self.to_machine_units(&mut rel_center);
+                        CircleMethod::RelativePoint(rel_center)
+                    }
+                    CircleMethod::FixedRadius(mut rad) => {
+                        if self.units == Unit::Imperial && self.code_units == Unit::Metric {
+                            rad /= 25.4;
+                        } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {
+                            rad *= 25.4;
+                        };
+
+                        CircleMethod::FixedRadius(rad)
+                    }
+                };
+
+                // store for future use
+                let (_center, _radius) = arc_info(&start_pos_planar, &end_pos_planar, method, dir)?;
+
+                // TODO verify if the arc overtravels anywhere between the points
+
+                // now we know the circle is possible
+                // and end_pos is already in machine units
+                self.set_pos(end_pos)
+            }
+        }
     }
+
+    //
+    // ########## INTERPOLATION HELPER METHODS ##########
+    //
 
     /// Calculates the new position for each axis,
     /// after checking for [`Positioning`] setting of the [`Machine`].
@@ -976,6 +992,8 @@ pub enum MachineError {
     PointsIntersect,
     /// Circle not possible due to method specific method requirements.
     InvalidCircle(CircleMethod),
+    /// No circle method provided for arc move.
+    NoCircleMethod,
     /// Provided center point does not lie on the selected plane.
     CenterOffPlane,
     /// Provided direction does not match with offset type.
@@ -1033,6 +1051,10 @@ impl Display for MachineError {
             Self::PointsIntersect => write!(
                 f,
                 "Ambiguous Circle Detected:{RESET}\n\t\tThe start and end points of the requested circle are same and therefore the circle cannot be constructed."
+            ),
+            Self::NoCircleMethod => write!(
+                f,
+                "No Circle Information Detected:{RESET}\n\t\tThe machine is set in arc mode, but the latest move contains no information about an arc.",
             ),
             Self::InvalidCircle(method) => match method {
                 CircleMethod::RelativePoint(_) => write!(
@@ -1126,29 +1148,45 @@ mod tests {
         // machine metric and code metric
         let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)))
-            .unwrap();
+        m.move_machine(
+            PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(m.pos(), &Point::new(25.4, 25.4, -25.4));
 
         // machine imperial and code imperial
         let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)))
-            .unwrap();
+        m.move_machine(
+            PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(m.pos(), &Point::new(1.0, 1.0, -1.0));
 
         // machine imperial and code metric
         let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Imperial).unwrap();
         m.set_code_units(Unit::Metric);
-        m.move_machine(PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)))
-            .unwrap();
+        m.move_machine(
+            PartialPoint::new(Some(25.4), Some(25.4), Some(-25.4)),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(m.pos(), &Point::new(1.0, 1.0, -1.0));
 
         // machine metric and code imperial
         let mut m = Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::Metric).unwrap();
         m.set_code_units(Unit::Imperial);
-        m.move_machine(PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)))
-            .unwrap();
+        m.move_machine(
+            PartialPoint::new(Some(1.0), Some(1.0), Some(-1.0)),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(m.pos(), &Point::new(25.4, 25.4, -25.4));
     }
 
@@ -1158,19 +1196,19 @@ mod tests {
         m.set_positioning(Positioning::Absolute);
 
         // with no g54 offset
-        m.move_machine(PartialPoint::new(Some(100.0), None, None))
+        m.move_machine(PartialPoint::new(Some(100.0), None, None), None, None)
             .unwrap();
         assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
 
         // with g54 offset
         m.set_work_offset(Point::new(100.0, 100.0, -100.0));
-        m.move_machine(PartialPoint::new(Some(100.0), Some(0.0), None))
+        m.move_machine(PartialPoint::new(Some(100.0), Some(0.0), None), None, None)
             .unwrap();
         assert_eq!(m.pos(), &Point::new(200.0, 100.0, 0.0));
 
         // overtravel
         assert_eq!(
-            m.move_machine(PartialPoint::new(Some(901.0), Some(0.0), None))
+            m.move_machine(PartialPoint::new(Some(901.0), Some(0.0), None), None, None)
                 .unwrap_err(),
             MachineError::Overtravel(b'X', 1001.0)
         ); // tries to move X to 1001.0
@@ -1182,20 +1220,24 @@ mod tests {
         m.set_positioning(Positioning::Incremental);
 
         // with no g54 offset
-        m.move_machine(PartialPoint::new(Some(100.0), None, None))
+        m.move_machine(PartialPoint::new(Some(100.0), None, None), None, None)
             .unwrap();
         assert_eq!(m.pos(), &Point::new(100.0, 0.0, 0.0));
 
         // with g54 offset
         m.set_work_offset(Point::new(100.0, 100.0, -100.0)); // has no effect
-        m.move_machine(PartialPoint::new(Some(200.0), Some(0.0), None))
+        m.move_machine(PartialPoint::new(Some(200.0), Some(0.0), None), None, None)
             .unwrap();
         assert_eq!(m.pos(), &Point::new(300.0, 0.0, 0.0));
 
         // overtravel
         assert_eq!(
-            m.move_machine(PartialPoint::new(Some(100.0), Some(751.0), None))
-                .unwrap_err(),
+            m.move_machine(
+                PartialPoint::new(Some(100.0), Some(751.0), None),
+                None,
+                None
+            )
+            .unwrap_err(),
             MachineError::Overtravel(b'Y', 751.0)
         ); // tries to move Y to 751.0
     }

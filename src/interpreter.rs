@@ -1,29 +1,40 @@
 //! # Intrpreter
 //!
-//! This module executes [`CodeBlock`](crate::parser::CodeBlock)s (represented as [`Parser`])
+//! This module executes [`CodeBlock`]s (represented as [`Parser`])
 //! on a [`Machine`] by accessing its public API.
 
 use std::{fmt::Display, io};
 
 use crate::{
-    error::RESET,
+    error::{RED, RESET},
+    lexer::Prefix,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Plane, Positioning,
         ReturnLevel, Unit,
     },
-    parser::{Code, GCode, MCode, Parser, Point},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, Point},
 };
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
-// empty for future use
-pub struct Interpreter();
+pub struct Interpreter {
+    parser: Parser,
+    machine: Machine,
+}
 
 impl Interpreter {
-    /// Executes each [`CodeBlock`] of the provided [`Parser`]
-    /// sequentially on the provided [`Machine`].
+    // Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
+    // ready to execute the code on the machine..
+    pub fn new(parser: Parser, machine: Machine) -> Self {
+        Self { parser, machine }
+    }
+
+    /// Executes each [`CodeBlock`](crate::parser::CodeBlock) of the [`Parser`] sequentially on the [`Machine`].
     ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
-    pub fn execute(parser: Parser, mut machine: Machine) -> Result<(), InterpreterError> {
+    pub fn execute(&mut self) -> Result<(), InterpreterError> {
+        let parser = &mut self.parser;
+        let machine = &mut self.machine;
+
         'mainloop: for mut block in parser {
             for gcode in block.gcodes() {
                 match gcode {
@@ -128,20 +139,22 @@ impl Interpreter {
             }
 
             for code in block.codes() {
+                // for storing any coord codes and parsing them altogether
+                let mut excess = Codes::new();
+
                 match code {
-                    Code::D(_) => todo!(),
+                    Code::D(_) => return Err(InterpreterError::ExcessCode(b'D')),
 
                     Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
 
-                    Code::H(_) => todo!(),
+                    Code::H(_) => return Err(InterpreterError::ExcessCode(b'H')),
 
                     Code::M(_) => unreachable!("The parser will not emit M code with other codes."),
 
-                    Code::N(_) => (),
+                    // ignore line & program numbers
+                    Code::N(_) | Code::O(_) => (),
 
-                    Code::O(_) => (),
-
-                    Code::P(_) => todo!(),
+                    Code::P(_) => return Err(InterpreterError::ExcessCode(b'P')),
 
                     Code::S(s) => machine.set_speed(s),
 
@@ -149,21 +162,15 @@ impl Interpreter {
 
                     Code::F(f) => machine.set_feed(f),
 
-                    Code::I(_) => todo!(),
+                    Code::I(_)
+                    | Code::J(_)
+                    | Code::K(_)
+                    | Code::R(_)
+                    | Code::X(_)
+                    | Code::Y(_)
+                    | Code::Z(_) => excess.push(code).unwrap(),
 
-                    Code::J(_) => todo!(),
-
-                    Code::K(_) => todo!(),
-
-                    Code::Q(_) => todo!(),
-
-                    Code::R(_) => todo!(),
-
-                    Code::X(_) => todo!(),
-
-                    Code::Y(_) => todo!(),
-
-                    Code::Z(_) => todo!(),
+                    Code::Q(_) => return Err(InterpreterError::ExcessCode(b'Q')),
                 }
             }
         }
@@ -188,6 +195,8 @@ impl Interpreter {
 pub enum InterpreterError {
     File(io::Error),
     Machine(MachineError),
+    /// At least one code from a code block exists that was not consumed.
+    ExcessCode(Prefix),
 }
 
 impl From<io::Error> for InterpreterError {
@@ -212,6 +221,11 @@ impl Display for InterpreterError {
             // no need to format new error,
             // just print machine error as interpreter error which is formatted
             Self::Machine(e) => write!(f, "{e}"),
+            Self::ExcessCode(c) => write!(
+                f,
+                "Excess Code Detected:{RESET}\n\t\tThe code block contains the following code, which could not be consumed and may be redundant: {RED}{}{RESET}.",
+                *c as char
+            ),
         }
     }
 }
