@@ -7,6 +7,8 @@
 
 use std::fmt::Display;
 
+use crate::verbose::Verbose;
+
 use super::error::{RED, RESET};
 use super::source::Source;
 
@@ -42,6 +44,15 @@ impl Suffix {
         match self {
             Suffix::Int(_) => None,
             Suffix::Float(f) => Some(*f),
+        }
+    }
+}
+
+impl Display for Suffix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Suffix::Int(s) => write!(f, "{s}"),
+            Suffix::Float(s) => write!(f, "{s}"),
         }
     }
 }
@@ -156,6 +167,18 @@ impl Block {
     }
 }
 
+impl Verbose for Block {
+    fn verbose(&self) {
+        println!("\nTokenized the following tokens:");
+        for token in &self.0 {
+            println!(
+                "Prefix: '{}', Suffix: {}",
+                token.prefix as char, token.suffix
+            );
+        }
+    }
+}
+
 impl Iterator for Block {
     type Item = Token;
 
@@ -181,6 +204,7 @@ impl Lexer {
         let mut full = vec![];
 
         for line in src {
+            line.verbose();
             full.push(Block::tokenize(line.as_str())?);
         }
 

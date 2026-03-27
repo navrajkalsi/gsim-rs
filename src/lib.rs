@@ -5,6 +5,7 @@ pub mod lexer;
 mod machine;
 pub mod parser;
 pub mod source;
+mod verbose;
 
 use crate::{
     config::Config,

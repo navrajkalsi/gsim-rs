@@ -3,6 +3,7 @@
 //! This module is responsible for reading in **raw G-Code text**,
 //! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
+use crate::verbose::Verbose;
 use std::str::Lines;
 
 /// Represents a sanitized line.
@@ -13,6 +14,15 @@ impl Line {
     /// Extracts a string slice containing the entire [`Line`].
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl Verbose for Line {
+    fn verbose(&self) {
+        println!(
+            "\nExtracted the following line from source file:\n{}",
+            self.as_str()
+        )
     }
 }
 
