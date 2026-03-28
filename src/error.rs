@@ -51,7 +51,7 @@ impl std::fmt::Display for GSimError {
             ),
             Self::Interpreter(e) => write!(
                 f,
-                "{RED}Interpreter Error:{RESET} The following error occurred chaning the state of the machine:\n\t{YELLOW}{e}{RESET}"
+                "{RED}Interpreter Error:{RESET} The following error occurred changing the state of the machine:\n\t{YELLOW}{e}{RESET}"
             ),
         }
     }

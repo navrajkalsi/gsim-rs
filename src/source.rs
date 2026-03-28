@@ -29,7 +29,7 @@ impl Verbose for Line {
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
 ///
-/// A reference to program [`Config`] is also stored which can be accessed by higher level modules.
+/// A program [`Config`] is also stored which can be accessed by higher level modules.
 #[derive(Debug)]
 pub struct Source {
     lines: Vec<Line>,
@@ -44,7 +44,7 @@ impl Source {
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
     pub fn from_config(config: Config) -> Result<Self, std::io::Error> {
-        let data = std::fs::read_to_string(config.filepath())?;
+        let data = std::fs::read_to_string(&config.filepath)?;
 
         Ok(Self::from_lines(data.lines(), config))
     }
@@ -56,8 +56,10 @@ impl Source {
         Self::from_lines(data.lines(), config)
     }
 
-    /// Constructs a new [`Source`], from [`Lines`] and a [`Config`],
+    /// Constructs a new [`Source`], from [`Lines`] and [`Config`],
     /// which is stored for access by higher level functions.
+    ///
+    /// Each [`Line`] is computed **eagerly** on this function call.
     ///
     /// The `Source` returned is sanitized to have **NO**:
     /// - **comments**, starting with `(`.
@@ -93,6 +95,11 @@ impl Source {
             config,
         }
     }
+
+    /// Returns a reference to the stored [`Config`].
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
 }
 
 impl Iterator for Source {
@@ -100,19 +107,19 @@ impl Iterator for Source {
 
     /// **Optionally** removes and returns the next [`Line`].
     fn next(&mut self) -> Option<Self::Item> {
-        let ret = self.lines.pop();
-
-        if self.config.verbose() {
-            ret.as_ref().map(|line| line.verbose());
-        }
-
-        ret
+        self.lines.pop().map(|line| {
+            if self.config.verbose {
+                line.verbose();
+            }
+            line
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Config;
 
     const TESTFILE: &'static str = "source_test.nc";
     const TESTCODE: &'static str = "
@@ -375,6 +382,11 @@ mod tests {
 
     #[test]
     fn good() {
+        let config = Config {
+            filepath: TESTFILE.to_string(),
+            verbose: false,
+        };
+
         std::fs::write(TESTFILE, TESTCODE).unwrap();
         let result: Vec<Line> = RESULT
             .lines()
@@ -382,13 +394,13 @@ mod tests {
             .collect();
 
         // file
-        let src = Source::from_file(TESTFILE).unwrap();
+        let src = Source::from_config(config.clone()).unwrap();
         let collected: Vec<Line> = src.collect();
         std::fs::remove_file(TESTFILE).unwrap();
         assert_eq!(result, collected);
 
         // text
-        let src = Source::from_string(TESTCODE);
+        let src = Source::from_string(TESTCODE, config);
         let collected: Vec<Line> = src.collect();
         assert_eq!(result, collected);
     }

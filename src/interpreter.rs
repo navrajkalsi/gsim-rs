@@ -36,8 +36,9 @@ impl Interpreter {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
 
-        'mainloop: for mut block in parser {
-            block.verbose();
+        'mainloop: for res in parser {
+            let mut block = res?;
+
             for gcode in block.gcodes() {
                 match gcode {
                     GCode::RapidMove(pos) => machine.rapid_move(pos)?,

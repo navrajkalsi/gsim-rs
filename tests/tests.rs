@@ -1,4 +1,5 @@
 use gsim_rs::{
+    config::Config,
     lexer::{
         Lexer,
         Suffix::{Float, Int},
@@ -8,13 +9,20 @@ use gsim_rs::{
     source::Source,
 };
 
+fn empty_config() -> Config {
+    Config {
+        filepath: "".to_string(),
+        verbose: false,
+    }
+}
+
 #[test]
 fn tokenize_source() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
+    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK", empty_config());
 
-    let mut lex = Lexer::tokenize(src).unwrap();
+    let mut lex = Lexer::new(src);
 
-    let mut block = lex.next().unwrap();
+    let mut block = lex.next().unwrap().unwrap();
 
     assert_eq!(
         block.next().unwrap(),
@@ -37,13 +45,13 @@ fn tokenize_source() {
 
 #[test]
 fn parse_lexer() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
+    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK", empty_config());
 
-    let lex = Lexer::tokenize(src).unwrap();
+    let lex = Lexer::new(src);
 
-    let mut parser = Parser::parse(lex).unwrap();
+    let mut parser = Parser::new(lex);
 
-    let mut codeblock = parser.next().unwrap();
+    let mut codeblock = parser.next().unwrap().unwrap();
 
     assert_eq!(
         codeblock.gcodes().next().unwrap(),

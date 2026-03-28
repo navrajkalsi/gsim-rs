@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 mod error;
 mod interpreter;
 pub mod lexer;
@@ -22,11 +22,11 @@ use clap::Parser;
 pub fn run() -> Result<(), GSimError> {
     let config = Config::parse();
 
-    let src = Source::from_file(config.filepath())?;
+    let src = Source::from_config(config)?;
 
-    let lexer = Lexer::tokenize(src)?;
+    let lexer = Lexer::new(src);
 
-    let parser = crate::parser::Parser::parse(lexer)?;
+    let parser = crate::parser::Parser::new(lexer);
 
     let machine = Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?;
 

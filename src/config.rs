@@ -6,24 +6,12 @@
 use clap::Parser;
 
 /// Command line arguments.
-#[derive(Parser, Debug)]
+#[derive(Parser, Clone, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Config {
     /// Path of the input G-Code file.
-    file: String,
+    pub filepath: String,
     /// Print verbose output.
-    #[arg(short, long)]
-    verbose: bool,
-}
-
-impl Config {
-    /// Returns the **file path** of the input G-Code file as a string slice.
-    pub fn filepath(&self) -> &str {
-        self.file.as_str()
-    }
-
-    /// Returns the current **verbose** setting.
-    pub fn verbose(&self) -> bool {
-        self.verbose
-    }
+    #[arg(long)]
+    pub verbose: bool,
 }
