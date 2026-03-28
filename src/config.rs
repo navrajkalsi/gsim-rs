@@ -11,9 +11,6 @@ use clap::Parser;
 pub struct Config {
     /// Path of the input G-Code file.
     file: String,
-    /// Turn debugging information on.
-    #[arg(short, long)]
-    debug: bool,
     /// Print verbose output.
     #[arg(short, long)]
     verbose: bool,
@@ -23,11 +20,6 @@ impl Config {
     /// Returns the **file path** of the input G-Code file as a string slice.
     pub fn filepath(&self) -> &str {
         self.file.as_str()
-    }
-
-    /// Returns the current **debug** setting.
-    pub fn debug(&self) -> bool {
-        self.debug
     }
 
     /// Returns the current **verbose** setting.

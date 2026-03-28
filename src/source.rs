@@ -3,7 +3,7 @@
 //! This module is responsible for reading in **raw G-Code text**,
 //! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use crate::verbose::Verbose;
+use crate::{config::Config, verbose::Verbose};
 use std::str::Lines;
 
 /// Represents a sanitized line.
@@ -28,29 +28,36 @@ impl Verbose for Line {
 
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
+///
+/// A reference to program [`Config`] is also stored which can be accessed by higher level modules.
 #[derive(Debug)]
-pub struct Source(Vec<Line>);
+pub struct Source {
+    lines: Vec<Line>,
+    config: Config,
+}
 
 impl Source {
-    /// Constructs a new [`Source`], by reading a file at `path`.
+    /// Constructs a new [`Source`] by using [`Config`].
+    /// File at [`Config::filepath`] is read and used as the source file.
     ///
     /// Returns a [`io::Error`](std::io::Error) on failure to *read the raw file*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_file(path: &str) -> Result<Self, std::io::Error> {
-        let data = std::fs::read_to_string(path)?;
+    pub fn from_config(config: Config) -> Result<Self, std::io::Error> {
+        let data = std::fs::read_to_string(config.filepath())?;
 
-        Ok(Self::from_lines(data.lines()))
+        Ok(Self::from_lines(data.lines(), config))
     }
 
-    /// Constructs a new [`Source`], from a provided *string slice*.
+    /// Constructs a new [`Source`], from a provided *string slice* and a [`Config`].
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_string(data: &str) -> Self {
-        Self::from_lines(data.lines())
+    pub fn from_string(data: &str, config: Config) -> Self {
+        Self::from_lines(data.lines(), config)
     }
 
-    /// Constructs a new [`Source`], from [`Lines`].
+    /// Constructs a new [`Source`], from [`Lines`] and a [`Config`],
+    /// which is stored for access by higher level functions.
     ///
     /// The `Source` returned is sanitized to have **NO**:
     /// - **comments**, starting with `(`.
@@ -58,7 +65,7 @@ impl Source {
     /// - **end-of-block symbol**, the `;` character.
     /// - **transmission symbol**, the `%` character.
     /// - **empty lines.**
-    pub fn from_lines(lines: Lines) -> Self {
+    pub fn from_lines(lines: Lines, config: Config) -> Self {
         // remove everything from '(' to end
         let uncommented = lines.map(|line| {
             line.split('(')
@@ -81,21 +88,25 @@ impl Source {
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
 
         // reverse and collect to easily pop when needed
-        Self(filtered.rev().map(|line| Line(line)).collect())
+        Self {
+            lines: filtered.rev().map(|line| Line(line)).collect(),
+            config,
+        }
     }
 }
 
 impl Iterator for Source {
     type Item = Line;
 
-    /// **Optionally** returns the next line to operate on.
-    ///
-    /// Returns [`None`] when the data has exhausted.
-    ///
-    /// The returned [`Some`] variant `String`,
-    /// is removed from the [`self`] instance and is transferred to the caller.
+    /// **Optionally** removes and returns the next [`Line`].
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
+        let ret = self.lines.pop();
+
+        if self.config.verbose() {
+            ret.as_ref().map(|line| line.verbose());
+        }
+
+        ret
     }
 }
 
