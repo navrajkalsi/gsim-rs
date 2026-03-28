@@ -13,6 +13,7 @@ use crate::{
         ReturnLevel, Unit,
     },
     parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Point},
+    verbose::Verbose,
 };
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
@@ -36,6 +37,7 @@ impl Interpreter {
         let machine = &mut self.machine;
 
         'mainloop: for mut block in parser {
+            block.verbose();
             for gcode in block.gcodes() {
                 match gcode {
                     GCode::RapidMove(pos) => machine.rapid_move(pos)?,

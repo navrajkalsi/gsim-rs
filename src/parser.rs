@@ -194,19 +194,33 @@ impl PartialPoint {
 
 impl Display for PartialPoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.are_none() {
+            return Ok(());
+        }
+
+        write!(f, "(")?;
+
         if let Some(x) = self.x() {
-            write!(f, " X: {x}")?
+            write!(f, "X: {x}")? // always first
         }
 
         if let Some(y) = self.y() {
-            write!(f, " Y: {y}")?
+            if self.x().is_some() {
+                write!(f, ", Y: {y}")?
+            } else {
+                write!(f, "Y: {y}")?
+            }
         }
 
         if let Some(z) = self.z() {
-            write!(f, " Z: {z}")?
+            if self.x().is_some() || self.y().is_some() {
+                write!(f, ", Z: {z}")?
+            } else {
+                write!(f, "Z: {z}")?
+            }
         }
 
-        write!(f, " ")
+        write!(f, ")")
     }
 }
 
@@ -219,6 +233,15 @@ pub enum CircleMethod {
     RelativePoint(PartialPoint),
     /// Explicit radius specified with **R**.
     FixedRadius(Float),
+}
+
+impl Display for CircleMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RelativePoint(pos) => write!(f, "Relative Center at: {pos}"),
+            Self::FixedRadius(r) => write!(f, "Radius: {r}"),
+        }
+    }
 }
 
 /// Tries to retrieve an [`Int`] from a [`Suffix`].
@@ -453,6 +476,31 @@ impl Codes {
 
         Ok((pos, method, feed))
     }
+
+    /// Checks if no [`Code`]s are present.
+    pub fn is_empty(&self) -> bool {
+        if self.d.is_some()
+            || self.f.is_some()
+            || self.h.is_some()
+            || self.i.is_some()
+            || self.j.is_some()
+            || self.k.is_some()
+            || self.n.is_some()
+            || self.o.is_some()
+            || self.p.is_some()
+            || self.q.is_some()
+            || self.r.is_some()
+            || self.s.is_some()
+            || self.t.is_some()
+            || self.x.is_some()
+            || self.y.is_some()
+            || self.z.is_some()
+        {
+            false
+        } else {
+            true
+        }
+    }
 }
 
 impl Iterator for Codes {
@@ -499,6 +547,78 @@ impl Iterator for Codes {
         } else {
             None
         }
+    }
+}
+
+impl Display for Codes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut count = 1;
+
+        if let Some(d) = self.d {
+            writeln!(f, "{count}. D{d}")?;
+            count += 1;
+        }
+        if let Some(f2) = self.f {
+            writeln!(f, "{count}. F{f2}")?;
+            count += 1;
+        }
+        if let Some(h) = self.h {
+            writeln!(f, "{count}. H{h}")?;
+            count += 1;
+        }
+        if let Some(i) = self.i {
+            writeln!(f, "{count}. I{i}")?;
+            count += 1;
+        }
+        if let Some(j) = self.j {
+            writeln!(f, "{count}. J{j}")?;
+            count += 1;
+        }
+        if let Some(k) = self.k {
+            writeln!(f, "{count}. K{k}")?;
+            count += 1;
+        }
+        if let Some(n) = self.n {
+            writeln!(f, "{count}. N{n}")?;
+            count += 1;
+        }
+        if let Some(o) = self.o {
+            writeln!(f, "{count}. O{o}")?;
+            count += 1;
+        }
+        if let Some(p) = self.p {
+            writeln!(f, "{count}. P{p}")?;
+            count += 1;
+        }
+        if let Some(q) = self.q {
+            writeln!(f, "{count}. Q{q}")?;
+            count += 1;
+        }
+        if let Some(r) = self.r {
+            writeln!(f, "{count}. R{r}")?;
+            count += 1;
+        }
+        if let Some(s) = self.s {
+            writeln!(f, "{count}. S{s}")?;
+            count += 1;
+        }
+        if let Some(t) = self.t {
+            writeln!(f, "{count}. T{t}")?;
+            count += 1;
+        }
+        if let Some(x) = self.x {
+            writeln!(f, "{count}. X{x}")?;
+            count += 1;
+        }
+        if let Some(y) = self.y {
+            writeln!(f, "{count}. Y{y}")?;
+            count += 1;
+        }
+        if let Some(z) = self.z {
+            writeln!(f, "{count}. Z{z}")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -806,14 +926,14 @@ impl GCode {
 
 impl Display for GCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "G{:0>2} - ", self.suffix());
+        write!(f, "G{:0>2} - ", self.suffix())?;
 
         match self {
             Self::RapidMove(pos) => {
                 if pos.are_none() {
                     write!(f, "Rapid Move")
                 } else {
-                    write!(f, "Rapid Move to:\n{pos}")
+                    write!(f, "Rapid Move to: {pos}")
                 }
             }
 
@@ -822,84 +942,93 @@ impl Display for GCode {
                     if pos.are_none() {
                         write!(f, "Feed Move, with feed: {feed}")
                     } else {
-                        write!(f, "Feed Move, with feed: {feed}, to:\n{pos}")
+                        write!(f, "Feed Move, with feed: {feed}, to: {pos}")
                     }
                 }
                 None => {
                     if pos.are_none() {
                         write!(f, "Feed Move")
                     } else {
-                        write!(f, "Feed Move to:\n{pos}")
+                        write!(f, "Feed Move to: {pos}")
                     }
                 }
             },
 
-            Self::CWArcMove { pos, method, feed } => todo!(),
-            Self::CCWArcMove { pos, method, feed } => todo!(),
+            Self::CWArcMove { pos, method, feed } => match feed {
+                // pos.are_none() will always be false for arc moves
+                Some(feed) => {
+                    write!(
+                        f,
+                        "Clockwise Move using:\n{method}, with feed: {feed}, to: {pos}"
+                    )
+                }
+                None => {
+                    write!(f, "Clockwise Move using:\n{method}, to: {pos}")
+                }
+            },
 
-            Self::Dwell(p) => write!(f,
-                "Dwell for {p} seconds")
+            Self::CCWArcMove { pos, method, feed } => match feed {
+                // pos.are_none() will always be false for arc moves
+                Some(feed) => {
+                    write!(
+                        f,
+                        "Counter-Clockwise Move using:\n{method}, with feed: {feed}, to: {pos}"
+                    )
+                }
+                None => {
+                    write!(f, "Counter-Clockwise Move using:\n{method}, to: {pos}")
+                }
+            },
 
-            Self::XYPlane => write!(f,
-                "Select XY Plane")
+            Self::Dwell(p) => write!(f, "Dwell for {p} seconds"),
 
-            Self::XZPlane => write!(f,
-                "Select XZ Plane")
+            Self::XYPlane => write!(f, "Select XY Plane"),
 
-            Self::YZPlane => write!(f,
-                "Select YZ Plane")
+            Self::XZPlane => write!(f, "Select XZ Plane"),
 
-            Self::ImperialMode => write!(f,
-                "Activate Imperial Mode")
+            Self::YZPlane => write!(f, "Select YZ Plane"),
 
-            Self::MetricMode => write!(f,
-                "Activate Metric Mode")
+            Self::ImperialMode => write!(f, "Activate Imperial Mode"),
 
-            Self::CancelCutterComp => write!(f,
-                "Cancel Cutter Compensation")
+            Self::MetricMode => write!(f, "Activate Metric Mode"),
 
-            Self::LeftCutterComp(d) => write!(f,
-                "Activate Left Cutter Compensation with D{d} offset")
+            Self::CancelCutterComp => write!(f, "Cancel Cutter Compensation"),
 
-            Self::RightCutterComp(d) => write!(f,
-                "Activate Right Cutter Compensation with D{d} offset")
+            Self::LeftCutterComp(d) => {
+                write!(f, "Activate Left Cutter Compensation with D{d} offset")
+            }
 
-            Self::ToolLenCompAdd(h) => write!(f,
-                "Add Tool Length with H{h} offset")
+            Self::RightCutterComp(d) => {
+                write!(f, "Activate Right Cutter Compensation with D{d} offset")
+            }
 
-            Self::ToolLenCompSubtract(h) => write!(f,
-                "Subtract Tool Length with H{h} offset")
+            Self::ToolLenCompAdd(h) => write!(f, "Add Tool Length with H{h} offset"),
 
-            Self::CancelLenComp => write!(f,
-                "Cancel Tool Length Compensation")
+            Self::ToolLenCompSubtract(h) => write!(f, "Subtract Tool Length with H{h} offset"),
+
+            Self::CancelLenComp => write!(f, "Cancel Tool Length Compensation"),
 
             Self::MachineCoord(pos) =>
             // machine pos will not be none for all coords
-            write!(f, "Machine Position Move to: {pos}")
+            {
+                write!(f, "Machine Position Move to: {pos}")
+            }
 
-            Self::WorkCoord => write!(f,
-                "Activate Work Coordinate offset")
+            Self::WorkCoord => write!(f, "Activate Work Coordinate offset"),
 
-            Self::CancelCanned => write!(f,
-                "Cancel Canned cycle")
+            Self::CancelCanned => write!(f, "Cancel Canned cycle"),
 
-            Self::AbsoluteMode => write!(f,
-                "Activate Absolute Positioning")
+            Self::AbsoluteMode => write!(f, "Activate Absolute Positioning"),
 
-            Self::IncrementalMode => write!(f,
-                "Activate Incremental Positioning")
+            Self::IncrementalMode => write!(f, "Activate Incremental Positioning"),
 
-            Self::FeedMinute => write!(f,
-                "Activate Inverse Minute Feed mode")
+            Self::FeedMinute => write!(f, "Activate Inverse Minute Feed mode"),
 
-            Self::FeedRev => write!(f,
-                "Activate Inverse Revolution Feed mode")
+            Self::FeedRev => write!(f, "Activate Inverse Revolution Feed mode"),
 
-            Self::InitialReturn => write!(f,
-                "Activate Initial Level return in canned cycles")
+            Self::InitialReturn => write!(f, "Activate Initial Level return in canned cycles"),
 
-            Self::RetractReturn => write!(f,
-                "Activate Retract Level return in canned cycles")
+            Self::RetractReturn => write!(f, "Activate Retract Level return in canned cycles"),
         }
     }
 }
@@ -948,6 +1077,11 @@ impl GCodes {
 
         Ok(())
     }
+
+    /// Returns the current number of [`GCode`]s present.
+    pub fn len(&self) -> usize {
+        self.codes.len()
+    }
 }
 
 impl Iterator for GCodes {
@@ -959,6 +1093,19 @@ impl Iterator for GCodes {
         self.groups.pop();
         self.suffixes.pop();
         self.codes.pop()
+    }
+}
+
+impl Display for GCodes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut count = 1;
+
+        for code in &self.codes {
+            writeln!(f, "{count}. {code}")?;
+            count += 1;
+        }
+
+        Ok(())
     }
 }
 
@@ -1054,6 +1201,42 @@ impl MCode {
     }
 }
 
+impl Display for MCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "M{:0>2} - ", self.suffix())?;
+
+        match self {
+            Self::Stop => write!(f, "Program Stop"),
+            Self::OptionalStop => write!(f, "Optional Stop"),
+            Self::SpindleFwd(s) => {
+                if let Some(s) = s {
+                    write!(f, "Clockwise Spindle On, at {s} RPMs")
+                } else {
+                    write!(f, "Clockwise Spindle On")
+                }
+            }
+            Self::SpindleRev(s) => {
+                if let Some(s) = s {
+                    write!(f, "Counter-Clockwise Spindle On, at {s} RPMs")
+                } else {
+                    write!(f, "Counter-Clockwise Spindle On")
+                }
+            }
+            Self::SpindleStop => write!(f, "Spindle Off"),
+            Self::ToolChange(t) => {
+                if let Some(t) = t {
+                    write!(f, "Tool Change to tool number: {t}")
+                } else {
+                    write!(f, "Tool Change to any preloaded tool")
+                }
+            }
+            Self::CoolantOn => write!(f, "Coolant On"),
+            Self::CoolantOff => write!(f, "Coolant Off"),
+            Self::End => write!(f, "Program End"),
+        }
+    }
+}
+
 /// Represents a **parsed** [`Block`].
 #[derive(Debug)]
 pub struct CodeBlock {
@@ -1123,6 +1306,18 @@ impl CodeBlock {
 impl Verbose for CodeBlock {
     fn verbose(&self) {
         println!("\nParsed the following codes:");
+
+        if self.gcodes.len() > 0 {
+            print!("GCODES:\n{}", self.gcodes);
+        }
+
+        if let Some(m) = &self.mcode {
+            println!("MCODE:\n{m}");
+        }
+
+        if !self.codes.is_empty() {
+            println!("CODES:\n{}", self.codes);
+        }
     }
 }
 
