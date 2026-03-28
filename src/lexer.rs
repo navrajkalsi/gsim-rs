@@ -7,7 +7,7 @@
 
 use std::fmt::Display;
 
-use crate::verbose::Verbose;
+use crate::{config::Config, verbose::Verbose};
 
 use super::error::{RED, RESET};
 use super::source::Source;
@@ -199,15 +199,15 @@ pub struct Lexer(Source);
 impl Lexer {
     /// Constructs [`Lexer`] from a [`Source`].
     ///
-    /// This funciton **does not tokenize** any [`Line`](crate::source::Line)s.
+    /// This function **does not tokenize** any [`Line`](crate::source::Line)s.
     /// Tokenization is done on demand with a call to [`Lexer::next`].
     pub fn new(src: Source) -> Self {
         Self(src)
     }
 
-    /// Returns a reference to the stored [`Source`].
-    pub fn source(&self) -> &Source {
-        &self.0
+    /// Returns a reference to the [`Config`] inside the stored [`Source`].
+    pub fn config(&self) -> &Config {
+        self.0.config()
     }
 }
 
@@ -219,9 +219,8 @@ impl Iterator for Lexer {
     /// - [`Block`] if the tokenization was successful.
     /// - [`LexerError`] on tokenization failure.
     ///
-    /// Returns [`None`] when no more [`Line`](crate::source::Line)s are avaliable from the [`Source`].
+    /// Returns [`None`] when no more [`Line`](crate::source::Line)s are available from the [`Source`].
     fn next(&mut self) -> Option<Self::Item> {
-        // if Some, then tokenize, if Ok and verbose and call verbose
         self.0.next().map(|line| {
             Block::tokenize(line.as_str()).map(|block| {
                 if self.0.config().verbose {

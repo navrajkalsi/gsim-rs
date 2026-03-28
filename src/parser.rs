@@ -1331,7 +1331,7 @@ pub struct Parser(Lexer);
 impl Parser {
     /// Constructs [`Parser`] from a [`Lexer`].
     ///
-    /// This funciton **does not parse** any [`Block`]s.
+    /// This function **does not parse** any [`Block`]s.
     /// Parsing is done on demand with a call to [`Parser::next`].
     pub fn new(lexer: Lexer) -> Self {
         Self(lexer)
@@ -1344,26 +1344,21 @@ impl Iterator for Parser {
     /// **Optionally** parses the next [`Block`] from the stored [`Lexer`].
     /// Returns [`Some`] variant with:
     /// - [`CodeBlock`] if the parsing was successful.
-    /// - [`LexerError`] on parsing failure.
+    /// - [`ParserError`] on parsing failure.
     ///
-    /// Returns [`None`] when no more [`Block`]s are avaliable from the [`Lexer`].
+    /// Returns [`None`] when no more [`Block`]s are available from the [`Lexer`].
     fn next(&mut self) -> Option<Self::Item> {
-        match self.0.next() {
-            Some(res) => match res {
-                Ok(block) => match CodeBlock::parse(block) {
-                    Ok(codeblock) => {
-                        if self.0.source().config().verbose {
-                            codeblock.verbose();
-                        }
-                        Some(Ok(codeblock))
-                    }
+        let block = self.0.next()?.map_err(ParserError::from).ok()?;
 
-                    Err(e) => Some(Err(e)),
-                },
+        match CodeBlock::parse(block) {
+            Ok(codeblock) => {
+                if self.0.config().verbose {
+                    codeblock.verbose();
+                }
+                Some(Ok(codeblock))
+            }
 
-                Err(e) => Some(Err(ParserError::from(e))),
-            },
-            None => None,
+            Err(e) => Some(Err(e)),
         }
     }
 }
@@ -1509,7 +1504,7 @@ mod tests {
     fn empty_config() -> Config {
         Config {
             filepath: "".to_string(),
-            verbose: true,
+            verbose: false,
         }
     }
 
