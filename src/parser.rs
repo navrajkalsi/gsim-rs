@@ -18,7 +18,7 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use crate::verbose::Verbose;
+use crate::Verbose;
 
 use super::{
     error::{RED, RESET},

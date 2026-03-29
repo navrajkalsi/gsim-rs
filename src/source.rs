@@ -3,7 +3,7 @@
 //! This module is responsible for reading in **raw G-Code text**,
 //! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use crate::{config::Config, verbose::Verbose};
+use crate::{Verbose, config::Config};
 use std::str::Lines;
 
 /// Represents a sanitized line.

@@ -5,7 +5,6 @@ pub mod lexer;
 mod machine;
 pub mod parser;
 pub mod source;
-mod verbose;
 
 use crate::{
     config::Config,
@@ -35,4 +34,8 @@ pub fn run() -> Result<(), GSimError> {
     interpreter.execute()?;
 
     Ok(())
+}
+
+pub trait Verbose {
+    fn verbose(&self);
 }

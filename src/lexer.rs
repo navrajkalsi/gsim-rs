@@ -7,7 +7,7 @@
 
 use std::fmt::Display;
 
-use crate::{config::Config, verbose::Verbose};
+use crate::{Verbose, config::Config};
 
 use super::error::{RED, RESET};
 use super::source::Source;

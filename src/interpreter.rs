@@ -6,6 +6,7 @@
 use std::{fmt::Display, io};
 
 use crate::{
+    Verbose,
     error::{RED, RESET},
     lexer::Prefix,
     machine::{
@@ -13,7 +14,6 @@ use crate::{
         ReturnLevel, Unit,
     },
     parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Point},
-    verbose::Verbose,
 };
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
