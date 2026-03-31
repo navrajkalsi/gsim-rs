@@ -15,12 +15,9 @@ use crate::{
     parser::Point,
     source::Source,
 };
-use clap::Parser;
 
-// helper function to facilitate error logging in main
-pub fn run() -> Result<(), GSimError> {
-    let config = Config::parse();
-
+// helper function to facilitate error propagation in main
+pub fn run(config: Config) -> Result<(), GSimError> {
     let src = Source::from_config(config)?;
 
     let lexer = Lexer::new(src);

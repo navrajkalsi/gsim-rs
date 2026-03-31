@@ -23,8 +23,8 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    // Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
-    // ready to execute the code on the machine..
+    /// Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
+    /// ready to execute the code on the machine.
     pub fn new(parser: Parser, machine: Machine) -> Self {
         Self { parser, machine }
     }
@@ -33,6 +33,16 @@ impl Interpreter {
     ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
     pub fn execute(&mut self) -> Result<(), InterpreterError> {
+        while let Some(()) = self.execute_single()? {}
+
+        Ok(())
+    }
+
+    /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
+    ///
+    /// Returns [`None`] on exhaustion of [`CodeBlock`]s.
+    /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
+    pub fn execute_single(&mut self) -> Result<Option<()>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
 
@@ -191,7 +201,7 @@ impl Interpreter {
             }
         }
 
-        Ok(())
+        Ok(Some(()))
     }
 
     /// `Stop` M-Code helper.

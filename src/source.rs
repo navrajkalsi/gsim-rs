@@ -7,7 +7,7 @@ use crate::{Verbose, config::Config};
 use std::str::Lines;
 
 /// Represents a sanitized line.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line(String);
 
 impl Line {
@@ -30,7 +30,7 @@ impl Verbose for Line {
 /// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
 ///
 /// A program [`Config`] is also stored which can be accessed by higher level modules.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Source {
     lines: Vec<Line>,
     config: Config,
