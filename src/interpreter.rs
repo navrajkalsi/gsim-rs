@@ -40,164 +40,163 @@ impl Interpreter {
 
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
     ///
-    /// Returns [`None`] on exhaustion of [`CodeBlock`]s.
+    /// Returns [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
     pub fn execute_single(&mut self) -> Result<Option<()>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
 
-        'mainloop: for res in parser {
-            let mut block = res?;
+        let mut block = match parser.next() {
+            Some(res) => res?,
+            None => return Ok(None),
+        };
 
-            for gcode in block.gcodes() {
-                match gcode {
-                    GCode::RapidMove(pos) => machine.rapid_move(pos)?,
+        for gcode in block.gcodes() {
+            match gcode {
+                GCode::RapidMove(pos) => machine.rapid_move(pos)?,
 
-                    GCode::FeedMove { pos, feed } => machine.feed_move(pos, feed)?,
+                GCode::FeedMove { pos, feed } => machine.feed_move(pos, feed)?,
 
-                    GCode::CWArcMove { pos, method, feed } => {
-                        _ = machine.arc_move(pos, method, CircularDirection::Clockwise, feed)?
-                    }
+                GCode::CWArcMove { pos, method, feed } => {
+                    _ = machine.arc_move(pos, method, CircularDirection::Clockwise, feed)?
+                }
 
-                    GCode::CCWArcMove { pos, method, feed } => {
-                        machine.arc_move(pos, method, CircularDirection::CounterClockwise, feed)?
-                    }
+                GCode::CCWArcMove { pos, method, feed } => {
+                    machine.arc_move(pos, method, CircularDirection::CounterClockwise, feed)?
+                }
 
-                    GCode::Dwell(p) => {
-                        println!("Dwelling for {p} seconds.");
-                        let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
-                        std::thread::sleep(duration);
-                    }
+                GCode::Dwell(p) => {
+                    println!("Dwelling for {p} seconds.");
+                    let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
+                    std::thread::sleep(duration);
+                }
 
-                    GCode::XYPlane => machine.set_plane(Plane::XY),
+                GCode::XYPlane => machine.set_plane(Plane::XY),
 
-                    GCode::XZPlane => machine.set_plane(Plane::XZ),
+                GCode::XZPlane => machine.set_plane(Plane::XZ),
 
-                    GCode::YZPlane => machine.set_plane(Plane::YZ),
+                GCode::YZPlane => machine.set_plane(Plane::YZ),
 
-                    GCode::ImperialMode => machine.set_code_units(Unit::Imperial),
+                GCode::ImperialMode => machine.set_code_units(Unit::Imperial),
 
-                    GCode::MetricMode => machine.set_code_units(Unit::Metric),
+                GCode::MetricMode => machine.set_code_units(Unit::Metric),
 
-                    GCode::CancelCutterComp => machine.cancel_dia_offset(),
+                GCode::CancelCutterComp => machine.cancel_dia_offset(),
 
-                    GCode::LeftCutterComp(d) => machine.set_dia_offset(d, Direction::Left)?,
+                GCode::LeftCutterComp(d) => machine.set_dia_offset(d, Direction::Left)?,
 
-                    GCode::RightCutterComp(d) => machine.set_dia_offset(d, Direction::Right)?,
+                GCode::RightCutterComp(d) => machine.set_dia_offset(d, Direction::Right)?,
 
-                    GCode::ToolLenCompAdd(h) => machine.set_height_offset(h, Direction::Up)?,
+                GCode::ToolLenCompAdd(h) => machine.set_height_offset(h, Direction::Up)?,
 
-                    GCode::ToolLenCompSubtract(h) => {
-                        machine.set_height_offset(h, Direction::Down)?
-                    }
+                GCode::ToolLenCompSubtract(h) => machine.set_height_offset(h, Direction::Down)?,
 
-                    GCode::CancelLenComp => machine.cancel_height_offset(),
+                GCode::CancelLenComp => machine.cancel_height_offset(),
 
-                    GCode::MachineCoord(pos) => machine.move_machine_pos(pos)?,
+                GCode::MachineCoord(pos) => machine.move_machine_pos(pos)?,
 
-                    // always make the machine center as g54 offset
-                    GCode::WorkCoord => machine.set_work_offset(Point::new(
-                        machine.max_travels().x() / 2.0,
-                        machine.max_travels().y() / 2.0,
-                        0.0,
-                    )),
+                // always make the machine center as g54 offset
+                GCode::WorkCoord => machine.set_work_offset(Point::new(
+                    machine.max_travels().x() / 2.0,
+                    machine.max_travels().y() / 2.0,
+                    0.0,
+                )),
 
-                    GCode::CancelCanned => machine.cancel_canned(),
+                GCode::CancelCanned => machine.cancel_canned(),
 
-                    GCode::AbsoluteMode => machine.set_positioning(Positioning::Absolute),
+                GCode::AbsoluteMode => machine.set_positioning(Positioning::Absolute),
 
-                    GCode::IncrementalMode => machine.set_positioning(Positioning::Incremental),
+                GCode::IncrementalMode => machine.set_positioning(Positioning::Incremental),
 
-                    GCode::FeedMinute => machine.set_feed_mode(FeedMode::PerMinute),
+                GCode::FeedMinute => machine.set_feed_mode(FeedMode::PerMinute),
 
-                    GCode::FeedRev => machine.set_feed_mode(FeedMode::PerRev),
+                GCode::FeedRev => machine.set_feed_mode(FeedMode::PerRev),
 
-                    GCode::InitialReturn => machine.set_return_level(ReturnLevel::Initial),
+                GCode::InitialReturn => machine.set_return_level(ReturnLevel::Initial),
 
-                    GCode::RetractReturn => machine.set_return_level(ReturnLevel::Retract),
+                GCode::RetractReturn => machine.set_return_level(ReturnLevel::Retract),
+            }
+        }
+
+        if let Some(mcode) = block.mcode() {
+            match mcode {
+                MCode::Stop => Self::wait()?,
+
+                MCode::OptionalStop => Self::wait()?,
+
+                MCode::SpindleFwd(s) => machine.spindle_on(CircularDirection::Clockwise, s)?,
+
+                MCode::SpindleRev(s) => {
+                    machine.spindle_on(CircularDirection::CounterClockwise, s)?
+                }
+
+                MCode::SpindleStop => machine.spindle_off(),
+
+                MCode::ToolChange(t) => machine.tool_change(t)?,
+
+                MCode::CoolantOn => machine.set_coolant(true),
+
+                MCode::CoolantOff => machine.set_coolant(false),
+
+                MCode::End => {
+                    println!("Program end detected");
+                    machine.reset();
+                    return Ok(None);
                 }
             }
+        }
 
-            if let Some(mcode) = block.mcode() {
-                match mcode {
-                    MCode::Stop => Self::wait()?,
+        for code in block.codes() {
+            // for storing any coord codes and parsing them altogether
+            let mut excess = Codes::new();
 
-                    MCode::OptionalStop => Self::wait()?,
+            match code {
+                Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
+                Code::M(_) => unreachable!("The parser will not emit M code with other codes."),
 
-                    MCode::SpindleFwd(s) => machine.spindle_on(CircularDirection::Clockwise, s)?,
+                Code::D(_) => return Err(InterpreterError::ExcessCode(b'D')),
+                Code::H(_) => return Err(InterpreterError::ExcessCode(b'H')),
+                Code::P(_) => return Err(InterpreterError::ExcessCode(b'P')),
+                Code::Q(_) => return Err(InterpreterError::ExcessCode(b'Q')),
 
-                    MCode::SpindleRev(s) => {
-                        machine.spindle_on(CircularDirection::CounterClockwise, s)?
-                    }
+                // ignore line & program numbers
+                Code::N(_) | Code::O(_) => (),
 
-                    MCode::SpindleStop => machine.spindle_off(),
+                Code::S(s) => machine.set_speed(s),
 
-                    MCode::ToolChange(t) => machine.tool_change(t)?,
+                Code::T(t) => machine.set_next_tool(t),
 
-                    MCode::CoolantOn => machine.set_coolant(true),
+                Code::F(f) => machine.set_feed(f),
 
-                    MCode::CoolantOff => machine.set_coolant(false),
+                Code::I(_)
+                | Code::J(_)
+                | Code::K(_)
+                | Code::R(_)
+                | Code::X(_)
+                | Code::Y(_)
+                | Code::Z(_) => excess.push(code).unwrap(),
+            };
 
-                    MCode::End => {
-                        println!("Program end detected");
-                        machine.reset();
-                        break 'mainloop;
-                    }
+            // from excess codes, only interpolation is possible
+            //
+            // it is worth noting that an single block cannot be interpreted twice,
+            // that is, a block will not have two interpolations,
+            // because everyblock needs x, y or z, and there are no duplicates.
+            match machine.motion() {
+                Motion::Rapid => machine.rapid_move(excess.take_partial_point())?,
+
+                // feed would be set from the for loop, if provided
+                Motion::Feed => machine.feed_move(excess.take_partial_point(), None)?,
+
+                Motion::Arc(dir) => {
+                    let (pos, method, feed) = excess.take_circular()?;
+                    machine.arc_move(pos, method, *dir, feed)?;
                 }
-            }
+            };
 
-            for code in block.codes() {
-                // for storing any coord codes and parsing them altogether
-                let mut excess = Codes::new();
-
-                match code {
-                    Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
-                    Code::M(_) => unreachable!("The parser will not emit M code with other codes."),
-
-                    Code::D(_) => return Err(InterpreterError::ExcessCode(b'D')),
-                    Code::H(_) => return Err(InterpreterError::ExcessCode(b'H')),
-                    Code::P(_) => return Err(InterpreterError::ExcessCode(b'P')),
-                    Code::Q(_) => return Err(InterpreterError::ExcessCode(b'Q')),
-
-                    // ignore line & program numbers
-                    Code::N(_) | Code::O(_) => (),
-
-                    Code::S(s) => machine.set_speed(s),
-
-                    Code::T(t) => machine.set_next_tool(t),
-
-                    Code::F(f) => machine.set_feed(f),
-
-                    Code::I(_)
-                    | Code::J(_)
-                    | Code::K(_)
-                    | Code::R(_)
-                    | Code::X(_)
-                    | Code::Y(_)
-                    | Code::Z(_) => excess.push(code).unwrap(),
-                };
-
-                // from excess codes, only interpolation is possible
-                //
-                // it is worth noting that an single block cannot be interpreted twice,
-                // that is, a block will not have two interpolations,
-                // because everyblock needs x, y or z, and there are no duplicates.
-                match machine.motion() {
-                    Motion::Rapid => machine.rapid_move(excess.take_partial_point())?,
-
-                    // feed would be set from the for loop, if provided
-                    Motion::Feed => machine.feed_move(excess.take_partial_point(), None)?,
-
-                    Motion::Arc(dir) => {
-                        let (pos, method, feed) = excess.take_circular()?;
-                        machine.arc_move(pos, method, *dir, feed)?;
-                    }
-                };
-
-                // single move should consume all the excess codes
-                if let Some(code) = excess.next() {
-                    return Err(InterpreterError::ExcessCode(code.prefix()));
-                }
+            // single move should consume all the excess codes
+            if let Some(code) = excess.next() {
+                return Err(InterpreterError::ExcessCode(code.prefix()));
             }
         }
 
