@@ -1,5 +1,4 @@
 use gsim_rs::{
-    config::Config,
     lexer::{
         Lexer,
         Suffix::{Float, Int},
@@ -9,16 +8,9 @@ use gsim_rs::{
     source::Source,
 };
 
-fn empty_config() -> Config {
-    Config {
-        filepath: "".to_string(),
-        verbose: false,
-    }
-}
-
 #[test]
 fn tokenize_source() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK", empty_config());
+    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
 
     let mut lex = Lexer::new(src);
 
@@ -45,7 +37,7 @@ fn tokenize_source() {
 
 #[test]
 fn parse_lexer() {
-    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK", empty_config());
+    let src = Source::from_string("G01 X.0;\n%\n(COMMENT)\n/DELETEDBLOCK");
 
     let lex = Lexer::new(src);
 

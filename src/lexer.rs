@@ -7,8 +7,6 @@
 
 use std::fmt::Display;
 
-use crate::{Verbose, config::Config};
-
 use super::error::{RED, RESET};
 use super::source::Source;
 
@@ -167,18 +165,6 @@ impl Block {
     }
 }
 
-impl Verbose for Block {
-    fn verbose(&self) {
-        println!("\nTokenized the following tokens:");
-        for token in &self.0 {
-            println!(
-                "Prefix: '{}', Suffix: {}",
-                token.prefix as char, token.suffix
-            );
-        }
-    }
-}
-
 impl Iterator for Block {
     type Item = Token;
 
@@ -204,11 +190,6 @@ impl Lexer {
     pub fn new(src: Source) -> Self {
         Self(src)
     }
-
-    /// Returns a reference to the [`Config`] inside the stored [`Source`].
-    pub fn config(&self) -> &Config {
-        self.0.config()
-    }
 }
 
 impl Iterator for Lexer {
@@ -221,14 +202,7 @@ impl Iterator for Lexer {
     ///
     /// Returns [`None`] when no more [`Line`](crate::source::Line)s are available from the [`Source`].
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|line| {
-            Block::tokenize(line.as_str()).map(|block| {
-                if self.0.config().verbose {
-                    block.verbose();
-                }
-                block
-            })
-        })
+        self.0.next().map(|line| Block::tokenize(line.as_str()))
     }
 }
 

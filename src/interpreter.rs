@@ -6,7 +6,6 @@
 use std::{fmt::Display, io};
 
 use crate::{
-    Verbose,
     error::{RED, RESET},
     lexer::Prefix,
     machine::{

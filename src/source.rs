@@ -3,7 +3,6 @@
 //! This module is responsible for reading in **raw G-Code text**,
 //! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use crate::{Verbose, config::Config};
 use std::str::Lines;
 
 /// Represents a sanitized line.
@@ -17,47 +16,33 @@ impl Line {
     }
 }
 
-impl Verbose for Line {
-    fn verbose(&self) {
-        println!(
-            "\nExtracted the following line from source file:\n{}",
-            self.as_str()
-        )
-    }
-}
-
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
 ///
 /// A program [`Config`] is also stored which can be accessed by higher level modules.
 #[derive(Clone, Debug)]
-pub struct Source {
-    lines: Vec<Line>,
-    config: Config,
-}
+pub struct Source(Vec<Line>);
 
 impl Source {
-    /// Constructs a new [`Source`] by using [`Config`].
-    /// File at [`Config::filepath`] is read and used as the source file.
+    /// Constructs a new [`Source`] by reading a file at `path`.
     ///
     /// Returns a [`io::Error`](std::io::Error) on failure to *read the raw file*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_config(config: Config) -> Result<Self, std::io::Error> {
-        let data = std::fs::read_to_string(&config.filepath)?;
+    pub fn from_file(path: &str) -> Result<Self, std::io::Error> {
+        let data = std::fs::read_to_string(path)?;
 
-        Ok(Self::from_lines(data.lines(), config))
+        Ok(Self::from_lines(data.lines()))
     }
 
-    /// Constructs a new [`Source`], from a provided *string slice* and a [`Config`].
+    /// Constructs a new [`Source`], from a provided *string slice*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_string(data: &str, config: Config) -> Self {
-        Self::from_lines(data.lines(), config)
+    pub fn from_string(data: &str) -> Self {
+        Self::from_lines(data.lines())
     }
 
-    /// Constructs a new [`Source`], from [`Lines`] and [`Config`],
-    /// which is stored for access by higher level functions.
+    /// Constructs a new [`Source`], from [`Lines`].
     ///
     /// Each [`Line`] is computed **eagerly** on this function call.
     ///
@@ -67,7 +52,7 @@ impl Source {
     /// - **end-of-block symbol**, the `;` character.
     /// - **transmission symbol**, the `%` character.
     /// - **empty lines.**
-    pub fn from_lines(lines: Lines, config: Config) -> Self {
+    pub fn from_lines(lines: Lines) -> Self {
         // remove everything from '(' to end
         let uncommented = lines.map(|line| {
             line.split('(')
@@ -90,15 +75,7 @@ impl Source {
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
 
         // reverse and collect to easily pop when needed
-        Self {
-            lines: filtered.rev().map(|line| Line(line)).collect(),
-            config,
-        }
-    }
-
-    /// Returns a reference to the stored [`Config`].
-    pub fn config(&self) -> &Config {
-        &self.config
+        Self(filtered.rev().map(|line| Line(line)).collect())
     }
 }
 
@@ -107,19 +84,13 @@ impl Iterator for Source {
 
     /// **Optionally** removes and returns the next [`Line`].
     fn next(&mut self) -> Option<Self::Item> {
-        self.lines.pop().map(|line| {
-            if self.config.verbose {
-                line.verbose();
-            }
-            line
-        })
+        self.0.pop()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Config;
 
     const TESTFILE: &'static str = "source_test.nc";
     const TESTCODE: &'static str = "
@@ -382,11 +353,6 @@ mod tests {
 
     #[test]
     fn good() {
-        let config = Config {
-            filepath: TESTFILE.to_string(),
-            verbose: false,
-        };
-
         std::fs::write(TESTFILE, TESTCODE).unwrap();
         let result: Vec<Line> = RESULT
             .lines()
@@ -394,13 +360,13 @@ mod tests {
             .collect();
 
         // file
-        let src = Source::from_config(config.clone()).unwrap();
+        let src = Source::from_file(TESTFILE).unwrap();
         let collected: Vec<Line> = src.collect();
         std::fs::remove_file(TESTFILE).unwrap();
         assert_eq!(result, collected);
 
         // text
-        let src = Source::from_string(TESTCODE, config);
+        let src = Source::from_string(TESTCODE);
         let collected: Vec<Line> = src.collect();
         assert_eq!(result, collected);
     }
