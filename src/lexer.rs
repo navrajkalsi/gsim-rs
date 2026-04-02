@@ -190,6 +190,11 @@ impl Lexer {
     pub fn new(src: Source) -> Self {
         Self(src)
     }
+
+    /// Reloads the [`Lexer`] to start from beginning of the [`Source`].
+    pub fn reload(&mut self) {
+        self.0.reload();
+    }
 }
 
 impl Iterator for Lexer {

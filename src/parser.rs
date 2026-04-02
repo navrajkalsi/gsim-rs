@@ -1201,6 +1201,11 @@ impl Parser {
     pub fn new(lexer: Lexer) -> Self {
         Self(lexer)
     }
+
+    /// Reloads the [`Parser`] to start from beginning of the [`Lexer`].
+    pub fn reload(&mut self) {
+        self.0.reload();
+    }
 }
 
 impl Iterator for Parser {

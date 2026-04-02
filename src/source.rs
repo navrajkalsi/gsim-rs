@@ -17,11 +17,14 @@ impl Line {
 }
 
 /// Stores the data from the source file.
-/// The data is sanitized, ready to be tokenized and stored in reverse(for efficient retrieval).
+/// The data is sanitized, ready to be tokenized.
 ///
-/// A program [`Config`] is also stored which can be accessed by higher level modules.
+/// Also keeps track of the index to return for [`Source::next`] call.
 #[derive(Clone, Debug)]
-pub struct Source(Vec<Line>);
+pub struct Source {
+    lines: Vec<Line>,
+    index: usize,
+}
 
 impl Source {
     /// Constructs a new [`Source`] by reading a file at `path`.
@@ -74,17 +77,30 @@ impl Source {
         let filtered = nocolon
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%'));
 
-        // reverse and collect to easily pop when needed
-        Self(filtered.rev().map(|line| Line(line)).collect())
+        Self {
+            lines: filtered.map(|line| Line(line)).collect(),
+            index: 0,
+        }
+    }
+
+    /// Reloads the [`Source`].
+    ///
+    /// **Does not** read the source file again.
+    pub fn reload(&mut self) {
+        self.index = 0
     }
 }
 
 impl Iterator for Source {
     type Item = Line;
 
-    /// **Optionally** removes and returns the next [`Line`].
+    /// **Optionally** and returns the next [`Line`].
+    /// **Does not** remove the returned [`Line`] to support reloading the [`Source`].
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
+        let line = self.lines.get(self.index)?;
+        self.index += 1;
+
+        Some(line.clone())
     }
 }
 

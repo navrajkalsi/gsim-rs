@@ -1,7 +1,12 @@
+use ratatui::{
+    Terminal,
+    crossterm::event::{self, Event, KeyCode},
+    prelude::Backend,
+};
+
 use crate::{
     config::Config,
     error::GSimError,
-    interpreter::Interpreter,
     lexer::Lexer,
     machine::{Machine, Unit},
     parser::{Parser, Point},
@@ -21,6 +26,18 @@ pub enum View {
     Isometric,
 }
 
+/// Represents the types program cycle interruptions that need user input to resume cycle.
+pub enum Interrupt {
+    /// Confirm program start or restart.
+    Start,
+    /// M00 program stop detected.
+    Stop,
+    /// M01 optional program stop detected.
+    OptionalStop,
+    /// M30 Program end detected.
+    End,
+}
+
 /// Represents current state of the program.
 pub struct App {
     error: Option<GSimError>,
@@ -36,6 +53,8 @@ pub struct App {
     preview: Vec<Line>,
     /// Index of current block being executed for preview.
     current: usize,
+    /// `None` if the program is running.
+    interrupt: Option<Interrupt>,
 }
 
 impl App {
@@ -56,10 +75,53 @@ impl App {
             machine: Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?,
             preview: src.map(|line| line.to_owned()).collect(),
             current: 0,
+            interrupt: Some(Interrupt::Start),
         })
     }
 
-    pub fn run(&mut self) -> Result<(), GSimError> {
-        Ok(())
+    pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), GSimError>
+    where
+        GSimError: From<B::Error>,
+    {
+        loop {
+            // terminal.draw(|f| ui(f, &self))?;
+
+            if let Event::Key(key) = event::read()? {
+                if key.kind == event::KeyEventKind::Release {
+                    // Skip events that are not KeyEventKind::Press
+                    continue;
+                }
+
+                if key.code == KeyCode::Char('Q') {
+                    return Ok(());
+                }
+
+                if self.single {
+                    if key.code != KeyCode::Char('n') {
+                        continue;
+                    }
+                }
+
+                if let Some(interrupt) = &self.interrupt {
+                    if key.code == KeyCode::Enter {
+                        if let Interrupt::End = interrupt {
+                            self.reload();
+                        } else {
+                            self.interrupt = None;
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+    }
+
+    fn reload(&mut self) {
+        self.current = 0;
+        self.interrupt = Some(Interrupt::Start);
+        self.parser.reload();
     }
 }
+
+// n should be used in single block.
+// enter should be used when not in single block and detection of stop signal
