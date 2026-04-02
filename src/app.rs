@@ -11,6 +11,7 @@ use crate::{
     machine::{Machine, Unit},
     parser::{Parser, Point},
     source::{Line, Source},
+    ui::ui,
 };
 
 /// Represents the types of view possible on the left section.
@@ -84,7 +85,7 @@ impl App {
         GSimError: From<B::Error>,
     {
         loop {
-            // terminal.draw(|f| ui(f, &self))?;
+            terminal.draw(|f| ui(f, &self))?;
 
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Release {
@@ -92,18 +93,37 @@ impl App {
                     continue;
                 }
 
-                if key.code == KeyCode::Char('Q') {
+                let keycode = key.code;
+
+                if keycode == KeyCode::Char('Q') {
                     return Ok(());
                 }
 
+                if keycode == KeyCode::Char('t') {
+                    self.view = View::Text;
+                    continue;
+                } else if keycode == KeyCode::Char('p') {
+                    self.view = View::Plane;
+                    continue;
+                } else if keycode == KeyCode::Char('i') {
+                    self.view = View::Isometric;
+                    continue;
+                }
+
+                if keycode == KeyCode::Char('s') {
+                    self.single = true;
+                    continue;
+                }
+
                 if self.single {
-                    if key.code != KeyCode::Char('n') {
+                    // read again
+                    if keycode != KeyCode::Char('n') {
                         continue;
                     }
                 }
 
                 if let Some(interrupt) = &self.interrupt {
-                    if key.code == KeyCode::Enter {
+                    if keycode == KeyCode::Enter {
                         if let Interrupt::End = interrupt {
                             self.reload();
                         } else {
