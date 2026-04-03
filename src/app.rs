@@ -51,9 +51,9 @@ pub struct App {
     /// Machine ready to accept state alterations.
     machine: Machine,
     /// Copy of source for previewing.
-    preview: Vec<Line>,
+    pub preview: Vec<Line>,
     /// Index of current block being executed for preview.
-    current: usize,
+    pub current: usize,
     /// `None` if the program is running.
     interrupt: Option<Interrupt>,
 }
@@ -111,7 +111,8 @@ impl App {
                 }
 
                 if keycode == KeyCode::Char('s') {
-                    self.single = true;
+                    // toggle single block
+                    self.single = !self.single;
                     continue;
                 }
 
