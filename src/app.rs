@@ -43,9 +43,9 @@ pub enum Interrupt {
 pub struct App {
     error: Option<GSimError>,
     /// Current selected view.
-    view: View,
+    pub view: View,
     /// Single step through code blocks.
-    single: bool,
+    pub single: bool,
     /// Source loaded parser, ready for iteration.
     parser: Parser,
     /// Machine ready to accept state alterations.
