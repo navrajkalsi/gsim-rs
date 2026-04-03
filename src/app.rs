@@ -56,6 +56,8 @@ pub struct App {
     pub current: usize,
     /// `None` if the program is running.
     interrupt: Option<Interrupt>,
+    /// Text description for latest block.
+    desc: Vec<String>,
 }
 
 impl App {
@@ -77,6 +79,7 @@ impl App {
             preview: src.map(|line| line.to_owned()).collect(),
             current: 0,
             interrupt: Some(Interrupt::Start),
+            desc: Vec::new(),
         })
     }
 
