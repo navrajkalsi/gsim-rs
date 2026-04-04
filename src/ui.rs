@@ -14,25 +14,6 @@ pub fn ui(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(92), Constraint::Percentage(8)])
         .split(frame.area());
 
-    // in case of animating, make the ui just get the main info,
-    // and call the ui reccursively to fulfil the entire move before moving back to app
-    //
-    // split bottom into 3 sections:
-    // name of app
-    // available commands
-    // gcode groups active
-
-    let title = get_title();
-    // print the present state
-
-    let keys = get_keys(app);
-
-    let main = get_main(app);
-
-    let lines = get_preview(app);
-
-    let active = get_active(app);
-
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
@@ -48,10 +29,23 @@ pub fn ui(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
         .split(chunks[1]);
 
-    frame.render_widget(main, top_chunks[0]);
-    frame.render_widget(lines, right_chunks[0]);
-    frame.render_widget(active, right_chunks[1]);
+    // in case of animating, make the ui just get the main info,
+    // and call the ui reccursively to fulfil the entire move before moving back to app
+    //
+    // split bottom into 3 sections:
+    // name of app
+    // available commands
+    // gcode groups active
 
+    let main = get_main(app);
+    let preview = get_preview(app);
+    let active = get_active(app);
+    let title = get_title();
+    let keys = get_keys(app);
+
+    frame.render_widget(main, top_chunks[0]);
+    frame.render_widget(preview, right_chunks[0]);
+    frame.render_widget(active, right_chunks[1]);
     frame.render_widget(title, bottom_chunks[0]);
     frame.render_widget(keys, bottom_chunks[1]);
 }
@@ -97,6 +91,7 @@ fn get_keys(app: &App) -> Paragraph<'_> {
 }
 
 /// Returns a styled [`Paragraph`] with **loaded source**.
+/// One line of context is also provided in the preview.
 fn get_preview(app: &App) -> Paragraph<'_> {
     let mut lines = vec![];
 

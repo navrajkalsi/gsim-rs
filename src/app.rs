@@ -90,52 +90,45 @@ impl App {
         loop {
             terminal.draw(|f| ui(f, &self))?;
 
-            if let Event::Key(key) = event::read()? {
-                if key.kind == event::KeyEventKind::Release {
-                    // Skip events that are not KeyEventKind::Press
-                    continue;
+            if !self.single && self.interrupt.is_none() {
+                if self.parser.next().is_none() {
+                    self.interrupt = Some(Interrupt::End);
+                } else {
+                    self.current += 1;
                 }
-
-                let keycode = key.code;
-
-                if keycode == KeyCode::Char('Q') {
-                    return Ok(());
-                }
-
-                if keycode == KeyCode::Char('t') {
-                    self.view = View::Text;
-                    continue;
-                } else if keycode == KeyCode::Char('p') {
-                    self.view = View::Plane;
-                    continue;
-                } else if keycode == KeyCode::Char('i') {
-                    self.view = View::Isometric;
-                    continue;
-                }
-
-                if keycode == KeyCode::Char('s') {
-                    // toggle single block
-                    self.single = !self.single;
-                    continue;
-                }
-
-                if self.single {
-                    // read again
-                    if keycode != KeyCode::Char('n') {
+            } else if let Event::Key(key) = event::read()?
+                && key.kind != event::KeyEventKind::Release
+            {
+                // Skip events that are not KeyEventKind::Press
+                match key.code {
+                    KeyCode::Char('Q') => return Ok(()),
+                    KeyCode::Char('v') => {
+                        match self.view {
+                            View::Text => self.view = View::Plane,
+                            View::Plane => self.view = View::Isometric,
+                            View::Isometric => self.view = View::Text,
+                        };
                         continue;
                     }
-                }
-
-                if let Some(interrupt) = &self.interrupt {
-                    if keycode == KeyCode::Enter {
-                        if let Interrupt::End = interrupt {
+                    KeyCode::Char('s') => {
+                        // toggle single block
+                        self.single = !self.single;
+                        continue;
+                    }
+                    KeyCode::Char('n') => {
+                        self.current += 1;
+                    }
+                    KeyCode::Enter if self.interrupt.is_some() => {
+                        if let Interrupt::End = self.interrupt.as_ref().unwrap() {
                             self.reload();
                         } else {
                             self.interrupt = None;
                         }
                     }
-                    continue;
+                    _ => {}
                 }
+            } else {
+                continue;
             }
         }
     }
