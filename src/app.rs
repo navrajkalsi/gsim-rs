@@ -55,7 +55,7 @@ pub struct App {
     /// Index of current block being executed for preview.
     pub current: usize,
     /// `None` if the program is running.
-    interrupt: Option<Interrupt>,
+    pub interrupt: Option<Interrupt>,
     /// Text description for latest block.
     desc: Vec<String>,
 }
@@ -115,7 +115,7 @@ impl App {
                         self.single = !self.single;
                         continue;
                     }
-                    KeyCode::Char('n') => {
+                    KeyCode::Char('n') if self.interrupt.is_none() => {
                         self.current += 1;
                     }
                     KeyCode::Enter if self.interrupt.is_some() => {

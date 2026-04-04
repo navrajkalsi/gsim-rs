@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph},
 };
 
-use crate::app::{App, View};
+use crate::app::{App, Interrupt, View};
 
 pub fn ui(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -73,7 +73,7 @@ fn get_keys(app: &App) -> Paragraph<'_> {
         ": toggle single".into(),
     ];
 
-    if app.single {
+    if app.single && app.interrupt.is_none() {
         keys.push(" / ".into());
         keys.push(Span::styled("n", Style::default().fg(Color::Yellow)));
         keys.push(": next block".into());
@@ -128,6 +128,19 @@ fn get_active(app: &App) -> Paragraph<'_> {
         .fg(Color::LightYellow)
         .add_modifier(Modifier::BOLD);
 
+    if let Some(interrupt) = &app.interrupt {
+        active.push(match interrupt {
+            Interrupt::Start => Span::styled("START INTERRUPT", style),
+
+            Interrupt::Stop => Span::styled("STOP INTERRUPT", style),
+
+            Interrupt::OptionalStop => Span::styled("OPTIONAL STOP INTERRUPT", style),
+
+            Interrupt::End => Span::styled("END INTERRUPT", style),
+        });
+        active.push(Span::from(" | "));
+    }
+
     active.push(match app.view {
         View::Text => Span::styled("TEXT", style),
         View::Plane => Span::styled("TOP", style),
@@ -152,6 +165,31 @@ fn get_active(app: &App) -> Paragraph<'_> {
 
 /// Returns a styled [`Paragraph`] with **main section**.
 fn get_main(app: &App) -> Paragraph<'_> {
+    if let Some(interrupt) = &app.interrupt {
+        let style = Style::default()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::BOLD);
+
+        let mut interrupt = vec![match interrupt {
+            Interrupt::Start => Span::styled("START", style),
+            Interrupt::Stop => Span::styled("STOP", style),
+            Interrupt::OptionalStop => Span::styled("OPTIONAL STOP", style),
+            Interrupt::End => Span::styled("END", style),
+        }];
+
+        interrupt.push(" interrupt detected.".into());
+
+        let command = vec![
+            "Press ".into(),
+            Span::styled("Enter", style),
+            " to remove the interrupt.".into(),
+        ];
+
+        return Paragraph::new(Text::from(vec![interrupt.into(), command.into()]))
+            .block(Block::default().style(Style::default()))
+            .centered();
+    }
+
     Paragraph::new("")
         .style(Style::default())
         .block(Block::default())
