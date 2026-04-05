@@ -18,6 +18,8 @@ use std::{
     fmt::{Debug, Display},
 };
 
+use crate::describe::{Describe, Description};
+
 use super::{
     error::{RED, RESET},
     lexer::{
@@ -1206,6 +1208,11 @@ impl Parser {
     pub fn reload(&mut self) {
         self.0.reload();
     }
+
+    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
+    pub fn get_line(&self, index: usize) -> Option<&str> {
+        self.0.get_line(index)
+    }
 }
 
 impl Iterator for Parser {
@@ -1264,6 +1271,91 @@ pub enum ParserError {
 impl From<LexerError> for ParserError {
     fn from(e: LexerError) -> Self {
         Self::Lexer(e)
+    }
+}
+
+impl Describe for ParserError {
+    fn describe(&self) -> Description {
+        let (title, desc) = match self {
+            Self::WrongSuffixType(prefix) => (
+                "Wrong Suffix Type Detected",
+                format!(
+                    "The following prefix has a wrong suffix type: '{}'.",
+                    *prefix as char
+                ),
+            ),
+
+            Self::UnknownPrefix(prefix) => (
+                "Unsupported Prefix Detected",
+                format!(
+                    "The following prefix is not supported: '{}'.",
+                    *prefix as char
+                ),
+            ),
+
+            Self::DuplicateGCode(suffix) => (
+                "Duplicate G-Code Detected",
+                format!("The following code was repeated: 'G{suffix}'."),
+            ),
+
+            Self::InvalidGCode(suffix) => (
+                "Invalid G-Code Detected",
+                format!("The following G-Code is not supported: 'G{suffix}'."),
+            ),
+
+            Self::DuplicateGCodeGroup(group) => (
+                "Duplicate G-Code Group Detected",
+                format!(
+                    "The following group contains more than one G-Codes that belong to it: '{group}'."
+                ),
+            ),
+
+            Self::DuplicatePrefix(prefix) => (
+                "Duplicate Prefix Detected",
+                format!(
+                    "The following prefix code appears more than once: '{}'.",
+                    *prefix as char
+                ),
+            ),
+
+            Self::InvalidParamForGCode(suffix) => (
+                "Invalid Parameter Detected",
+                format!("The following G-Code requirements were not met: 'G{suffix}'."),
+            ),
+
+            Self::MissingCodeForGCode(prefix) => (
+                "Required Code not found for G-Code",
+                format!(
+                    "The following prefix code was not found: '{}'.",
+                    *prefix as char
+                ),
+            ),
+
+            Self::AmbiguousCircleMethod => (                "Ambiguous Circle Method Detected", "The code block contains codes from each of the two circular methods, which is invalid.".to_string()
+            ),
+
+            Self::InvalidCircle(opt) => ("Invalid Circle Detected", match opt {
+                Some(method) => match method {
+                    CircleMethod::RelativePoint(_) => "The relative center of the requested arc must lie on one single plane.".to_string(),
+                    CircleMethod::FixedRadius(_) => "The radius of the requested arc is detected to be zero, which is invalid.".to_string(),
+                },
+                None => "No end coordinates were detected for the requested arc.".to_string(),
+            }),
+
+            Self::InvalidMCode(suffix) => (                "Invalid M-Code Detected", format!("The following M-Code is not supported by this parser: 'M{suffix}'.")),
+
+            Self::MissingCodeForMCode(prefix) => (                "Required Code not found for M-Code", format!("The following prefix code was not found: '{}'.",
+                *prefix as char)
+            ),
+
+            Self::UnexpectedPrefix(prefix) => (                "Unexpected Prefix Detected", format!("The following prefix was not consumed by the parser, but cannot be parsed on its own: '{}'.",
+                *prefix as char)
+            ),
+
+            Self::Lexer(e) => return e.describe(),
+        };
+
+        Description::new(title, desc)
     }
 }
 

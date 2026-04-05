@@ -33,10 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    if let Err(e) = app.run(&mut terminal) {
-        eprintln!("{e}");
-        std::process::exit(1);
-    }
+    let res = app.run(&mut terminal);
 
     terminal::disable_raw_mode()?;
     execute!(
@@ -45,6 +42,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         event::DisableMouseCapture
     )?;
     terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
 
     Ok(())
 }

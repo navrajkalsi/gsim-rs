@@ -1,12 +1,15 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Padding, Paragraph},
 };
 
-use crate::app::{App, Interrupt, View};
+use crate::{
+    app::{App, Interrupt, View},
+    describe::Describe,
+};
 
 pub fn ui(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -48,6 +51,19 @@ pub fn ui(frame: &mut Frame, app: &App) {
     frame.render_widget(active, right_chunks[1]);
     frame.render_widget(title, bottom_chunks[0]);
     frame.render_widget(keys, bottom_chunks[1]);
+
+    // deal with error before quitting
+    if let Some(err) = &app.error {
+        let popup = Paragraph::new(err.describe().desc().to_string()).block(
+            Block::default()
+                .title(err.describe().title().to_string())
+                .borders(Borders::NONE)
+                .style(Style::default().bg(Color::DarkGray)),
+        );
+
+        let area = centered_rect(60, 25, frame.area());
+        frame.render_widget(popup, area);
+    }
 }
 
 /// Returns a styled [`Paragraph`] with **program title**.
@@ -97,14 +113,14 @@ fn get_preview(app: &App) -> Paragraph<'_> {
 
     let mut current = if app.current > 0 { app.current - 1 } else { 0 };
 
-    while let Some(line) = app.preview.get(current) {
+    while let Some(line) = app.parser.get_line(current) {
         if current == app.current {
             lines.push(Line::styled(
-                line.as_str(),
+                line,
                 Style::default().bg(Color::White).fg(Color::Black),
             ))
         } else {
-            lines.push(Line::from(line.as_str()))
+            lines.push(Line::from(line))
         }
 
         current += 1;
@@ -190,7 +206,40 @@ fn get_main(app: &App) -> Paragraph<'_> {
             .centered();
     }
 
-    Paragraph::new("")
-        .style(Style::default())
-        .block(Block::default())
+    match app.view {
+        View::Text => {
+            let lines: Vec<Line<'_>> = app
+                .desc
+                .clone()
+                .iter()
+                .map(|line| Line::from(line.to_string()))
+                .collect();
+            Paragraph::new(lines)
+        }
+        View::Plane => todo!(),
+        View::Isometric => todo!(),
+    }
+}
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    // Cut the given rectangle into three vertical pieces
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    // Then cut the middle vertical piece into three width-wise pieces
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1] // Return the middle chunk
 }

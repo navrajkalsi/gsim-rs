@@ -6,6 +6,7 @@
 use std::{fmt::Display, io};
 
 use crate::{
+    describe::{Describe, Description},
     error::{RED, RESET},
     lexer::Prefix,
     machine::{
@@ -239,6 +240,32 @@ impl From<MachineError> for InterpreterError {
 impl From<ParserError> for InterpreterError {
     fn from(e: ParserError) -> Self {
         Self::Parser(e)
+    }
+}
+
+impl Describe for InterpreterError {
+    fn describe(&self) -> crate::describe::Description {
+        let (title, desc) = match self {
+            Self::File(_) => (
+                "File Access Error",
+                "Error encountered while trying to read input from user.".to_string(),
+            ),
+
+            Self::ExcessCode(c) => (
+                "Excess Code Detected",
+                format!(
+                    "The code block contains the following code, which could not be consumed and may be redundant: {}.",
+                    *c as char
+                ),
+            ),
+
+            // no need to format new error,
+            // just print machine & parser error as interpreter error which is formatted
+            Self::Machine(e) => return e.describe(),
+            Self::Parser(e) => return e.describe(),
+        };
+
+        Description::new(title, desc)
     }
 }
 

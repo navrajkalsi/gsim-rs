@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use ratatui::{
     Terminal,
     crossterm::event::{self, Event, KeyCode},
@@ -6,6 +8,7 @@ use ratatui::{
 
 use crate::{
     config::Config,
+    describe::{Describe, Description},
     error::GSimError,
     lexer::Lexer,
     machine::{Machine, Unit},
@@ -39,25 +42,44 @@ pub enum Interrupt {
     End,
 }
 
+/// Possible errors that can happen during [`App`] event reading.
+pub enum AppError {
+    IO(std::io::Error),
+}
+
+impl Describe for AppError {
+    fn describe(&self) -> Description {
+        match self {
+            AppError::IO(error) => Description::new("Event Read Error Detected", error.to_string()),
+        }
+    }
+}
+
+impl Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::IO(error) => write!(f, "{}", error.to_string()),
+        }
+    }
+}
+
 /// Represents current state of the program.
 pub struct App {
-    error: Option<GSimError>,
+    pub error: Option<GSimError>,
     /// Current selected view.
     pub view: View,
     /// Single step through code blocks.
     pub single: bool,
     /// Source loaded parser, ready for iteration.
-    parser: Parser,
+    pub parser: Parser,
     /// Machine ready to accept state alterations.
     machine: Machine,
-    /// Copy of source for previewing.
-    pub preview: Vec<Line>,
     /// Index of current block being executed for preview.
     pub current: usize,
     /// `None` if the program is running.
     pub interrupt: Option<Interrupt>,
     /// Text description for latest block.
-    desc: Vec<String>,
+    pub desc: Vec<String>,
 }
 
 impl App {
@@ -76,7 +98,6 @@ impl App {
             single: false,
             parser: Parser::new(Lexer::new(src.clone())),
             machine: Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?,
-            preview: src.map(|line| line.to_owned()).collect(),
             current: 0,
             interrupt: Some(Interrupt::Start),
             desc: Vec::new(),
@@ -90,11 +111,16 @@ impl App {
         loop {
             terminal.draw(|f| ui(f, &self))?;
 
-            if !self.single && self.interrupt.is_none() {
-                if self.parser.next().is_none() {
-                    self.interrupt = Some(Interrupt::End);
+            if !self.single && self.interrupt.is_none() && self.error.is_none() {
+                self.execute();
+            } else if self.error.is_some()
+                && let Event::Key(key) = event::read()?
+                && key.kind != event::KeyEventKind::Release
+            {
+                if key.code == KeyCode::Enter {
+                    return Err(self.error.take().unwrap());
                 } else {
-                    self.current += 1;
+                    continue;
                 }
             } else if let Event::Key(key) = event::read()?
                 && key.kind != event::KeyEventKind::Release
@@ -111,25 +137,28 @@ impl App {
                         continue;
                     }
                     KeyCode::Char('s') => {
-                        // toggle single block
                         self.single = !self.single;
                         continue;
                     }
-                    KeyCode::Char('n') if self.interrupt.is_none() => {
-                        self.current += 1;
-                    }
-                    KeyCode::Enter if self.interrupt.is_some() => {
-                        if let Interrupt::End = self.interrupt.as_ref().unwrap() {
-                            self.reload();
-                        } else {
+                    KeyCode::Char('n') if self.interrupt.is_none() => self.execute(),
+                    KeyCode::Enter => match self.interrupt {
+                        Some(Interrupt::End) => self.reload(),
+                        Some(Interrupt::Start) => {
                             self.interrupt = None;
+                            self.execute();
                         }
-                    }
+                        Some(_) => self.interrupt = None,
+                        None => {}
+                    },
                     _ => {}
                 }
             } else {
                 continue;
             }
+
+            // self.error = Some(GSimError::Interpreter(
+            //     crate::interpreter::InterpreterError::ExcessCode(b'b'),
+            // ));
         }
     }
 
@@ -137,6 +166,43 @@ impl App {
         self.current = 0;
         self.interrupt = Some(Interrupt::Start);
         self.parser.reload();
+    }
+
+    /// Execute a single block from the Parser.
+    fn execute(&mut self) {
+        if self.interrupt.is_some() {
+            return;
+        }
+
+        let mut block = match self.parser.next() {
+            Some(res) => match res {
+                Ok(block) => block,
+                Err(err) => {
+                    self.error = Some(err.into());
+                    return;
+                }
+            },
+            None => {
+                self.interrupt = Some(Interrupt::End);
+                return;
+            }
+        };
+
+        self.desc.clear();
+
+        for gcode in block.gcodes() {
+            self.desc.push(gcode.to_string());
+        }
+
+        if let Some(mcode) = block.mcode().take() {
+            self.desc.push(mcode.to_string());
+        }
+
+        for code in block.codes() {
+            self.desc.push(code.prefix().to_string());
+        }
+
+        self.current += 1;
     }
 }
 

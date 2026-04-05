@@ -7,6 +7,8 @@
 
 use std::fmt::Display;
 
+use crate::describe::{Describe, Description};
+
 use super::error::{RED, RESET};
 use super::source::Source;
 
@@ -195,6 +197,11 @@ impl Lexer {
     pub fn reload(&mut self) {
         self.0.reload();
     }
+
+    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`].
+    pub fn get_line(&self, index: usize) -> Option<&str> {
+        self.0.get(index)
+    }
 }
 
 impl Iterator for Lexer {
@@ -222,6 +229,40 @@ pub enum LexerError {
     NoSuffix(Prefix),
     /// Error while parsing numeric suffix.
     ParseSuffix(Prefix),
+}
+
+impl Describe for LexerError {
+    fn describe(&self) -> Description {
+        let (title, desc) = match self {
+            Self::IllegalChar => (
+                "Illegal Character Detected",
+                "The input contains a Non-ASCII character.".to_string(),
+            ),
+            Self::NonUsableChar(c) => (
+                "Unexpected Character Detected",
+                format!(
+                    "The input contains the following ASCII character which is not supported: '{}'.",
+                    *c as char
+                ),
+            ),
+            Self::NoSuffix(prefix) => (
+                "Invalid Format",
+                format!(
+                    "No numeric value found after the following prefix character: {}, which is invalid G-Code.",
+                    *prefix as char
+                ),
+            ),
+            Self::ParseSuffix(prefix) => (
+                "Numeric Parsing Error",
+                format!(
+                    "A numeric value failed to parse that is prefixed by {}.",
+                    *prefix as char
+                ),
+            ),
+        };
+
+        Description::new(title, desc)
+    }
 }
 
 impl Display for LexerError {

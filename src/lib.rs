@@ -1,5 +1,6 @@
 pub mod app;
 pub mod config;
+pub mod describe;
 mod error;
 mod interpreter;
 pub mod lexer;

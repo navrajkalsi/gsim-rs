@@ -7,6 +7,8 @@
 
 use std::{fmt::Display, ops::Neg};
 
+use crate::describe::{Describe, Description};
+
 use super::{
     error::{RED, RESET},
     lexer::*,
@@ -1003,6 +1005,78 @@ pub enum MachineError {
     CenterOffPlane,
     /// Provided direction does not match with offset type.
     OffsetDirection(Direction),
+}
+
+impl Describe for MachineError {
+    fn describe(&self) -> crate::describe::Description {
+        let (title, desc) = match self {
+            Self::PositiveZ => (
+                "Positive Z Axis Travel Detected",
+                format!(
+                    "Please provide a valid negative value between: -{:?} and -{:?}",
+                    TRAVEL_LIMITS.max.z(),
+                    TRAVEL_LIMITS.min.z()
+                ),
+            ),
+            Self::TravelsTooLong => (
+                "Machine Travels Detected to be too long",
+                format!(
+                    "Please provide values less than: [X: {:?} Y: {:?} Z: -{:?}]",
+                    TRAVEL_LIMITS.max.x(),
+                    TRAVEL_LIMITS.max.y(),
+                    TRAVEL_LIMITS.max.z()
+                ),
+            ),
+            Self::TravelsTooShort => (
+                "Machine Travels Detected to be too short",
+                format!(
+                    "Please provide values larger than: [X: {:?} Y: {:?} Z: -{:?}]",
+                    TRAVEL_LIMITS.min.x(),
+                    TRAVEL_LIMITS.min.y(),
+                    TRAVEL_LIMITS.min.z()
+                ),
+            ),
+            Self::WrongRatio => (
+                "Unusual Machine Travels Ratio Detected",
+                "Please reconsider axis lengths.".to_string(),
+            ),
+
+            Self::Overtravel(axis, coord) => (
+                "Overtravel Detected",
+                format!(
+                    "'{}' axis of the machine overtravels because of the last move of {coord} units.",
+                    *axis as char
+                ),
+            ),
+            Self::NoSpindleSpeed => (
+                "No Spindle Speed Detected",
+                "A spindle action was commanded, but no 'S' was detected throughout the program."
+                    .to_string(),
+            ),
+            Self::NoTool => (                "No Tool Detected", "A tool change was commanded, but no 'T' was detected on the same block and no tool was preloaded.".to_string()
+            ),
+            Self::NoFeed => (                "No Feed Detected", "A feed move was commanded, but no 'F' was detected throughout the program.".to_string()
+            ),
+            Self::PointsOffPlane => (                "Points Detected on Different Planes", "Both the points must be on the same plane to be considered valid.".to_string()
+            ),
+            Self::PointsIntersect => (                "Ambiguous Circle Detected", "The start and end points of the requested circle are same and therefore the circle cannot be constructed.".to_string()
+            ),
+            Self::NoCircleMethod => (                "No Circle Information Detected", "The machine is set in arc mode, but the latest move contains no information about an arc.".to_string()
+            ),
+            Self::InvalidCircle(method) => ("Invalid Circle Requested", match method {
+                CircleMethod::RelativePoint(_) => "The start and end points of the requested circle are not found to be at the same distance from the specified center, which is invalid.".to_string(),
+                CircleMethod::FixedRadius(_) => "The distance between the start and end points is found to be more than the diameter provided, which is invalid.".to_string()
+            }),
+            Self::CenterOffPlane => (                "Invalid Relative Center Point Detected", "The relative center provided does not lie on the selected plane, which is invalid.".to_string()
+            ),
+            Self::OffsetDirection(dir) => ("Invalid Offset Direction", match dir {
+                Direction::Up | Direction::Down => format!("The following direction was detected for a Diameter offset, which is invalid: {dir:?}."),
+                Direction::Left | Direction::Right => format!("The following direction was detected for a Height offset, which is invalid: {dir:?}."),
+            }),
+        };
+
+        Description::new(title, desc)
+    }
 }
 
 impl Display for MachineError {

@@ -3,7 +3,12 @@
 //! This module is responsible for reading in **raw G-Code text**,
 //! and preparing it for the [`Lexer`](crate::lexer) to be tokenized.
 
-use std::str::Lines;
+use std::{fmt::Display, str::Lines};
+
+use crate::{
+    describe::{Describe, Description},
+    error::RESET,
+};
 
 /// Represents a sanitized line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,10 +34,10 @@ pub struct Source {
 impl Source {
     /// Constructs a new [`Source`] by reading a file at `path`.
     ///
-    /// Returns a [`io::Error`](std::io::Error) on failure to *read the raw file*.
+    /// Returns a [`SourceError`] on failure to *read the raw file*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
-    pub fn from_file(path: &str) -> Result<Self, std::io::Error> {
+    pub fn from_file(path: &str) -> Result<Self, SourceError> {
         let data = std::fs::read_to_string(path)?;
 
         Ok(Self::from_lines(data.lines()))
@@ -89,18 +94,52 @@ impl Source {
     pub fn reload(&mut self) {
         self.index = 0
     }
+
+    /// **Optionally** returns the reference to contents of a [`Line`] at `index`,
+    /// as a `string slice`.
+    pub fn get(&self, index: usize) -> Option<&str> {
+        self.lines.get(index).map(|line| line.as_str())
+    }
 }
 
 impl Iterator for Source {
     type Item = Line;
 
-    /// **Optionally** and returns the next [`Line`].
+    /// **Optionally** and returns a copy of the next [`Line`].
     /// **Does not** remove the returned [`Line`] to support reloading the [`Source`].
     fn next(&mut self) -> Option<Self::Item> {
         let line = self.lines.get(self.index)?;
         self.index += 1;
 
         Some(line.clone())
+    }
+}
+
+/// Possible errors that can happen during [`Source`] construction.
+#[derive(Debug)]
+pub enum SourceError {
+    IO(std::io::Error),
+}
+
+impl Describe for SourceError {
+    fn describe(&self) -> Description {
+        match self {
+            SourceError::IO(error) => Description::new("File Error Detected", error.to_string()),
+        }
+    }
+}
+
+impl Display for SourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceError::IO(error) => write!(f, "File Error Detected:{RESET}\n\t\t{error}"),
+        }
+    }
+}
+
+impl From<std::io::Error> for SourceError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
     }
 }
 
