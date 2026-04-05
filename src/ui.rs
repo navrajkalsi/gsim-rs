@@ -1,9 +1,15 @@
+use std::ops::Neg;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Padding, Paragraph},
+    symbols::Marker,
+    text::{Line as TextLine, Span, Text},
+    widgets::{
+        Block, BorderType, Borders, Padding, Paragraph, Widget,
+        canvas::{Canvas, Circle, Context, Line, Map, MapResolution, Points, Rectangle},
+    },
 };
 
 use crate::{
@@ -11,6 +17,29 @@ use crate::{
     describe::Describe,
     machine::{CircularDirection, FeedMode, Motion, Plane, Positioning, Unit},
 };
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    // Cut the given rectangle into three vertical pieces
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    // Then cut the middle vertical piece into three width-wise pieces
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1] // Return the middle chunk
+}
 
 pub fn ui(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -45,19 +74,19 @@ pub fn ui(frame: &mut Frame, app: &App) {
     // available commands
     // gcode groups active
 
-    let main = get_main(app);
     let preview = get_preview(app);
     let machine = get_machine(app);
     let active = get_active(app);
     let title = get_title();
     let keys = get_keys(app);
 
-    frame.render_widget(main, top_chunks[0]);
     frame.render_widget(preview, right_chunks[0]);
     frame.render_widget(machine, right_chunks[1]);
     frame.render_widget(active, right_chunks[2]);
     frame.render_widget(title, bottom_chunks[0]);
     frame.render_widget(keys, bottom_chunks[1]);
+
+    render_main(app, frame, top_chunks[0]);
 
     // deal with error before quitting
     if let Some(err) = &app.error {
@@ -102,12 +131,12 @@ fn get_keys(app: &App) -> Paragraph<'_> {
         keys.push(": next block".into());
     }
 
-    Paragraph::new(Line::from(keys))
+    Paragraph::new(TextLine::from(keys))
         .style(Style::default().fg(Color::White))
         .block(
             Block::default()
                 .borders(Borders::TOP | Borders::LEFT)
-                .title(Line::styled("Commands", Style::default().fg(Color::Yellow)).centered())
+                .title(TextLine::styled("Commands", Style::default().fg(Color::Yellow)).centered())
                 .style(Style::default()),
         )
         .centered()
@@ -122,12 +151,12 @@ fn get_preview(app: &App) -> Paragraph<'_> {
 
     while let Some(line) = app.interpreter.get_line(current) {
         if current == app.current {
-            lines.push(Line::styled(
+            lines.push(TextLine::styled(
                 line,
                 Style::default().bg(Color::White).fg(Color::Black),
             ))
         } else {
-            lines.push(Line::from(line))
+            lines.push(TextLine::from(line))
         }
 
         current += 1;
@@ -139,7 +168,7 @@ fn get_preview(app: &App) -> Paragraph<'_> {
             Block::default()
                 .padding(Padding::horizontal(2))
                 .borders(Borders::TOP | Borders::LEFT)
-                .title(Line::styled("Preview", Style::default().fg(Color::Yellow)).centered())
+                .title(TextLine::styled("Preview", Style::default().fg(Color::Yellow)).centered())
                 .style(Style::default()),
         )
 }
@@ -175,12 +204,12 @@ fn get_active(app: &App) -> Paragraph<'_> {
         active.push(Span::styled("SINGLE", style));
     }
 
-    Paragraph::new(Line::from(active))
+    Paragraph::new(TextLine::from(active))
         .style(Style::default().fg(Color::White))
         .block(
             Block::default()
                 .borders(Borders::TOP | Borders::LEFT)
-                .title(Line::styled("Active", Style::default().fg(Color::Yellow)).centered())
+                .title(TextLine::styled("Active", Style::default().fg(Color::Yellow)).centered())
                 .style(Style::default()),
         )
         .centered()
@@ -290,14 +319,17 @@ fn get_machine(app: &App) -> Paragraph<'_> {
         .block(
             Block::default()
                 .borders(Borders::TOP | Borders::LEFT)
-                .title(Line::styled("Machine State", Style::default().fg(Color::Yellow)).centered())
+                .title(
+                    TextLine::styled("Machine State", Style::default().fg(Color::Yellow))
+                        .centered(),
+                )
                 .style(Style::default()),
         )
         .centered()
 }
 
-/// Returns a styled [`Paragraph`] with **main section**.
-fn get_main(app: &App) -> Paragraph<'_> {
+/// Generates and renders the main section of the app
+fn render_main(app: &App, frame: &mut Frame, rect: Rect) {
     if let Some(interrupt) = &app.interrupt {
         let style = Style::default()
             .fg(Color::Blue)
@@ -318,82 +350,159 @@ fn get_main(app: &App) -> Paragraph<'_> {
             " to remove the interrupt.".into(),
         ];
 
-        return Paragraph::new(Text::from(vec![interrupt.into(), command.into()]))
-            .block(Block::default().style(Style::default()))
-            .centered();
+        return frame.render_widget(
+            Paragraph::new(Text::from(vec![interrupt.into(), command.into()]))
+                .block(Block::default().style(Style::default()))
+                .centered(),
+            rect,
+        );
     }
 
+    match app.view {
+        View::Text => render_text_view(app, frame, rect),
+        View::Plane => render_plane_view(app, frame, rect),
+        View::Isometric => todo!(),
+    }
+}
+
+/// Generates and renders the text view of the app.
+fn render_text_view(app: &App, frame: &mut Frame, rect: Rect) {
     let summary = app
         .summary
         .get(app.current.saturating_sub(1))
         .expect("App module has appended the text descriptions for the current block.");
 
-    match app.view {
-        View::Text => {
-            let mut lines = vec![];
+    let mut lines = vec![];
 
-            if !summary.gcodes.is_empty() {
-                lines.push(Line::styled(
-                    "GCODE(s):",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                for gcode in &summary.gcodes {
-                    lines.push(Line::styled(gcode, Style::default()));
-                }
-                lines.push(Line::from(""));
-            };
-
-            if let Some(mcode) = summary.mcode.clone() {
-                lines.push(Line::styled(
-                    "MCODE:",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                lines.push(Line::styled(mcode, Style::default()));
-                lines.push(Line::from(""));
-            }
-
-            if !summary.codes.is_empty() {
-                lines.push(Line::styled(
-                    "Other CODE(s):",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                for code in &summary.codes {
-                    lines.push(Line::styled(code, Style::default()));
-                }
-            };
-
-            Paragraph::new(lines)
+    if !summary.gcodes.is_empty() {
+        lines.push(TextLine::styled(
+            "GCODE(s):",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+        for gcode in &summary.gcodes {
+            lines.push(TextLine::styled(gcode, Style::default()));
         }
-        View::Plane => todo!(),
-        View::Isometric => todo!(),
+        lines.push(TextLine::from(""));
+    };
+
+    if let Some(mcode) = summary.mcode.clone() {
+        lines.push(TextLine::styled(
+            "MCODE:",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+        lines.push(TextLine::styled(mcode, Style::default()));
+        lines.push(TextLine::from(""));
     }
+
+    if !summary.codes.is_empty() {
+        lines.push(TextLine::styled(
+            "Other CODE(s):",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+        for code in &summary.codes {
+            lines.push(TextLine::styled(code, Style::default()));
+        }
+    };
+
+    frame.render_widget(Paragraph::new(lines), rect);
 }
 
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    // Cut the given rectangle into three vertical pieces
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
+/// Generates and renders the text view of the app.
+fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
+    let summary = app
+        .summary
+        .get(app.current.saturating_sub(1))
+        .expect("App module has appended the text descriptions for the current block.");
 
-    // Then cut the middle vertical piece into three width-wise pieces
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1] // Return the middle chunk
+    let machine = app.interpreter.machine();
+
+    const TOOL_SIZE: f64 = 5.0;
+    const SCALE: f64 = 2.0;
+
+    let x_bound = [
+        machine.max_travels().x().min(0.0),
+        machine.max_travels().x().max(0.0),
+    ];
+    let y_bound = [
+        machine.max_travels().y().min(0.0),
+        machine.max_travels().y().max(0.0),
+    ];
+
+    let block = Block::bordered()
+        .padding(Padding::ZERO)
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(match machine.motion() {
+            Motion::Rapid => Color::Red,
+            Motion::Feed | Motion::Arc(_) => Color::Green,
+        }));
+
+    let canvas = Canvas::default()
+        .block(block)
+        .x_bounds(x_bound)
+        .y_bounds(y_bound)
+        .marker(Marker::Quadrant)
+        .background_color(Color::White)
+        .paint(|ctx| {
+            // ctx.draw(&Rectangle {
+            //     x: (summary.new_pos.x() - TOOL_SIZE).round(),
+            //     y: (summary.new_pos.y() - TOOL_SIZE).round(),
+            //     color: Color::Red,
+            //     width: TOOL_SIZE,
+            //     height: TOOL_SIZE,
+            // });
+            ctx.draw(&Line {
+                x1: 0.0,
+                y1: 0.0,
+                x2: machine.max_travels().x(),
+                y2: 0.0,
+                color: match machine.motion() {
+                    Motion::Rapid => Color::Red,
+                    Motion::Feed | Motion::Arc(_) => Color::Green,
+                },
+            });
+            ctx.draw(&Line {
+                x1: machine.max_travels().x(),
+                y1: 0.0,
+                x2: machine.max_travels().x(),
+                y2: machine.max_travels().y(),
+                color: match machine.motion() {
+                    Motion::Rapid => Color::Red,
+                    Motion::Feed | Motion::Arc(_) => Color::Green,
+                },
+            });
+            ctx.draw(&Line {
+                x1: machine.max_travels().x(),
+                y1: machine.max_travels().y(),
+                x2: 0.0,
+                y2: machine.max_travels().y(),
+                color: match machine.motion() {
+                    Motion::Rapid => Color::Red,
+                    Motion::Feed | Motion::Arc(_) => Color::Green,
+                },
+            });
+            ctx.draw(&Line {
+                x1: 0.0,
+                y1: machine.max_travels().y(),
+                x2: 0.0,
+                y2: 0.0,
+                color: match machine.motion() {
+                    Motion::Rapid => Color::Red,
+                    Motion::Feed | Motion::Arc(_) => Color::Green,
+                },
+            });
+            ctx.draw(&Circle {
+                x: summary.new_pos.x(),
+                y: summary.new_pos.y(),
+                color: Color::Black,
+                radius: TOOL_SIZE,
+            });
+        });
+
+    frame.render_widget(canvas, rect);
 }

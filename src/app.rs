@@ -99,7 +99,7 @@ impl App {
             single: false,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?,
+                Machine::build(Point::new(1000.0, -500.0, -500.0), Unit::default())?,
             ),
             current: 0,
             interrupt: Some(Interrupt::Start),
