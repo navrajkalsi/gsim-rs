@@ -29,7 +29,7 @@ G43 H1                   ; Apply tool length offset #1
 M3 S12000                ; Spindle ON, clockwise, 12000 RPM
 M8                       ; Coolant ON
 
-G0 Z10.0                 ; Safe Z clearance above work
+G0 Z-10.0                 ; Safe Z clearance above work
 
 ; ============================================================
 ; OPERATION 1: RECTANGULAR POCKET

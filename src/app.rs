@@ -10,10 +10,11 @@ use crate::{
     config::Config,
     describe::{Describe, Description},
     error::GSimError,
+    interpreter::{BlockText, Interpreter},
     lexer::Lexer,
     machine::{Machine, Unit},
     parser::{Parser, Point},
-    source::{Line, Source},
+    source::Source,
     ui::ui,
 };
 
@@ -70,16 +71,16 @@ pub struct App {
     pub view: View,
     /// Single step through code blocks.
     pub single: bool,
-    /// Source loaded parser, ready for iteration.
-    pub parser: Parser,
-    /// Machine ready to accept state alterations.
-    machine: Machine,
+    /// Parsed source loaded interpreter, ready for iteration.
+    pub interpreter: Interpreter,
     /// Index of current block being executed for preview.
     pub current: usize,
     /// `None` if the program is running.
     pub interrupt: Option<Interrupt>,
-    /// Text description for latest block.
-    pub desc: Vec<String>,
+    /// Text description for all blocks.
+    /// These stay in memory for the whole life of the program, which makes looping for the second
+    /// times more efficient.
+    pub text: Vec<BlockText>,
 }
 
 impl App {
@@ -96,11 +97,13 @@ impl App {
             error: None,
             view: View::default(),
             single: false,
-            parser: Parser::new(Lexer::new(src.clone())),
-            machine: Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?,
+            interpreter: Interpreter::new(
+                Parser::new(Lexer::new(src)),
+                Machine::build(Point::new(1000.0, 500.0, -500.0), Unit::default())?,
+            ),
             current: 0,
             interrupt: Some(Interrupt::Start),
-            desc: Vec::new(),
+            text: Vec::new(),
         })
     }
 
@@ -165,7 +168,7 @@ impl App {
     fn reload(&mut self) {
         self.current = 0;
         self.interrupt = Some(Interrupt::Start);
-        self.parser.reload();
+        self.interpreter.reload();
     }
 
     /// Execute a single block from the Parser.
@@ -174,33 +177,26 @@ impl App {
             return;
         }
 
-        let mut block = match self.parser.next() {
-            Some(res) => match res {
-                Ok(block) => block,
-                Err(err) => {
-                    self.error = Some(err.into());
-                    return;
-                }
-            },
+        // no need to execute again, just display the stored results
+        if self.text.get(self.current).is_some() {
+            return;
+        }
+
+        let res = match self.interpreter.execute_single() {
+            Ok(res) => res,
+            Err(err) => {
+                self.error = Some(err.into());
+                return;
+            }
+        };
+
+        match res {
+            Some(text) => self.text.push(text),
             None => {
                 self.interrupt = Some(Interrupt::End);
                 return;
             }
         };
-
-        self.desc.clear();
-
-        for gcode in block.gcodes() {
-            self.desc.push(gcode.to_string());
-        }
-
-        if let Some(mcode) = block.mcode().take() {
-            self.desc.push(mcode.to_string());
-        }
-
-        for code in block.codes() {
-            self.desc.push(code.prefix().to_string());
-        }
 
         self.current += 1;
     }

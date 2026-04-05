@@ -22,6 +22,14 @@ pub struct Interpreter {
     machine: Machine,
 }
 
+/// Represents textual representation of an entire [`CodeBlock`].
+/// This is used for the **text** view in [`App`](crate::app::App).
+pub struct BlockText {
+    pub gcodes: Vec<String>,
+    pub mcode: Option<String>,
+    pub codes: Vec<String>,
+}
+
 impl Interpreter {
     /// Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
     /// ready to execute the code on the machine.
@@ -33,7 +41,7 @@ impl Interpreter {
     ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
     pub fn execute(&mut self) -> Result<(), InterpreterError> {
-        while let Some(()) = self.execute_single()? {}
+        while let Some(_) = self.execute_single()? {}
 
         Ok(())
     }
@@ -42,7 +50,7 @@ impl Interpreter {
     ///
     /// Returns [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
-    pub fn execute_single(&mut self) -> Result<Option<()>, InterpreterError> {
+    pub fn execute_single(&mut self) -> Result<Option<BlockText>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
 
@@ -51,7 +59,9 @@ impl Interpreter {
             None => return Ok(None),
         };
 
+        let mut gcode_lines = vec![];
         for gcode in block.gcodes() {
+            gcode_lines.push(gcode.to_string());
             match gcode {
                 GCode::RapidMove(pos) => machine.rapid_move(pos)?,
 
@@ -118,7 +128,9 @@ impl Interpreter {
             }
         }
 
+        let mut mcode_line = None;
         if let Some(mcode) = block.mcode() {
+            mcode_line = Some(mcode.to_string());
             match mcode {
                 MCode::Stop => Self::wait()?,
 
@@ -146,9 +158,17 @@ impl Interpreter {
             }
         }
 
+        let mut code_lines = vec![];
         for code in block.codes() {
             // for storing any coord codes and parsing them altogether
             let mut excess = Codes::new();
+
+            // display is only implemented for variants that will not cause any errors
+            // and which do not fall through to excess codes
+            let code_line = code.to_string();
+            if !code_line.is_empty() {
+                code_lines.push(code.to_string());
+            }
 
             match code {
                 Code::G(_) => unreachable!("The parser will not emit G code with other codes."),
@@ -182,14 +202,50 @@ impl Interpreter {
             // it is worth noting that an single block cannot be interpreted twice,
             // that is, a block will not have two interpolations,
             // because everyblock needs x, y or z, and there are no duplicates.
+            //
+            // these excess moves will be labelled as gcode lines,
+            // because these are basically gcodes lines with the 'G' code omitted as those are
+            // modal.
             match machine.motion() {
-                Motion::Rapid => machine.rapid_move(excess.take_partial_point())?,
+                Motion::Rapid => {
+                    let pos = excess.take_partial_point();
+                    gcode_lines.push(GCode::RapidMove(pos.clone()).to_string());
+                    machine.rapid_move(pos)?;
+                }
 
                 // feed would be set from the for loop, if provided
-                Motion::Feed => machine.feed_move(excess.take_partial_point(), None)?,
+                Motion::Feed => {
+                    let pos = excess.take_partial_point();
+                    gcode_lines.push(
+                        GCode::FeedMove {
+                            pos: pos.clone(),
+                            feed: None,
+                        }
+                        .to_string(),
+                    );
+                    machine.feed_move(pos, None)?;
+                }
 
                 Motion::Arc(dir) => {
                     let (pos, method, feed) = excess.take_circular()?;
+                    match dir {
+                        CircularDirection::Clockwise => gcode_lines.push(
+                            GCode::CWArcMove {
+                                pos: pos.clone(),
+                                method: method.clone(),
+                                feed,
+                            }
+                            .to_string(),
+                        ),
+                        CircularDirection::CounterClockwise => gcode_lines.push(
+                            GCode::CCWArcMove {
+                                pos: pos.clone(),
+                                method: method.clone(),
+                                feed,
+                            }
+                            .to_string(),
+                        ),
+                    };
                     machine.arc_move(pos, method, *dir, feed)?;
                 }
             };
@@ -200,7 +256,11 @@ impl Interpreter {
             }
         }
 
-        Ok(Some(()))
+        Ok(Some(BlockText {
+            gcodes: gcode_lines,
+            mcode: mcode_line,
+            codes: code_lines,
+        }))
     }
 
     /// `Stop` M-Code helper.
@@ -212,6 +272,16 @@ impl Interpreter {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
+    pub fn reload(&mut self) {
+        self.parser.reload();
+    }
+
+    /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
+    pub fn get_line(&self, index: usize) -> Option<&str> {
+        self.parser.get_line(index)
     }
 }
 

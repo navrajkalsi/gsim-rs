@@ -9,6 +9,7 @@ use ratatui::{
 use crate::{
     app::{App, Interrupt, View},
     describe::Describe,
+    parser::CodeBlock,
 };
 
 pub fn ui(frame: &mut Frame, app: &App) {
@@ -113,7 +114,7 @@ fn get_preview(app: &App) -> Paragraph<'_> {
 
     let mut current = if app.current > 0 { app.current - 1 } else { 0 };
 
-    while let Some(line) = app.parser.get_line(current) {
+    while let Some(line) = app.interpreter.get_line(current) {
         if current == app.current {
             lines.push(Line::styled(
                 line,
@@ -208,12 +209,49 @@ fn get_main(app: &App) -> Paragraph<'_> {
 
     match app.view {
         View::Text => {
-            let lines: Vec<Line<'_>> = app
-                .desc
-                .clone()
-                .iter()
-                .map(|line| Line::from(line.to_string()))
-                .collect();
+            let text = app
+                .text
+                .get(app.current.saturating_sub(1))
+                .expect("App module has appended the text descriptions for the current block.");
+
+            let mut lines = vec![];
+
+            if !text.gcodes.is_empty() {
+                lines.push(Line::styled(
+                    "GCODE(s):",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                for gcode in &text.gcodes {
+                    lines.push(Line::styled(gcode, Style::default()));
+                }
+                lines.push(Line::from(""));
+            };
+
+            if let Some(mcode) = text.mcode.clone() {
+                lines.push(Line::styled(
+                    "MCODE:",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                lines.push(Line::styled(mcode, Style::default()));
+                lines.push(Line::from(""));
+            }
+
+            if !text.codes.is_empty() {
+                lines.push(Line::styled(
+                    "Other CODE(s):",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                for code in &text.codes {
+                    lines.push(Line::styled(code, Style::default()));
+                }
+            };
+
             Paragraph::new(lines)
         }
         View::Plane => todo!(),

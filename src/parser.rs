@@ -349,6 +349,19 @@ impl Code {
     }
 }
 
+impl Display for Code {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Code::N(n) => write!(f, "Line number: {n}"),
+            Code::O(o) => write!(f, "Program number: {o}"),
+            Code::S(s) => write!(f, "Set new spindle speed: {s}"),
+            Code::T(t) => write!(f, "Preload tool number: {t}"),
+            Code::F(feed) => write!(f, "Set new feedrate: {feed}"),
+            _ => write!(f, ""),
+        }
+    }
+}
+
 /// Represents a collection of **unique** [`Code`]s **without 'G' or 'M'** [`Prefix`]es.
 ///
 /// This type ensures that each `Prefix` is only present once in a [`CodeBlock`].
