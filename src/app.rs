@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     describe::{Describe, Description},
     error::GSimError,
-    interpreter::{BlockText, Interpreter},
+    interpreter::{BlockSummary, Interpreter},
     lexer::Lexer,
     machine::{Machine, Unit},
     parser::{Parser, Point},
@@ -77,10 +77,10 @@ pub struct App {
     pub current: usize,
     /// `None` if the program is running.
     pub interrupt: Option<Interrupt>,
-    /// Text description for all blocks.
-    /// These stay in memory for the whole life of the program, which makes looping for the second
-    /// times more efficient.
-    pub text: Vec<BlockText>,
+    /// Summaries for all executed blocks.
+    /// These stay in memory for the whole life of the program,
+    /// making looping for the second times more efficient.
+    pub summary: Vec<BlockSummary>,
 }
 
 impl App {
@@ -103,7 +103,7 @@ impl App {
             ),
             current: 0,
             interrupt: Some(Interrupt::Start),
-            text: Vec::new(),
+            summary: Vec::new(),
         })
     }
 
@@ -178,7 +178,7 @@ impl App {
         }
 
         // no need to execute again, just display the stored results
-        if self.text.get(self.current).is_some() {
+        if self.summary.get(self.current).is_some() {
             return;
         }
 
@@ -191,7 +191,7 @@ impl App {
         };
 
         match res {
-            Some(text) => self.text.push(text),
+            Some(s) => self.summary.push(s),
             None => {
                 self.interrupt = Some(Interrupt::End);
                 return;

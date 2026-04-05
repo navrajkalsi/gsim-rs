@@ -59,6 +59,17 @@ pub enum Motion {
     Arc(CircularDirection),
 }
 
+/// Represents what state changes were made on a call to move the machine.
+pub enum MotionSummary {
+    Rapid,
+    Feed,
+    Arc {
+        dir: CircularDirection,
+        center: PlanarPoint,
+        radius: Float,
+    },
+}
+
 /// Possible planes for a 3-axis machine.
 ///
 /// Represents **Group 2** G-Codes.
@@ -516,9 +527,10 @@ impl Machine {
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions are performed as necessary.
     ///
-    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS` during
+    /// Returns a [`MotionSummary::Rapid`] on success,
+    /// or [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS` during
     /// the move, indicating failure.
-    pub fn rapid_move(&mut self, pos: PartialPoint) -> Result<(), MachineError> {
+    pub fn rapid_move(&mut self, pos: PartialPoint) -> Result<MotionSummary, MachineError> {
         self.set_motion(Motion::Rapid);
         self.move_machine(pos, None, None)
     }
@@ -528,7 +540,7 @@ impl Machine {
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions (including for **feedrate**) are performed as necessary.
     ///
-    /// Returns [`MachineError`] on failure.
+    /// Returns a [`MotionSummary::Feed`] on success, or [`MachineError`] on failure.
     ///
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
@@ -537,7 +549,7 @@ impl Machine {
         &mut self,
         pos: PartialPoint,
         feed: Option<Float>,
-    ) -> Result<(), MachineError> {
+    ) -> Result<MotionSummary, MachineError> {
         self.set_motion(Motion::Feed);
         self.move_machine(pos, feed, None)
     }
@@ -548,7 +560,7 @@ impl Machine {
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions (including for **feedrate**) are performed as necessary.
     ///
-    /// Returns [`MachineError`] on failure.
+    /// Returns a [`MotionSummary::Arc`] on success, or [`MachineError`] on failure.
     ///
     /// # Errors:
     /// - [`MachineError::Overtravel`] -- Atleast one axis exceeds `max_travels` or `HOME_POS`.
@@ -559,7 +571,7 @@ impl Machine {
         method: CircleMethod,
         dir: CircularDirection,
         feed: Option<Float>,
-    ) -> Result<(), MachineError> {
+    ) -> Result<MotionSummary, MachineError> {
         self.set_motion(Motion::Arc(dir));
         self.move_machine(pos, feed, Some(method))
     }
@@ -573,9 +585,13 @@ impl Machine {
     /// This function also respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions are performed as necessary.
     ///
-    /// Returns [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
+    /// Returns [`MotionSummary::Rapid`] on success,
+    /// or [`MachineError::Overtravel`] if any axis exceeds `max_travels` or `HOME_POS`,
     /// indicating failure.
-    pub fn move_machine_pos(&mut self, mut pos: PartialPoint) -> Result<(), MachineError> {
+    pub fn move_machine_pos(
+        &mut self,
+        mut pos: PartialPoint,
+    ) -> Result<MotionSummary, MachineError> {
         self.to_machine_units(&mut pos);
 
         let new_pos = Point::new(
@@ -584,7 +600,8 @@ impl Machine {
             pos.z().unwrap_or(self.pos().z()),
         );
 
-        self.set_pos(new_pos)
+        self.set_pos(new_pos)?;
+        Ok(MotionSummary::Rapid)
     }
 
     /// Moves machine using [`motion`](Machine::motion) type,
@@ -593,17 +610,17 @@ impl Machine {
     /// Respects the current unit selections for both [`Machine`] and [`Code`],
     /// and any unit conversions are performed as necessary.
     ///
-    /// Since this is a general functio for each [`Motion`] variant,
+    /// Since this is a general function for each [`Motion`] variant,
     /// therefore it optionally excepts `feed` & `circle method`,
     /// for [`Motion::Feed`] & [`Motion::Arc`] respectively.
     ///
-    /// Returns [`MachineError`] on failure.
+    /// Returns a [`MotionSummary`] on success, or [`MachineError`] on failure.
     pub fn move_machine(
         &mut self,
         pos: PartialPoint,
         feed: Option<Float>,
         method: Option<CircleMethod>,
-    ) -> Result<(), MachineError> {
+    ) -> Result<MotionSummary, MachineError> {
         if let Some(f) = feed {
             self.set_feed(f); // takes care of any unit conversion
         }
@@ -611,7 +628,8 @@ impl Machine {
         match self.motion {
             Motion::Rapid => {
                 let new_pos = self.new_pos(pos);
-                self.set_pos(new_pos)
+                self.set_pos(new_pos)?;
+                Ok(MotionSummary::Rapid)
             }
 
             Motion::Feed => {
@@ -619,7 +637,8 @@ impl Machine {
                     Some(_) => {
                         // move only when feed is detected.
                         let new_pos = self.new_pos(pos);
-                        self.set_pos(new_pos)
+                        self.set_pos(new_pos)?;
+                        Ok(MotionSummary::Feed)
                     }
                     None => Err(MachineError::NoFeed),
                 }
@@ -673,13 +692,19 @@ impl Machine {
                 };
 
                 // store for future use
-                let (_center, _radius) = arc_info(&start_pos_planar, &end_pos_planar, method, dir)?;
+                let (center, radius) = arc_info(&start_pos_planar, &end_pos_planar, method, dir)?;
 
                 // TODO verify if the arc overtravels anywhere between the points
 
                 // now we know the circle is possible
                 // and end_pos is already in machine units
-                self.set_pos(end_pos)
+                self.set_pos(end_pos)?;
+
+                Ok(MotionSummary::Arc {
+                    dir,
+                    center,
+                    radius,
+                })
             }
         }
     }

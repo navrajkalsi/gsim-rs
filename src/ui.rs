@@ -323,29 +323,29 @@ fn get_main(app: &App) -> Paragraph<'_> {
             .centered();
     }
 
+    let summary = app
+        .summary
+        .get(app.current.saturating_sub(1))
+        .expect("App module has appended the text descriptions for the current block.");
+
     match app.view {
         View::Text => {
-            let text = app
-                .text
-                .get(app.current.saturating_sub(1))
-                .expect("App module has appended the text descriptions for the current block.");
-
             let mut lines = vec![];
 
-            if !text.gcodes.is_empty() {
+            if !summary.gcodes.is_empty() {
                 lines.push(Line::styled(
                     "GCODE(s):",
                     Style::default()
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ));
-                for gcode in &text.gcodes {
+                for gcode in &summary.gcodes {
                     lines.push(Line::styled(gcode, Style::default()));
                 }
                 lines.push(Line::from(""));
             };
 
-            if let Some(mcode) = text.mcode.clone() {
+            if let Some(mcode) = summary.mcode.clone() {
                 lines.push(Line::styled(
                     "MCODE:",
                     Style::default()
@@ -356,14 +356,14 @@ fn get_main(app: &App) -> Paragraph<'_> {
                 lines.push(Line::from(""));
             }
 
-            if !text.codes.is_empty() {
+            if !summary.codes.is_empty() {
                 lines.push(Line::styled(
                     "Other CODE(s):",
                     Style::default()
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ));
-                for code in &text.codes {
+                for code in &summary.codes {
                     lines.push(Line::styled(code, Style::default()));
                 }
             };

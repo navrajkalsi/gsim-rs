@@ -10,24 +10,33 @@ use crate::{
     error::{RED, RESET},
     lexer::Prefix,
     machine::{
-        CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, Plane, Positioning,
-        ReturnLevel, Unit,
+        CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
+        Plane, Positioning, ReturnLevel, Unit,
     },
     parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Point},
 };
+
+/// Represents a consumed [`CodeBlock`].
+/// Contains all the information required by the [`App`](crate::app::App) to render the new [`Machine`] state.
+pub struct BlockSummary {
+    /// Textual representations of all the [`GCode`]s in the block.
+    pub gcodes: Vec<String>,
+    /// Textual representations of the [`MCode`] in the block.
+    pub mcode: Option<String>,
+    /// Textual representations of all the [`Code`]s in the block.
+    pub codes: Vec<String>,
+    /// Captures any motions and position changes.
+    pub motion: Option<MotionSummary>,
+    /// Position of the machine before block execution.
+    pub org_pos: Point,
+    /// Position of the machine after block execution.
+    pub new_pos: Point,
+}
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
 pub struct Interpreter {
     parser: Parser,
     machine: Machine,
-}
-
-/// Represents textual representation of an entire [`CodeBlock`].
-/// This is used for the **text** view in [`App`](crate::app::App).
-pub struct BlockText {
-    pub gcodes: Vec<String>,
-    pub mcode: Option<String>,
-    pub codes: Vec<String>,
 }
 
 impl Interpreter {
@@ -39,11 +48,15 @@ impl Interpreter {
 
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
     ///
-    /// Returns [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
+    /// Returns the summary of changes during execution as [`BlockSummary`],
+    /// or [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
+    ///
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
-    pub fn execute(&mut self) -> Result<Option<BlockText>, InterpreterError> {
+    pub fn execute(&mut self) -> Result<Option<BlockSummary>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
+        let org_pos = machine.pos().clone();
+        let mut motion = None;
 
         let mut block = match parser.next() {
             Some(res) => res?,
@@ -54,20 +67,25 @@ impl Interpreter {
         for gcode in block.gcodes() {
             gcode_lines.push(gcode.to_string());
             match gcode {
-                GCode::RapidMove(pos) => machine.rapid_move(pos)?,
+                GCode::RapidMove(pos) => motion = Some(machine.rapid_move(pos)?),
 
-                GCode::FeedMove { pos, feed } => machine.feed_move(pos, feed)?,
+                GCode::FeedMove { pos, feed } => motion = Some(machine.feed_move(pos, feed)?),
 
                 GCode::CWArcMove { pos, method, feed } => {
-                    _ = machine.arc_move(pos, method, CircularDirection::Clockwise, feed)?
+                    motion =
+                        Some(machine.arc_move(pos, method, CircularDirection::Clockwise, feed)?)
                 }
 
                 GCode::CCWArcMove { pos, method, feed } => {
-                    machine.arc_move(pos, method, CircularDirection::CounterClockwise, feed)?
+                    motion = Some(machine.arc_move(
+                        pos,
+                        method,
+                        CircularDirection::CounterClockwise,
+                        feed,
+                    )?)
                 }
 
                 GCode::Dwell(p) => {
-                    println!("Dwelling for {p} seconds.");
                     let duration = std::time::Duration::from_millis((p * 1000.0) as u64);
                     std::thread::sleep(duration);
                 }
@@ -94,7 +112,7 @@ impl Interpreter {
 
                 GCode::CancelLenComp => machine.cancel_height_offset(),
 
-                GCode::MachineCoord(pos) => machine.move_machine_pos(pos)?,
+                GCode::MachineCoord(pos) => motion = Some(machine.move_machine_pos(pos)?),
 
                 // always make the machine center as g54 offset
                 GCode::WorkCoord => machine.set_work_offset(Point::new(
@@ -143,7 +161,6 @@ impl Interpreter {
                 MCode::CoolantOff => machine.set_coolant(false),
 
                 MCode::End => {
-                    println!("Program end detected");
                     machine.reset();
                     return Ok(None);
                 }
@@ -204,11 +221,11 @@ impl Interpreter {
             // these excess moves will be labelled as gcode lines,
             // because these are basically gcodes lines with the 'G' code omitted as those are
             // modal.
-            match machine.motion() {
+            motion = Some(match machine.motion() {
                 Motion::Rapid => {
                     let pos = excess_codes.take_partial_point();
                     gcode_lines.push(GCode::RapidMove(pos.clone()).to_string());
-                    machine.rapid_move(pos)?;
+                    machine.rapid_move(pos)?
                 }
 
                 // feed would be set from the for loop, if provided
@@ -221,7 +238,7 @@ impl Interpreter {
                         }
                         .to_string(),
                     );
-                    machine.feed_move(pos, None)?;
+                    machine.feed_move(pos, None)?
                 }
 
                 Motion::Arc(dir) => {
@@ -244,9 +261,9 @@ impl Interpreter {
                             .to_string(),
                         ),
                     };
-                    machine.arc_move(pos, method, *dir, feed)?;
+                    machine.arc_move(pos, method, *dir, feed)?
                 }
-            };
+            });
 
             // single move should consume all the excess codes
             if let Some(code) = excess_codes.next() {
@@ -254,10 +271,13 @@ impl Interpreter {
             }
         }
 
-        Ok(Some(BlockText {
+        Ok(Some(BlockSummary {
             gcodes: gcode_lines,
             mcode: mcode_line,
             codes: code_lines,
+            motion,
+            org_pos,
+            new_pos: machine.pos().clone(),
         }))
     }
 

@@ -129,10 +129,10 @@ G0 Z10.0
 G0 X50.0 Y40.0           ; Move to start point (center - radius on Y)
 G0 Z2.0
 G1 Z-1.5 F200.            ; First depth pass
-G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle CW (I=0, J=radius to center)
+;G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle CW (I=0, J=radius to center)
 
 G1 Z-3.0 F200.            ; Second depth pass
-G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle
+;G2 X50.0 Y40.0 I0.0 J10.0 F500.  ; Full circle
 
 G0 Z10.0
 
