@@ -303,6 +303,37 @@ impl Machine {
         &self.motion
     }
 
+    /// Returns the current active [`Plane`] of the machine.
+    pub fn plane(&self) -> &Plane {
+        &self.plane
+    }
+
+    /// Returns the current active [`Unit`] of the machine.
+    /// This **CAN BE** different from the `code units` of the GCode.
+    pub fn units(&self) -> &Unit {
+        &self.units
+    }
+
+    /// Returns the current active [`Unit`] for the code running on the machine.
+    pub fn code_units(&self) -> &Unit {
+        &self.code_units
+    }
+
+    /// Returns the current active [`Positioning`] of the machine.
+    pub fn positioning(&self) -> &Positioning {
+        &self.positioning
+    }
+
+    /// Returns the current commanded `Feedrate` for the machine.
+    pub fn feed(&self) -> &Option<Float> {
+        &self.feed
+    }
+
+    /// Returns the current active [`FeedMode`] of the machine.
+    pub fn feed_mode(&self) -> &FeedMode {
+        &self.feed_mode
+    }
+
     //
     // ########## PUBLIC SETTERS ##########
     //

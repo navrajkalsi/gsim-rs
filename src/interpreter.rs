@@ -37,20 +37,11 @@ impl Interpreter {
         Self { parser, machine }
     }
 
-    /// Executes each [`CodeBlock`] of the [`Parser`] sequentially on the [`Machine`].
-    ///
-    /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
-    pub fn execute(&mut self) -> Result<(), InterpreterError> {
-        while let Some(_) = self.execute_single()? {}
-
-        Ok(())
-    }
-
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
     ///
     /// Returns [`None`] on exhaustion of [`CodeBlock`]s or on [`MCode::End`].
     /// Returns [`InterpreterError`] on failure, which itself is mostly a wrapper on [`MachineError`].
-    pub fn execute_single(&mut self) -> Result<Option<BlockText>, InterpreterError> {
+    pub fn execute(&mut self) -> Result<Option<BlockText>, InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
 
@@ -109,7 +100,8 @@ impl Interpreter {
                 GCode::WorkCoord => machine.set_work_offset(Point::new(
                     machine.max_travels().x() / 2.0,
                     machine.max_travels().y() / 2.0,
-                    0.0,
+                    machine.max_travels().z() / 2.0,
+                    // 0.0,
                 )),
 
                 GCode::CancelCanned => machine.cancel_canned(),
@@ -158,16 +150,17 @@ impl Interpreter {
             }
         }
 
+        // for storing any coord codes and parsing them altogether
+        let mut excess_codes = Codes::new();
+        let mut excess = false; // for deciding later if to parse or not
         let mut code_lines = vec![];
-        for code in block.codes() {
-            // for storing any coord codes and parsing them altogether
-            let mut excess = Codes::new();
 
+        for code in block.codes() {
             // display is only implemented for variants that will not cause any errors
             // and which do not fall through to excess codes
             let code_line = code.to_string();
             if !code_line.is_empty() {
-                code_lines.push(code.to_string());
+                code_lines.push(code_line);
             }
 
             match code {
@@ -194,9 +187,14 @@ impl Interpreter {
                 | Code::R(_)
                 | Code::X(_)
                 | Code::Y(_)
-                | Code::Z(_) => excess.push(code).unwrap(),
+                | Code::Z(_) => {
+                    excess_codes.push(code).unwrap();
+                    excess = true;
+                }
             };
+        }
 
+        if excess {
             // from excess codes, only interpolation is possible
             //
             // it is worth noting that an single block cannot be interpreted twice,
@@ -208,14 +206,14 @@ impl Interpreter {
             // modal.
             match machine.motion() {
                 Motion::Rapid => {
-                    let pos = excess.take_partial_point();
+                    let pos = excess_codes.take_partial_point();
                     gcode_lines.push(GCode::RapidMove(pos.clone()).to_string());
                     machine.rapid_move(pos)?;
                 }
 
                 // feed would be set from the for loop, if provided
                 Motion::Feed => {
-                    let pos = excess.take_partial_point();
+                    let pos = excess_codes.take_partial_point();
                     gcode_lines.push(
                         GCode::FeedMove {
                             pos: pos.clone(),
@@ -227,7 +225,7 @@ impl Interpreter {
                 }
 
                 Motion::Arc(dir) => {
-                    let (pos, method, feed) = excess.take_circular()?;
+                    let (pos, method, feed) = excess_codes.take_circular()?;
                     match dir {
                         CircularDirection::Clockwise => gcode_lines.push(
                             GCode::CWArcMove {
@@ -251,7 +249,7 @@ impl Interpreter {
             };
 
             // single move should consume all the excess codes
-            if let Some(code) = excess.next() {
+            if let Some(code) = excess_codes.next() {
                 return Err(InterpreterError::ExcessCode(code.prefix()));
             }
         }
@@ -282,6 +280,11 @@ impl Interpreter {
     /// **Optinally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.parser.get_line(index)
+    }
+
+    /// Returns a reference to the [`Machine`] owned by the [`Interpreter`].
+    pub fn machine(&self) -> &Machine {
+        &self.machine
     }
 }
 

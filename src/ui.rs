@@ -9,7 +9,7 @@ use ratatui::{
 use crate::{
     app::{App, Interrupt, View},
     describe::Describe,
-    parser::CodeBlock,
+    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning, Unit},
 };
 
 pub fn ui(frame: &mut Frame, app: &App) {
@@ -25,7 +25,11 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)])
+        .constraints([
+            Constraint::Percentage(70),
+            Constraint::Percentage(20),
+            Constraint::Percentage(10),
+        ])
         .split(top_chunks[1]);
 
     let bottom_chunks = Layout::default()
@@ -43,13 +47,15 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
     let main = get_main(app);
     let preview = get_preview(app);
+    let machine = get_machine(app);
     let active = get_active(app);
     let title = get_title();
     let keys = get_keys(app);
 
     frame.render_widget(main, top_chunks[0]);
     frame.render_widget(preview, right_chunks[0]);
-    frame.render_widget(active, right_chunks[1]);
+    frame.render_widget(machine, right_chunks[1]);
+    frame.render_widget(active, right_chunks[2]);
     frame.render_widget(title, bottom_chunks[0]);
     frame.render_widget(keys, bottom_chunks[1]);
 
@@ -175,6 +181,116 @@ fn get_active(app: &App) -> Paragraph<'_> {
             Block::default()
                 .borders(Borders::TOP | Borders::LEFT)
                 .title(Line::styled("Active", Style::default().fg(Color::Yellow)).centered())
+                .style(Style::default()),
+        )
+        .centered()
+}
+
+/// Returns a styled [`Paragraph`] with the **current machine state**.
+fn get_machine(app: &App) -> Paragraph<'_> {
+    let machine = app.interpreter.machine();
+    let unit = Span::from(match machine.units() {
+        Unit::Imperial => "in",
+        Unit::Metric => "mm",
+    });
+
+    let mut line1 = vec![
+        Span::styled(
+            "X",
+            Style::default()
+                .fg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ": ".into(),
+        machine.pos().x().to_string().into(),
+        unit.clone(),
+        " | ".into(),
+        Span::styled(
+            "Y",
+            Style::default()
+                .fg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ": ".into(),
+        machine.pos().y().to_string().into(),
+        unit.clone(),
+        " | ".into(),
+        Span::styled(
+            "Z",
+            Style::default()
+                .fg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ": ".into(),
+        machine.pos().z().to_string().into(),
+        unit.clone(),
+    ];
+    // append feed if available
+    if let Some(feed) = machine.feed().clone() {
+        line1.extend(
+            vec![
+                " | ".into(),
+                Span::styled(
+                    "F",
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                ": ".into(),
+                feed.to_string().into(),
+                unit,
+                Span::from(match machine.feed_mode() {
+                    FeedMode::PerMinute => "/min",
+                    FeedMode::PerRev => "/rev",
+                }),
+            ]
+            .into_iter(),
+        );
+    }
+
+    let line2 = vec![
+        Span::styled(
+            match machine.motion() {
+                Motion::Rapid => "RAPID",
+                Motion::Feed => "FEED",
+                Motion::Arc(CircularDirection::Clockwise) => "CLOCKWISE",
+                Motion::Arc(CircularDirection::CounterClockwise) => "ANTICLOCKWISE",
+            },
+            Style::default().fg(Color::Blue),
+        ),
+        " | ".into(),
+        Span::styled(
+            match machine.plane() {
+                Plane::XY => "XY",
+                Plane::XZ => "XZ",
+                Plane::YZ => "YZ",
+            },
+            Style::default().fg(Color::Blue),
+        ),
+        " | ".into(),
+        Span::styled(
+            match machine.positioning() {
+                Positioning::Absolute => "ABSOLUTE",
+                Positioning::Incremental => "INCREMENTAL",
+            },
+            Style::default().fg(Color::Blue),
+        ),
+        " | ".into(),
+        Span::styled(
+            match machine.code_units() {
+                Unit::Imperial => "IMPERIAL",
+                Unit::Metric => "METRIC",
+            },
+            Style::default().fg(Color::Blue),
+        ),
+    ];
+
+    Paragraph::new(Text::from(vec![line1.into(), line2.into()]))
+        .style(Style::default().fg(Color::White))
+        .block(
+            Block::default()
+                .borders(Borders::TOP | Borders::LEFT)
+                .title(Line::styled("Machine State", Style::default().fg(Color::Yellow)).centered())
                 .style(Style::default()),
         )
         .centered()

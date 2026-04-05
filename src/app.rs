@@ -182,7 +182,7 @@ impl App {
             return;
         }
 
-        let res = match self.interpreter.execute_single() {
+        let res = match self.interpreter.execute() {
             Ok(res) => res,
             Err(err) => {
                 self.error = Some(err.into());
