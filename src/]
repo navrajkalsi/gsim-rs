@@ -423,7 +423,7 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
     let machine = app.interpreter.machine();
 
     const TOOL_SIZE: f64 = 5.0;
-    const CELL_RATIO: f64 = 0.5; // ratio between width and height of a character cell.
+    const SCALE: f64 = 2.0;
 
     let x_bound = [
         machine.max_travels().x().min(0.0),
@@ -435,7 +435,7 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
     ];
 
     let block = Block::bordered()
-        .padding(Padding::ZERO)
+        .padding(Padding::symmetric(10, 5))
         .border_type(BorderType::Thick)
         .border_style(Style::default().fg(match machine.motion() {
             Motion::Rapid => Color::Red,
@@ -444,21 +444,22 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
 
     let machine_ratio = machine.max_travels().x().abs() / machine.max_travels().y().abs();
     let block_inner = block.inner(rect);
-    let block_ratio = (block_inner.width as f64 * CELL_RATIO) / block_inner.height as f64;
+    let block_ratio = (block_inner.width / block_inner.height) as f64;
 
     let padding = match machine_ratio.total_cmp(&block_ratio) {
         // y of machine is greater than that of block
         Ordering::Less => {
             let scale = machine.max_travels().y().abs() / block_inner.height as f64;
-            let scaled_width =
-                ((machine.max_travels().x().abs() / scale) / CELL_RATIO).floor() as u16;
+            eprintln!("scale: {scale}");
+            let scaled_width = (block_inner.width as f64 / scale).floor() as u16;
+            eprintln!("width: {scaled_width}");
             Padding::horizontal((block_inner.width - scaled_width) / 2)
         }
         Ordering::Equal => Padding::ZERO,
         // x of machine is greater than that of block
         Ordering::Greater => {
-            let scale = machine.max_travels().x().abs() / (block_inner.width as f64 * CELL_RATIO);
-            let scaled_height = (machine.max_travels().y().abs() / scale).floor() as u16;
+            let scale = machine.max_travels().x().abs() / block_inner.width as f64;
+            let scaled_height = (block_inner.height as f64 / scale).floor() as u16;
             Padding::vertical((block_inner.height - scaled_height) / 2)
         }
     };
@@ -470,19 +471,19 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
         .marker(Marker::Quadrant)
         .background_color(Color::White)
         .paint(|ctx| {
-            // ctx.draw(&Rectangle {
-            //     x: (summary.new_pos.x() - TOOL_SIZE).round(),
-            //     y: (summary.new_pos.y() - TOOL_SIZE).round(),
-            //     color: Color::Black,
-            //     width: TOOL_SIZE,
-            //     height: TOOL_SIZE,
-            // });
-            ctx.draw(&Circle {
-                x: summary.new_pos.x(),
-                y: summary.new_pos.y(),
+            ctx.draw(&Rectangle {
+                x: (summary.new_pos.x() - TOOL_SIZE).round(),
+                y: (summary.new_pos.y() - TOOL_SIZE).round(),
                 color: Color::Black,
-                radius: TOOL_SIZE,
+                width: TOOL_SIZE,
+                height: TOOL_SIZE,
             });
+            // ctx.draw(&Circle {
+            //     x: summary.new_pos.x(),
+            //     y: summary.new_pos.y(),
+            //     color: Color::Black,
+            //     radius: TOOL_SIZE,
+            // });
         });
 
     frame.render_widget(canvas, rect);
