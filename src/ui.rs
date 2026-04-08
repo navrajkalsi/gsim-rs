@@ -2,6 +2,8 @@ use std::{cmp::Ordering, ops::Neg};
 
 use ratatui::{
     Frame,
+    backend::WindowSize,
+    crossterm::terminal::window_size,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::Marker,
@@ -370,7 +372,7 @@ fn render_text_view(app: &App, frame: &mut Frame, rect: Rect) {
     let summary = app
         .summary
         .get(app.current.saturating_sub(1))
-        .expect("App module has appended the text descriptions for the current block.");
+        .expect("App module has pushed the text descriptions for the current block.");
 
     let mut lines = vec![];
 
@@ -418,12 +420,26 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
     let summary = app
         .summary
         .get(app.current.saturating_sub(1))
-        .expect("App module has appended the text descriptions for the current block.");
+        .expect("App module has pushed the text descriptions for the current block.");
 
     let machine = app.interpreter.machine();
 
     const TOOL_SIZE: f64 = 5.0;
-    const CELL_RATIO: f64 = 0.5; // ratio between width and height of a character cell.
+    const DEFAULT_CELL_RATIO: f64 = 0.5; // ratio between width and height of a character cell.
+
+    // calculate cell ratio or fallback to a sane default
+    let cell_ratio = if let Ok(window) = window_size() {
+        if window.width > 0 && window.height > 0 {
+            let cell_width = window.width as f64 / window.columns as f64;
+            let cell_height = window.height as f64 / window.rows as f64;
+
+            cell_width / cell_height
+        } else {
+            DEFAULT_CELL_RATIO
+        }
+    } else {
+        DEFAULT_CELL_RATIO
+    };
 
     let x_bound = [
         machine.max_travels().x().min(0.0),
@@ -435,7 +451,6 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
     ];
 
     let block = Block::bordered()
-        .padding(Padding::ZERO)
         .border_type(BorderType::Thick)
         .border_style(Style::default().fg(match machine.motion() {
             Motion::Rapid => Color::Red,
@@ -444,20 +459,20 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
 
     let machine_ratio = machine.max_travels().x().abs() / machine.max_travels().y().abs();
     let block_inner = block.inner(rect);
-    let block_ratio = (block_inner.width as f64 * CELL_RATIO) / block_inner.height as f64;
+    let block_ratio = (block_inner.width as f64 * cell_ratio) / block_inner.height as f64;
 
     let padding = match machine_ratio.total_cmp(&block_ratio) {
         // y of machine is greater than that of block
         Ordering::Less => {
             let scale = machine.max_travels().y().abs() / block_inner.height as f64;
             let scaled_width =
-                ((machine.max_travels().x().abs() / scale) / CELL_RATIO).floor() as u16;
+                ((machine.max_travels().x().abs() / scale) / cell_ratio).floor() as u16;
             Padding::horizontal((block_inner.width - scaled_width) / 2)
         }
         Ordering::Equal => Padding::ZERO,
         // x of machine is greater than that of block
         Ordering::Greater => {
-            let scale = machine.max_travels().x().abs() / (block_inner.width as f64 * CELL_RATIO);
+            let scale = machine.max_travels().x().abs() / (block_inner.width as f64 * cell_ratio);
             let scaled_height = (machine.max_travels().y().abs() / scale).floor() as u16;
             Padding::vertical((block_inner.height - scaled_height) / 2)
         }
@@ -467,16 +482,16 @@ fn render_plane_view(app: &App, frame: &mut Frame, rect: Rect) {
         .block(block.padding(padding))
         .x_bounds(x_bound)
         .y_bounds(y_bound)
-        .marker(Marker::Quadrant)
         .background_color(Color::White)
+        .marker(Marker::Braille)
         .paint(|ctx| {
-            // ctx.draw(&Rectangle {
-            //     x: (summary.new_pos.x() - TOOL_SIZE).round(),
-            //     y: (summary.new_pos.y() - TOOL_SIZE).round(),
-            //     color: Color::Black,
-            //     width: TOOL_SIZE,
-            //     height: TOOL_SIZE,
-            // });
+            ctx.draw(&Rectangle {
+                x: machine.max_travels().x().min(0.0),
+                y: machine.max_travels().y().min(0.0),
+                width: machine.max_travels().x().abs(),
+                height: machine.max_travels().y().abs(),
+                color: Color::White,
+            });
             ctx.draw(&Circle {
                 x: summary.new_pos.x(),
                 y: summary.new_pos.y(),
