@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    sync::mpsc::{Receiver, Sender},
+};
 
 use ratatui::{
     Terminal,
@@ -7,6 +10,7 @@ use ratatui::{
 };
 
 use crate::{
+    Proceed, Signal,
     config::Config,
     describe::{Describe, Description},
     error::GSimError,
@@ -81,16 +85,27 @@ pub struct App {
     /// These stay in memory for the whole life of the program,
     /// making looping for the second times more efficient.
     pub summary: Vec<BlockSummary>,
+    /// Send rendering jobs to the [`Winit`](winit) thread.
+    pub job: Sender<Signal>,
+    /// Proceed and send another job to the [`Winit`](winit) thread.
+    pub proceed: Receiver<Proceed>,
 }
 
 impl App {
-    /// Constructs an [`App`] from a [`Config`] and loads the [`Source`].
+    /// Constructs an [`App`] and loads the [`Source`].
+    ///
+    /// Consumes a [`Config`], [`Sender`] for [`Job`]s,
+    /// and [`Receiver`] for [`Proceed`]s.
     ///
     /// The [`App::view`] is set to [`View::Text`]
     /// and [`App::single`] block execution is set to `false`.
     ///
     /// Returns [`GSimError`] on failure.
-    pub fn build(config: Config) -> Result<Self, GSimError> {
+    pub fn build(
+        config: Config,
+        job: Sender<Signal>,
+        proceed: Receiver<Proceed>,
+    ) -> Result<Self, GSimError> {
         let src = Source::from_file(&config.filepath)?;
 
         Ok(Self {
@@ -104,6 +119,8 @@ impl App {
             current: 0,
             interrupt: Some(Interrupt::Start),
             summary: Vec::new(),
+            job,
+            proceed,
         })
     }
 
@@ -111,6 +128,10 @@ impl App {
     where
         GSimError: From<B::Error>,
     {
+        // to allow use of ? operator,
+        // the parent sends `Signal::Stop`
+        self.job.send(Signal::Start);
+
         loop {
             terminal.draw(|f| ui(f, &self))?;
 

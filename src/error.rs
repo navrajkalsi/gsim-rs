@@ -3,8 +3,10 @@
 //! This module is responsible for organizing different types of errors,
 //! produced by different modules.
 
+use winit::error::EventLoopError;
+
 use crate::app::AppError;
-use crate::describe::Describe;
+use crate::describe::{Describe, Description};
 use crate::interpreter::InterpreterError;
 use crate::machine::MachineError;
 use crate::source::SourceError;
@@ -33,6 +35,9 @@ pub enum GSimError {
     Interpreter(InterpreterError),
     /// Wraps an [`AppError`] produced when reading an event during [`App`](crate::app::App) execution.
     App(AppError),
+    /// Wraps an [`EventLoopError`] produced when creating an event loop during
+    /// [`App`](crate::app::App) initialization.
+    EventLoop(EventLoopError),
 }
 
 impl std::fmt::Display for GSimError {
@@ -62,6 +67,10 @@ impl std::fmt::Display for GSimError {
                 f,
                 "{RED}Event Access Error:{RESET} The following error occurred when reading for input events:\n\t{YELLOW}{e}{RESET}"
             ),
+            Self::EventLoop(e) => write!(
+                f,
+                "{RED}Event Loop Error:{RESET} The following error occurred when creating an event loop for window event management:\n\t{YELLOW}{e}{RESET}"
+            ),
         }
     }
 }
@@ -75,6 +84,7 @@ impl Describe for GSimError {
             GSimError::Machine(e) => e.describe(),
             GSimError::Interpreter(e) => e.describe(),
             GSimError::App(e) => e.describe(),
+            GSimError::EventLoop(e) => Description::new("", String::from("")),
         }
     }
 }
@@ -112,5 +122,11 @@ impl From<InterpreterError> for GSimError {
 impl From<std::io::Error> for GSimError {
     fn from(e: std::io::Error) -> Self {
         Self::App(AppError::IO(e))
+    }
+}
+
+impl From<EventLoopError> for GSimError {
+    fn from(e: EventLoopError) -> Self {
+        Self::EventLoop(e)
     }
 }

@@ -8,3 +8,5 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
 ratatui = "0.30.0"
+wgpu = "29.0.1"
+winit = "0.30.13"

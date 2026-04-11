@@ -1,16 +1,15 @@
-use std::{cmp::Ordering, ops::Neg};
+use std::cmp::Ordering;
 
 use ratatui::{
     Frame,
-    backend::WindowSize,
     crossterm::terminal::window_size,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols::Marker,
     text::{Line as TextLine, Span, Text},
     widgets::{
-        Block, BorderType, Borders, Padding, Paragraph, Widget,
-        canvas::{Canvas, Circle, Context, Line, Map, MapResolution, Points, Rectangle},
+        Block, BorderType, Borders, Padding, Paragraph,
+        canvas::{Canvas, Circle, Rectangle},
     },
 };
 
@@ -67,14 +66,6 @@ pub fn ui(frame: &mut Frame, app: &App) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
         .split(chunks[1]);
-
-    // in case of animating, make the ui just get the main info,
-    // and call the ui reccursively to fulfil the entire move before moving back to app
-    //
-    // split bottom into 3 sections:
-    // name of app
-    // available commands
-    // gcode groups active
 
     let preview = get_preview(app);
     let machine = get_machine(app);
