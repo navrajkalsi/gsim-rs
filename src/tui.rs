@@ -6,16 +6,16 @@ use ratatui::{
 };
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::{Proceed, Signal, app::App, config::Config};
+use crate::{Signal, app::App, config::Config};
 
 // this function cannot terminate the main thread, just by returnning Err.
 // it must send Signal::End with optional error to signal the main thread to exit the program.
-pub fn run_tui(job: Sender<Signal>, proceed: Receiver<Proceed>) {
+pub fn run_tui(job: Sender<Signal>, proceed: Receiver<bool>) {
     let config = Config::parse();
 
     let mut app = match App::build(config, job.clone(), proceed) {
         Ok(app) => app,
-        Err(err) => return job.send(Signal::Stop(Some(err))).unwrap(),
+        Err(err) => return job.send(Signal::Stop(Some(err.into()))).unwrap(),
     };
 
     let mut stdout = std::io::stdout();
@@ -57,6 +57,6 @@ pub fn run_tui(job: Sender<Signal>, proceed: Receiver<Proceed>) {
 
     match res {
         Ok(_) => job.send(Signal::Stop(None)).unwrap(),
-        Err(err) => job.send(Signal::Stop(Some(err))).unwrap(),
+        Err(err) => job.send(Signal::Stop(Some(err.into()))).unwrap(),
     }
 }

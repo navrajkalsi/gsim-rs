@@ -18,25 +18,21 @@ use crate::{
     tui::run_tui,
 };
 
-///  Communicates changes from the [`Ratatui`](ratatui) loop,
+/// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
 pub enum Signal {
     Start,
     Render { view: View },
-    Stop(Option<GSimError>),
+    Stop(Option<anyhow::Error>),
 }
 
-/// Struct for communicating progress from the [`Winit`](winit) event loop,
-/// to the [`Ratatui`](ratatui) loop.
-pub struct Proceed();
-
-pub fn run() -> Result<(), GSimError> {
+pub fn run() -> anyhow::Result<()> {
     let (job_send, job_recv) = std::sync::mpsc::channel();
     let (proceed_send, proceed_recv) = std::sync::mpsc::channel();
 
     let tui = std::thread::Builder::new()
         .name("RataTUI".to_string())
-        .spawn(move || run_tui(job_send, proceed_recv));
+        .spawn(move || run_tui(job_send, proceed_recv))?;
 
     match job_recv.recv().unwrap() {
         // app started, start event loop

@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    mpsc::{Receiver, Sender},
+    mpsc::{Receiver, Sender, TryRecvError},
 };
 
 use winit::{
@@ -11,7 +11,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{Proceed, Signal, error::GSimError};
+use crate::Signal;
 
 #[derive(Debug)]
 pub struct State {
@@ -178,17 +178,19 @@ impl State {
 pub struct Renderer {
     /// Receive rendering jobs from the [`Ratatui`](ratatui) thread.
     pub job: Receiver<Signal>,
-    /// Proceed and receive another job from the [`Ratatui`](ratatui) thread.
-    pub proceed: Sender<Proceed>,
+    /// Proceed and receive another job from the [`Ratatui`](ratatui) thread or stop it.
+    pub proceed: Sender<bool>,
     pub state: Option<State>,
+    pub last_signal: Signal,
 }
 
 impl Renderer {
-    pub fn new(job: Receiver<Signal>, proceed: Sender<Proceed>) -> Self {
+    pub fn new(job: Receiver<Signal>, proceed: Sender<bool>) -> Self {
         Self {
             job,
             proceed,
             state: None,
+            last_signal: Signal::Start,
         }
     }
 }
@@ -218,6 +220,24 @@ impl ApplicationHandler<()> for Renderer {
         let state = match &mut self.state {
             Some(canvas) => canvas,
             None => return,
+        };
+
+        match self.job.try_recv() {
+            Ok(job) => {
+                let ret = match &job {
+                    Signal::Start => todo!(),
+                    Signal::Render { view } => todo!(),
+                    Signal::Stop(_) => true,
+                };
+                self.last_signal = job;
+                if ret {
+                    return event_loop.exit();
+                }
+            }
+            Err(e) => match e {
+                TryRecvError::Empty => (),
+                TryRecvError::Disconnected => return event_loop.exit(),
+            },
         };
 
         eprintln!("event: {event:?}");
@@ -252,11 +272,22 @@ impl ApplicationHandler<()> for Renderer {
     }
 }
 
-pub fn run_gui(job: Receiver<Signal>, proceed: Sender<Proceed>) -> Result<(), GSimError> {
+pub fn run_gui(job: Receiver<Signal>, proceed: Sender<bool>) -> anyhow::Result<()> {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let mut renderer = Renderer::new(job, proceed);
     eprintln!("event loop start");
-    event_loop.run_app(&mut renderer).map_err(|err| err.into())
+    let res = event_loop.run_app(&mut renderer);
+
+    // check if the tui thread is still running,
+    // if so, tell it to stop
+    match renderer.last_signal {
+        // the tui thread signalled main thread to stop
+        Signal::Stop(_) => (),
+        // tui thread still running, stop it
+        Signal::Start | Signal::Render { .. } => renderer.proceed.send(false).unwrap(),
+    };
+
+    res.map_err(|e| e.into())
 }

@@ -3,6 +3,8 @@
 //! This module is responsible for organizing different types of errors,
 //! produced by different modules.
 
+use std::error::Error;
+
 use winit::error::EventLoopError;
 
 use crate::app::AppError;
@@ -22,6 +24,7 @@ pub const RED: &str = "\x1b[1;31m";
 pub const YELLOW: &str = "\x1b[1;33m";
 
 /// General Cumulative Error type, supporting each individual module errors.
+#[derive(Debug)]
 pub enum GSimError {
     /// Wraps an [`SourceError`] produced when reading or accessing the G-Code source file.
     Source(SourceError),
@@ -39,6 +42,8 @@ pub enum GSimError {
     /// [`App`](crate::app::App) initialization.
     EventLoop(EventLoopError),
 }
+
+impl Error for GSimError {}
 
 impl std::fmt::Display for GSimError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

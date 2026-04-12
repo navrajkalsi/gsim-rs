@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::{
-    Proceed, Signal,
+    Signal,
     config::Config,
     describe::{Describe, Description},
     error::GSimError,
@@ -48,6 +48,7 @@ pub enum Interrupt {
 }
 
 /// Possible errors that can happen during [`App`] event reading.
+#[derive(Debug)]
 pub enum AppError {
     IO(std::io::Error),
 }
@@ -88,7 +89,7 @@ pub struct App {
     /// Send rendering jobs to the [`Winit`](winit) thread.
     pub job: Sender<Signal>,
     /// Proceed and send another job to the [`Winit`](winit) thread.
-    pub proceed: Receiver<Proceed>,
+    pub proceed: Receiver<bool>,
 }
 
 impl App {
@@ -104,7 +105,7 @@ impl App {
     pub fn build(
         config: Config,
         job: Sender<Signal>,
-        proceed: Receiver<Proceed>,
+        proceed: Receiver<bool>,
     ) -> Result<Self, GSimError> {
         let src = Source::from_file(&config.filepath)?;
 
@@ -130,7 +131,7 @@ impl App {
     {
         // to allow use of ? operator,
         // the parent sends `Signal::Stop`
-        self.job.send(Signal::Start);
+        self.job.send(Signal::Start).unwrap();
 
         loop {
             terminal.draw(|f| ui(f, &self))?;
