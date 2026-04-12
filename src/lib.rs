@@ -15,6 +15,7 @@ use crate::{
     app::{App, View},
     error::GSimError,
     gui::run_gui,
+    interpreter::BlockSummary,
     tui::run_tui,
 };
 
@@ -22,7 +23,7 @@ use crate::{
 /// to the [`Winit`](winit) event loop.
 pub enum Signal {
     Start,
-    Render { view: View },
+    Render(BlockSummary),
     Stop(Option<anyhow::Error>),
 }
 

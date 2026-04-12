@@ -60,6 +60,7 @@ pub enum Motion {
 }
 
 /// Represents what state changes were made on a call to move the machine.
+#[derive(Debug, Clone)]
 pub enum MotionSummary {
     Rapid,
     Feed,
@@ -815,7 +816,7 @@ impl Machine {
 }
 
 /// Represents a **2D Point** on a specific **Plane**.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlanarPoint(Plane, Float, Float);
 
 impl PlanarPoint {

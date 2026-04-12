@@ -18,6 +18,7 @@ use crate::{
 
 /// Represents a consumed [`CodeBlock`].
 /// Contains all the information required by the [`App`](crate::app::App) to render the new [`Machine`] state.
+#[derive(Debug, Clone)]
 pub struct BlockSummary {
     /// Textual representations of all the [`GCode`]s in the block.
     pub gcodes: Vec<String>,

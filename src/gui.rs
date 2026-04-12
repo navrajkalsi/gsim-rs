@@ -226,7 +226,11 @@ impl ApplicationHandler<()> for Renderer {
             Ok(job) => {
                 let ret = match &job {
                     Signal::Start => todo!(),
-                    Signal::Render { view } => todo!(),
+                    Signal::Render(block) => {
+                        eprintln!("{block:?}");
+                        self.proceed.send(true).unwrap();
+                        false
+                    }
                     Signal::Stop(_) => true,
                 };
                 self.last_signal = job;

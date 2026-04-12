@@ -149,6 +149,9 @@ impl App {
         // the parent sends `Signal::Stop`
         self.job.send(Signal::Start).unwrap();
 
+        // if last proceed request was sent or not
+        let mut pending = true;
+
         loop {
             terminal.draw(|f| ui(f, &self))?;
             // the main idea of this loop is that the event loop from main thread, drives this loop
@@ -159,16 +162,15 @@ impl App {
             let proceed = self.proceed()?;
 
             // main thread signalled to terminate
-            if let Some(false) = proceed {
-                return Ok(self);
-            }
+            match proceed {
+                Some(true) => pending = true,
+                Some(false) => return Ok(self),
+                None => (),
+            };
 
-            if let Some(true) = proceed
-                && !self.single
-                && self.interrupt.is_none()
-                && self.error.is_none()
-            {
+            if pending && !self.single && self.interrupt.is_none() && self.error.is_none() {
                 self.execute();
+                pending = false;
             } else if self.error.is_some() {
                 // if error, then poll for enter event or continue and check if the main thread is
                 // still running
@@ -204,12 +206,20 @@ impl App {
                             self.single = !self.single;
                             continue;
                         }
-                        KeyCode::Char('n') if self.interrupt.is_none() => self.execute(),
+                        KeyCode::Char('n') if pending && self.interrupt.is_none() => {
+                            self.execute();
+                            pending = false;
+                        }
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {
-                                self.interrupt = None;
-                                self.execute();
+                                if pending {
+                                    self.interrupt = None;
+                                    self.execute();
+                                    pending = false;
+                                } else {
+                                    continue;
+                                }
                             }
                             Some(_) => self.interrupt = None,
                             None => {}
@@ -240,7 +250,8 @@ impl App {
         }
 
         // no need to execute again, just display the stored results
-        if self.summary.get(self.current).is_some() {
+        if let Some(summary) = self.summary.get(self.current) {
+            self.job.send(Signal::Render(summary.clone())).unwrap();
             return;
         }
 
@@ -253,7 +264,10 @@ impl App {
         };
 
         match res {
-            Some(s) => self.summary.push(s),
+            Some(s) => {
+                self.summary.push(s.clone());
+                self.job.send(Signal::Render(s)).unwrap();
+            }
             None => {
                 self.interrupt = Some(Interrupt::End);
                 return;

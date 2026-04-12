@@ -13,7 +13,7 @@ use crate::{Signal, app::App, config::Config};
 pub fn run_tui(job: Sender<Signal>, proceed: Receiver<bool>) {
     let config = Config::parse();
 
-    let mut app = match App::build(config, job.clone(), proceed) {
+    let app = match App::build(config, job.clone(), proceed) {
         Ok(app) => app,
         Err(err) => return job.send(Signal::Stop(Some(err.into()))).unwrap(),
     };
