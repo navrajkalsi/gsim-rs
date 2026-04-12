@@ -34,7 +34,9 @@ pub fn run() -> Result<(), GSimError> {
     let (job_send, job_recv) = std::sync::mpsc::channel();
     let (proceed_send, proceed_recv) = std::sync::mpsc::channel();
 
-    let tui = std::thread::spawn(move || run_tui(job_send, proceed_recv));
+    let tui = std::thread::Builder::new()
+        .name("RataTUI".to_string())
+        .spawn(move || run_tui(job_send, proceed_recv));
 
     match job_recv.recv().unwrap() {
         // app started, start event loop

@@ -6,7 +6,9 @@ description = "G-Code simulator in Rust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+anyhow = "1.0.102"
 clap = { version = "4.6.0", features = ["derive"] }
+pollster = "0.4.0"
 ratatui = "0.30.0"
 wgpu = "29.0.1"
 winit = "0.30.13"
