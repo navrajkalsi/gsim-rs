@@ -1,11 +1,12 @@
 use std::{
     fmt::Display,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, TryRecvError},
+    time::Duration,
 };
 
 use ratatui::{
     Terminal,
-    crossterm::event::{self, Event, KeyCode},
+    crossterm::event::{self, Event, KeyCode, poll},
     prelude::Backend,
 };
 
@@ -90,6 +91,7 @@ pub struct App {
     pub job: Sender<Signal>,
     /// Proceed and send another job to the [`Winit`](winit) thread.
     pub proceed: Receiver<bool>,
+    pub last_proceed: Option<bool>,
 }
 
 impl App {
@@ -122,12 +124,26 @@ impl App {
             summary: Vec::new(),
             job,
             proceed,
+            last_proceed: None,
         })
     }
 
-    pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), GSimError>
+    // check for any updates from the main thread
+    fn proceed(&mut self) -> anyhow::Result<Option<bool>> {
+        self.last_proceed = match self.proceed.try_recv() {
+            Ok(proceed) => Some(proceed),
+            Err(err) => match err {
+                TryRecvError::Empty => None,
+                TryRecvError::Disconnected => return Err(err.into()),
+            },
+        };
+
+        Ok(self.last_proceed)
+    }
+
+    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> anyhow::Result<Self>
     where
-        GSimError: From<B::Error>,
+        anyhow::Error: From<B::Error>,
     {
         // to allow use of ? operator,
         // the parent sends `Signal::Stop`
@@ -135,47 +151,71 @@ impl App {
 
         loop {
             terminal.draw(|f| ui(f, &self))?;
+            // the main idea of this loop is that the event loop from main thread, drives this loop
+            // with every proceed = true
 
-            if !self.single && self.interrupt.is_none() && self.error.is_none() {
-                self.execute();
-            } else if self.error.is_some()
-                && let Event::Key(key) = event::read()?
-                && key.kind != event::KeyEventKind::Release
+            eprintln!("app loop");
+
+            let proceed = self.proceed()?;
+
+            // main thread signalled to terminate
+            if let Some(false) = proceed {
+                return Ok(self);
+            }
+
+            if let Some(true) = proceed
+                && !self.single
+                && self.interrupt.is_none()
+                && self.error.is_none()
             {
-                if key.code == KeyCode::Enter {
-                    return Err(self.error.take().unwrap());
+                self.execute();
+            } else if self.error.is_some() {
+                // if error, then poll for enter event or continue and check if the main thread is
+                // still running
+                if poll(Duration::from_millis(100))? {
+                    if let Event::Key(key) = event::read()?
+                        && key.kind != event::KeyEventKind::Release
+                    {
+                        if key.code == KeyCode::Enter {
+                            return Err(self.error.take().unwrap().into());
+                        } else {
+                            continue;
+                        }
+                    }
                 } else {
                     continue;
                 }
-            } else if let Event::Key(key) = event::read()?
-                && key.kind != event::KeyEventKind::Release
-            {
-                // Skip events that are not KeyEventKind::Press
-                match key.code {
-                    KeyCode::Char('Q') => return Ok(()),
-                    KeyCode::Char('v') => {
-                        match self.view {
-                            View::Text => self.view = View::Plane,
-                            View::Plane => self.view = View::Isometric,
-                            View::Isometric => self.view = View::Text,
-                        };
-                        continue;
-                    }
-                    KeyCode::Char('s') => {
-                        self.single = !self.single;
-                        continue;
-                    }
-                    KeyCode::Char('n') if self.interrupt.is_none() => self.execute(),
-                    KeyCode::Enter => match self.interrupt {
-                        Some(Interrupt::End) => self.reload(),
-                        Some(Interrupt::Start) => {
-                            self.interrupt = None;
-                            self.execute();
+            } else if poll(Duration::from_millis(100))? {
+                if let Event::Key(key) = event::read()?
+                    && key.kind != event::KeyEventKind::Release
+                {
+                    // Skip events that are not KeyEventKind::Press
+                    match key.code {
+                        KeyCode::Char('Q') => return Ok(self),
+                        KeyCode::Char('v') => {
+                            match self.view {
+                                View::Text => self.view = View::Plane,
+                                View::Plane => self.view = View::Isometric,
+                                View::Isometric => self.view = View::Text,
+                            };
+                            continue;
                         }
-                        Some(_) => self.interrupt = None,
-                        None => {}
-                    },
-                    _ => {}
+                        KeyCode::Char('s') => {
+                            self.single = !self.single;
+                            continue;
+                        }
+                        KeyCode::Char('n') if self.interrupt.is_none() => self.execute(),
+                        KeyCode::Enter => match self.interrupt {
+                            Some(Interrupt::End) => self.reload(),
+                            Some(Interrupt::Start) => {
+                                self.interrupt = None;
+                                self.execute();
+                            }
+                            Some(_) => self.interrupt = None,
+                            None => {}
+                        },
+                        _ => {}
+                    }
                 }
             } else {
                 continue;

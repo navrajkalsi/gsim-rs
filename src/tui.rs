@@ -55,8 +55,15 @@ pub fn run_tui(job: Sender<Signal>, proceed: Receiver<bool>) {
         return job.send(Signal::Stop(Some(err.into()))).unwrap();
     }
 
+    // do not message main thread to terminate if it signalled the tui thread to terminate first
     match res {
-        Ok(_) => job.send(Signal::Stop(None)).unwrap(),
+        Ok(app) => {
+            if let Some(false) = app.last_proceed {
+                ()
+            } else {
+                job.send(Signal::Stop(None)).unwrap();
+            }
+        }
         Err(err) => job.send(Signal::Stop(Some(err.into()))).unwrap(),
     }
 }
