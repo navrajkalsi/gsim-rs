@@ -39,7 +39,7 @@ impl ApplicationHandler<()> for Renderer {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => eprintln!("resize"),
+            WindowEvent::Resized(size) => eprintln!("resize {size:?}"),
             WindowEvent::RedrawRequested => eprintln!("redraw"),
             WindowEvent::KeyboardInput {
                 event:
