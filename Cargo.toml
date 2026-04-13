@@ -12,3 +12,4 @@ pollster = "0.4.0"
 ratatui = "0.30.0"
 wgpu = "29.0.1"
 winit = "0.30.13"
+bytemuck = { version = "1.24", features = [ "derive" ] }

@@ -3,6 +3,7 @@ use std::sync::{
     mpsc::{Receiver, Sender, TryRecvError},
 };
 
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -11,7 +12,35 @@ use winit::{
     window::Window,
 };
 
-use crate::Signal;
+use crate::{Signal, interpreter::BlockSummary};
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct State {
@@ -20,13 +49,16 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
+    render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    write_offset: u64,
+    num_vertices: u32,
     window: Arc<Window>,
 }
 
 impl State {
     async fn build(window: Arc<Window>) -> anyhow::Result<State> {
         let size = window.inner_size();
-        println!("size: {size:?}");
 
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
@@ -75,12 +107,75 @@ impl State {
             view_formats: vec![],
         };
 
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineStrip,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Vertex Buffer"),
+            size: 100_000 * std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let num_vertices = 0;
+        let write_offset = 0;
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
             is_surface_configured: false,
+            render_pipeline,
+            vertex_buffer,
+            write_offset,
+            num_vertices,
             window,
         })
     }
@@ -94,7 +189,34 @@ impl State {
         }
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self, block: &BlockSummary) {
+        let org_pos = &block.org_pos;
+        let new_pos = &block.new_pos;
+        let org = Vertex {
+            position: [
+                org_pos.x() as f32 / 1000.0,
+                org_pos.y() as f32 / 1000.0,
+                0.0,
+            ],
+            color: [1.0, 1.0, 1.0],
+        };
+        let new = Vertex {
+            position: [
+                new_pos.x() as f32 / 1000.0,
+                new_pos.y() as f32 / 1000.0,
+                0.0,
+            ],
+            color: [1.0, 1.0, 1.0],
+        };
+
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            self.write_offset,
+            bytemuck::cast_slice(&[org, new]),
+        );
+        self.write_offset += bytemuck::cast_slice::<Vertex, u8>(&[org, new]).len() as u64;
+        self.num_vertices += 2;
+    }
 
     fn render(&mut self) -> anyhow::Result<()> {
         // does not loop, just queues in a new redraw request
@@ -138,16 +260,16 @@ impl State {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.01,
+                            g: 0.01,
+                            b: 0.01,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -159,6 +281,10 @@ impl State {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -182,6 +308,7 @@ pub struct Renderer {
     pub proceed: Sender<bool>,
     pub state: Option<State>,
     pub last_signal: Signal,
+    vertices: Vec<Vertex>,
 }
 
 impl Renderer {
@@ -191,13 +318,13 @@ impl Renderer {
             proceed,
             state: None,
             last_signal: Signal::Start,
+            vertices: vec![],
         }
     }
 }
 
 impl ApplicationHandler<()> for Renderer {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        eprintln!("resumed");
         let mut window_attributes = Window::default_attributes().with_title("GSim");
 
         let window = Arc::new(
@@ -208,7 +335,6 @@ impl ApplicationHandler<()> for Renderer {
 
         // block and run the futures
         self.state = Some(pollster::block_on(State::build(window)).unwrap());
-        eprintln!("{:?}", self.state.as_ref().unwrap());
     }
 
     fn window_event(
@@ -222,29 +348,26 @@ impl ApplicationHandler<()> for Renderer {
             None => return,
         };
 
-        match self.job.try_recv() {
+        let block = match self.job.try_recv() {
             Ok(job) => {
-                let ret = match &job {
-                    Signal::Start => todo!(),
-                    Signal::Render(block) => {
-                        eprintln!("{block:?}");
-                        self.proceed.send(true).unwrap();
-                        false
-                    }
-                    Signal::Stop(_) => true,
-                };
                 self.last_signal = job;
-                if ret {
-                    return event_loop.exit();
+                match &self.last_signal {
+                    Signal::Start => unreachable!(
+                        "The Event Loop is only started on receiving Start signal and is only emitted once. Logic Error!"
+                    ),
+                    Signal::Render(block) => {
+                        self.proceed.send(true).unwrap();
+                        Some(block)
+                    }
+                    Signal::Stop(_) => return event_loop.exit(),
                 }
             }
             Err(e) => match e {
-                TryRecvError::Empty => (),
+                TryRecvError::Empty => None,
                 TryRecvError::Disconnected => return event_loop.exit(),
             },
         };
 
-        eprintln!("event: {event:?}");
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             // only deal with resize logic, redrawing event will be emitted later automatically
@@ -252,12 +375,13 @@ impl ApplicationHandler<()> for Renderer {
                 state.resize(size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
-                state.update();
+                if let Some(block) = block {
+                    state.update(block);
+                }
                 match state.render() {
                     Ok(_) => {}
                     Err(e) => {
                         // TODO Log the error and exit gracefully
-                        eprintln!("{e}");
                         event_loop.exit();
                     }
                 }
@@ -281,7 +405,6 @@ pub fn run_gui(job: Receiver<Signal>, proceed: Sender<bool>) -> anyhow::Result<(
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let mut renderer = Renderer::new(job, proceed);
-    eprintln!("event loop start");
     let res = event_loop.run_app(&mut renderer);
 
     // check if the tui thread is still running,
