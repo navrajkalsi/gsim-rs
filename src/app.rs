@@ -12,7 +12,7 @@ use ratatui::{
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
-    Signal,
+    Command, Signal,
     config::Config,
     describe::{Describe, Description},
     error::GSimError,
@@ -89,10 +89,10 @@ pub struct App {
     /// making looping for the second times more efficient.
     pub summary: Vec<BlockSummary>,
     /// Send rendering jobs to the [`Winit`](winit) thread.
-    pub proxy: EventLoopProxy<Signal>,
+    pub proxy: EventLoopProxy<Command>,
     /// Proceed and send another job to the [`Winit`](winit) thread.
-    pub proceed: Receiver<bool>,
-    pub last_proceed: Option<bool>,
+    pub signal: Receiver<Signal>,
+    pub last_signal: Option<Signal>,
 }
 
 impl App {
@@ -104,8 +104,8 @@ impl App {
     /// Returns [`GSimError`] on failure.
     pub fn build(
         config: Config,
-        proxy: EventLoopProxy<Signal>,
-        proceed: Receiver<bool>,
+        proxy: EventLoopProxy<Command>,
+        signal: Receiver<Signal>,
     ) -> Result<Self, GSimError> {
         let src = Source::from_file(&config.filepath)?;
 
@@ -121,14 +121,14 @@ impl App {
             interrupt: Some(Interrupt::Start),
             summary: Vec::new(),
             proxy,
-            proceed,
-            last_proceed: None,
+            signal,
+            last_signal: None,
         })
     }
 
     // check for any updates from the main thread
-    fn proceed(&mut self) -> anyhow::Result<Option<bool>> {
-        self.last_proceed = match self.proceed.try_recv() {
+    fn signal(&mut self) -> anyhow::Result<Option<Signal>> {
+        self.last_signal = match self.signal.try_recv() {
             Ok(proceed) => Some(proceed),
             Err(err) => match err {
                 TryRecvError::Empty => None,
@@ -136,7 +136,7 @@ impl App {
             },
         };
 
-        Ok(self.last_proceed)
+        Ok(self.last_signal)
     }
 
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> anyhow::Result<Self>
@@ -144,9 +144,9 @@ impl App {
         anyhow::Error: From<B::Error>,
     {
         // to allow use of ? operator,
-        // the parent sends `Signal::Stop`
+        // the parent sends `Command::Stop`
         self.proxy
-            .send_event(Signal::Start(
+            .send_event(Command::Start(
                 self.interpreter.machine().max_travels().clone(),
             ))
             .unwrap();
@@ -159,12 +159,12 @@ impl App {
             // the main idea of this loop is that the event loop from main thread, drives this loop
             // with every proceed = true
 
-            let proceed = self.proceed()?;
+            let signal = self.signal()?;
 
             // main thread signalled to terminate
-            match proceed {
-                Some(true) => pending = true,
-                Some(false) => return Ok(self),
+            match signal {
+                Some(Signal::Proceed) => pending = true,
+                Some(Signal::Stop) => return Ok(self),
                 None => (),
             };
 
@@ -252,7 +252,7 @@ impl App {
         // no need to execute again, just display the stored results
         if let Some(summary) = self.summary.get(self.current) {
             self.proxy
-                .send_event(Signal::Render(summary.clone()))
+                .send_event(Command::Render(summary.clone()))
                 .unwrap();
             return;
         }
@@ -268,7 +268,7 @@ impl App {
         match res {
             Some(s) => {
                 self.summary.push(s.clone());
-                self.proxy.send_event(Signal::Render(s)).unwrap();
+                self.proxy.send_event(Command::Render(s)).unwrap();
             }
             None => {
                 self.interrupt = Some(Interrupt::End);

@@ -39,7 +39,7 @@ pub enum Plane {
 /// Represents a **3D Point** in space.
 ///
 /// The fields represent X, Y, and Z axis respectively.
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Point(Float, Float, Float);
 
 impl Point {

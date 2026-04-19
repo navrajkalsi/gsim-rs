@@ -22,10 +22,18 @@ use crate::{
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
-pub enum Signal {
+pub enum Command {
     Start(Point),
     Render(BlockSummary),
     Stop(Option<anyhow::Error>),
+}
+
+/// Communicates if the [`Winit`](winit) event loop is ready to process
+/// another [`Command`] from [`Ratatui`](ratatui) loop.
+#[derive(Debug, Clone, Copy)]
+pub enum Signal {
+    Proceed,
+    Stop,
 }
 
 pub fn run() -> anyhow::Result<()> {
