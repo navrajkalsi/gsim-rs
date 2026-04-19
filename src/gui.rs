@@ -3,16 +3,15 @@ use std::sync::{
     mpsc::{Receiver, Sender, TryRecvError},
 };
 
-use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
 
-use crate::{Signal, interpreter::BlockSummary};
+use crate::{Signal, interpreter::BlockSummary, parser::Point};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -190,16 +189,7 @@ impl State {
     }
 
     fn update(&mut self, block: &BlockSummary) {
-        let org_pos = &block.org_pos;
         let new_pos = &block.new_pos;
-        let org = Vertex {
-            position: [
-                org_pos.x() as f32 / 1000.0,
-                org_pos.y() as f32 / 1000.0,
-                0.0,
-            ],
-            color: [1.0, 1.0, 1.0],
-        };
         let new = Vertex {
             position: [
                 new_pos.x() as f32 / 1000.0,
@@ -212,10 +202,10 @@ impl State {
         self.queue.write_buffer(
             &self.vertex_buffer,
             self.write_offset,
-            bytemuck::cast_slice(&[org, new]),
+            bytemuck::cast_slice(&[new]),
         );
-        self.write_offset += bytemuck::cast_slice::<Vertex, u8>(&[org, new]).len() as u64;
-        self.num_vertices += 2;
+        self.write_offset += bytemuck::cast_slice::<Vertex, u8>(&[new]).len() as u64;
+        self.num_vertices += 1;
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
@@ -302,28 +292,31 @@ impl State {
 }
 
 pub struct Renderer {
-    /// Receive rendering jobs from the [`Ratatui`](ratatui) thread.
-    pub job: Receiver<Signal>,
+    started: bool,
+    max_travels: Option<Point>,
     /// Proceed and receive another job from the [`Ratatui`](ratatui) thread or stop it.
-    pub proceed: Sender<bool>,
-    pub state: Option<State>,
-    pub last_signal: Signal,
+    proceed: Sender<bool>,
+    block: Option<BlockSummary>,
+    state: Option<State>,
+    last_signal: Option<Signal>,
     vertices: Vec<Vertex>,
 }
 
 impl Renderer {
-    pub fn new(job: Receiver<Signal>, proceed: Sender<bool>) -> Self {
+    pub fn new(proceed: Sender<bool>) -> Self {
         Self {
-            job,
             proceed,
+            started: false,
+            max_travels: None,
+            block: None,
             state: None,
-            last_signal: Signal::Start,
-            vertices: vec![],
+            last_signal: None,
+            vertices: Vec::new(),
         }
     }
 }
 
-impl ApplicationHandler<()> for Renderer {
+impl ApplicationHandler<Signal> for Renderer {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let mut window_attributes = Window::default_attributes().with_title("GSim");
 
@@ -348,26 +341,6 @@ impl ApplicationHandler<()> for Renderer {
             None => return,
         };
 
-        let block = match self.job.try_recv() {
-            Ok(job) => {
-                self.last_signal = job;
-                match &self.last_signal {
-                    Signal::Start => unreachable!(
-                        "The Event Loop is only started on receiving Start signal and is only emitted once. Logic Error!"
-                    ),
-                    Signal::Render(block) => {
-                        self.proceed.send(true).unwrap();
-                        Some(block)
-                    }
-                    Signal::Stop(_) => return event_loop.exit(),
-                }
-            }
-            Err(e) => match e {
-                TryRecvError::Empty => None,
-                TryRecvError::Disconnected => return event_loop.exit(),
-            },
-        };
-
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             // only deal with resize logic, redrawing event will be emitted later automatically
@@ -375,8 +348,8 @@ impl ApplicationHandler<()> for Renderer {
                 state.resize(size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
-                if let Some(block) = block {
-                    state.update(block);
+                if let Some(block) = self.block.take() {
+                    state.update(&block);
                 }
                 match state.render() {
                     Ok(_) => {}
@@ -398,22 +371,54 @@ impl ApplicationHandler<()> for Renderer {
             _ => {}
         }
     }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Signal) {
+        if !self.started {
+            match &event {
+                // app started, start event loop
+                Signal::Start(travels) => self.max_travels = Some(travels.clone()),
+                // could not setup terminal, or tui quit
+                Signal::Stop(_) => event_loop.exit(),
+                _ => unreachable!("TUI thread provided unexpected Signal. Logic Error!"),
+            }
+        } else {
+            match &event {
+                Signal::Start(_) => {
+                    unreachable!(
+                        "The Event Loop is only started on receiving Start signal and is only emitted once. Logic Error!"
+                    )
+                }
+                Signal::Render(block) => {
+                    self.proceed.send(true).unwrap();
+                    self.block = Some(block.clone());
+                }
+                Signal::Stop(_) => event_loop.exit(),
+            }
+        }
+
+        self.last_signal = Some(event);
+    }
 }
 
-pub fn run_gui(job: Receiver<Signal>, proceed: Sender<bool>) -> anyhow::Result<()> {
-    let event_loop = EventLoop::new().unwrap();
+pub fn init_gui() -> (EventLoop<Signal>, EventLoopProxy<Signal>) {
+    let event_loop = EventLoop::<Signal>::with_user_event().build().unwrap();
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    let proxy = event_loop.create_proxy();
 
-    let mut renderer = Renderer::new(job, proceed);
+    (event_loop, proxy)
+}
+
+pub fn run_gui(event_loop: EventLoop<Signal>, proceed: Sender<bool>) -> anyhow::Result<()> {
+    let mut renderer = Renderer::new(proceed);
     let res = event_loop.run_app(&mut renderer);
 
     // check if the tui thread is still running,
     // if so, tell it to stop
     match renderer.last_signal {
         // the tui thread signalled main thread to stop
-        Signal::Stop(_) => (),
+        Some(Signal::Stop(_)) => (),
         // tui thread still running, stop it
-        Signal::Start | Signal::Render { .. } => renderer.proceed.send(false).unwrap(),
+        _ => renderer.proceed.send(false).unwrap(),
     };
 
     res.map_err(|e| e.into())

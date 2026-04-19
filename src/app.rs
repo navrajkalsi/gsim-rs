@@ -9,6 +9,7 @@ use ratatui::{
     crossterm::event::{self, Event, KeyCode, poll},
     prelude::Backend,
 };
+use winit::event_loop::EventLoopProxy;
 
 use crate::{
     Signal,
@@ -88,7 +89,7 @@ pub struct App {
     /// making looping for the second times more efficient.
     pub summary: Vec<BlockSummary>,
     /// Send rendering jobs to the [`Winit`](winit) thread.
-    pub job: Sender<Signal>,
+    pub proxy: EventLoopProxy<Signal>,
     /// Proceed and send another job to the [`Winit`](winit) thread.
     pub proceed: Receiver<bool>,
     pub last_proceed: Option<bool>,
@@ -97,16 +98,13 @@ pub struct App {
 impl App {
     /// Constructs an [`App`] and loads the [`Source`].
     ///
-    /// Consumes a [`Config`], [`Sender`] for [`Job`]s,
-    /// and [`Receiver`] for [`Proceed`]s.
-    ///
     /// The [`App::view`] is set to [`View::Text`]
     /// and [`App::single`] block execution is set to `false`.
     ///
     /// Returns [`GSimError`] on failure.
     pub fn build(
         config: Config,
-        job: Sender<Signal>,
+        proxy: EventLoopProxy<Signal>,
         proceed: Receiver<bool>,
     ) -> Result<Self, GSimError> {
         let src = Source::from_file(&config.filepath)?;
@@ -122,7 +120,7 @@ impl App {
             current: 0,
             interrupt: Some(Interrupt::Start),
             summary: Vec::new(),
-            job,
+            proxy,
             proceed,
             last_proceed: None,
         })
@@ -147,7 +145,11 @@ impl App {
     {
         // to allow use of ? operator,
         // the parent sends `Signal::Stop`
-        self.job.send(Signal::Start).unwrap();
+        self.proxy
+            .send_event(Signal::Start(
+                self.interpreter.machine().max_travels().clone(),
+            ))
+            .unwrap();
 
         // if last proceed request was sent or not
         let mut pending = true;
@@ -156,8 +158,6 @@ impl App {
             terminal.draw(|f| ui(f, &self))?;
             // the main idea of this loop is that the event loop from main thread, drives this loop
             // with every proceed = true
-
-            eprintln!("app loop");
 
             let proceed = self.proceed()?;
 
@@ -251,7 +251,9 @@ impl App {
 
         // no need to execute again, just display the stored results
         if let Some(summary) = self.summary.get(self.current) {
-            self.job.send(Signal::Render(summary.clone())).unwrap();
+            self.proxy
+                .send_event(Signal::Render(summary.clone()))
+                .unwrap();
             return;
         }
 
@@ -266,7 +268,7 @@ impl App {
         match res {
             Some(s) => {
                 self.summary.push(s.clone());
-                self.job.send(Signal::Render(s)).unwrap();
+                self.proxy.send_event(Signal::Render(s)).unwrap();
             }
             None => {
                 self.interrupt = Some(Interrupt::End);

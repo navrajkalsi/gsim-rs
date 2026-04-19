@@ -85,7 +85,7 @@ pub enum Plane {
 /// Possible ways to interpret axis interpolation commands.
 ///
 /// Represents **Group 3** G-Codes.
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Debug)]
 pub enum Positioning {
     #[default]
     Absolute,
@@ -115,7 +115,7 @@ pub enum Unit {
 /// Represents an offset `address` with a `direction`.
 ///
 /// Used in representing **Group 7** & **Group 8** G-Codes.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Offset {
     address: Int,
     dir: Direction,
@@ -124,7 +124,7 @@ pub struct Offset {
 /// Possible directions for [`Offset`]s.
 ///
 /// Used in representing **Group 7** & **Group 8** G-Codes.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Direction {
     Left,
     Right,
@@ -183,7 +183,7 @@ impl Offset {
 }
 
 /// Represents the current state of a [`Machine`](crate::machine).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Machine {
     /// Interpret state values in the selected `units`.
     ///

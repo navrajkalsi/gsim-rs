@@ -13,38 +13,32 @@ mod ui;
 
 use crate::{
     app::{App, View},
-    error::GSimError,
-    gui::run_gui,
+    gui::{init_gui, run_gui},
     interpreter::BlockSummary,
+    parser::Point,
     tui::run_tui,
 };
 
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
+#[derive(Debug)]
 pub enum Signal {
-    Start,
+    Start(Point),
     Render(BlockSummary),
     Stop(Option<anyhow::Error>),
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let (job_send, job_recv) = std::sync::mpsc::channel();
-    let (proceed_send, proceed_recv) = std::sync::mpsc::channel();
+    let (gui, tui) = std::sync::mpsc::channel();
+
+    let (event_loop, proxy) = init_gui();
 
     let tui = std::thread::Builder::new()
         .name("RataTUI".to_string())
-        .spawn(move || run_tui(job_send, proceed_recv))?;
-
-    match job_recv.recv().unwrap() {
-        // app started, start event loop
-        Signal::Start => (),
-        // could not setup terminal
-        Signal::Stop(Some(err)) => return Err(err),
-        _ => unreachable!("TUI thread provided unexpected Signal. Logic Error!"),
-    };
+        .spawn(move || run_tui(proxy, tui))?;
 
     // any errors from the tui thread will be returned through this call
-    let res = run_gui(job_recv, proceed_send);
+    let res = run_gui(event_loop, gui);
 
     tui.join().unwrap();
 
