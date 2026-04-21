@@ -2,6 +2,7 @@ pub mod app;
 pub mod config;
 pub mod describe;
 mod error;
+pub mod geometry;
 pub mod gui;
 mod interpreter;
 pub mod lexer;
@@ -12,7 +13,6 @@ pub mod tui;
 mod ui;
 
 use crate::{
-    app::{App, View},
     gui::{init_gui, run_gui},
     interpreter::BlockSummary,
     parser::Point,

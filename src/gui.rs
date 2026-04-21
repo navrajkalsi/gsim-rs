@@ -7,9 +7,13 @@ use winit::{
     window::{Icon, Window, WindowId},
 };
 
-use wgpu::CurrentSurfaceTexture;
+use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 
-use crate::{Command, Signal, interpreter::BlockSummary, parser::Point};
+use crate::{
+    Command, Signal,
+    geometry::{Uniforms, Vertex},
+    parser::Point,
+};
 
 struct Graphics {
     device: wgpu::Device,
@@ -18,11 +22,23 @@ struct Graphics {
     config: wgpu::SurfaceConfiguration,
     // needs to be arc to make sure surface gets static lifetime
     window: Arc<Window>,
+    pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    vertex_count: u32,
+    uniforms: Uniforms,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
     configured: bool,
 }
 
 impl Graphics {
-    async fn build(handle: OwnedDisplayHandle, window: Arc<Window>) -> anyhow::Result<Self> {
+    async fn build(
+        handle: OwnedDisplayHandle,
+        window: Arc<Window>,
+        max_travels: &Point,
+    ) -> anyhow::Result<Self> {
+        let window_size = window.inner_size();
+
         // create entry point to the api
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -70,13 +86,107 @@ impl Graphics {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: window.inner_size().width,
-            height: window.inner_size().height,
+            width: window_size.width,
+            height: window_size.height,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2, // reasonable default in docs
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
+
+        // mini program that runs on the gpu
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+
+        // static data to be passed to the shader, that is common to vertices
+        let uniforms = Uniforms::new(window_size, max_travels);
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GSim"),
+            contents: bytemuck::cast_slice(&[uniforms]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("GSim"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("GSim"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("GSim"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("GSim"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[Vertex::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // render every triangle, irrespective of forward facing or not
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GSim"),
+            contents: bytemuck::cast_slice(crate::geometry::VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        // let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        //     label: Some("GSim"),
+        //     contents: bytemuck::cast_slice(crate::geometry::INDICES),
+        //     usage: wgpu::BufferUsages::INDEX,
+        // });
+
+        // let index_count = crate::geometry::INDICES.len() as u32;
+        let vertex_count = crate::geometry::VERTICES.len() as u32;
 
         Ok(Self {
             device,
@@ -84,6 +194,12 @@ impl Graphics {
             surface,
             config,
             window,
+            pipeline,
+            vertex_buffer,
+            vertex_count,
+            uniforms,
+            uniform_buffer,
+            uniform_bind_group: bind_group,
             configured: false,
         })
     }
@@ -138,7 +254,7 @@ impl Graphics {
                 label: Some("GSim"),
             });
 
-        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("GSim"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
@@ -159,6 +275,11 @@ impl Graphics {
             occlusion_query_set: None,
             multiview_mask: None,
         });
+
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.draw(0..6, 0..self.vertex_count);
 
         drop(render_pass);
 
@@ -215,6 +336,7 @@ impl ApplicationHandler<Command> for Gui {
             pollster::block_on(Graphics::build(
                 event_loop.owned_display_handle(),
                 Arc::new(window),
+                self.max_travels.as_ref().expect("TUI did not start yet"),
             ))
             .expect("Could not initialize GPU resources"),
         );
