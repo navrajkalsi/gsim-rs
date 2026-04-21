@@ -2,6 +2,8 @@ use winit::dpi::PhysicalSize;
 
 use crate::parser::Point;
 
+const DEFAULT_STROKE_WIDTH: f32 = 0.01;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -68,6 +70,7 @@ pub const VERTICES: &[Vertex] = &[
 pub struct Uniforms {
     window_size: [f32; 2],
     max_travels: [f32; 3],
+    stroke_width: f32,
 }
 
 impl Uniforms {
@@ -79,6 +82,15 @@ impl Uniforms {
                 max_travels.y() as f32,
                 max_travels.z() as f32,
             ],
+            stroke_width: DEFAULT_STROKE_WIDTH,
         }
+    }
+
+    pub fn set_max_travels(&mut self, max_travels: &Point) {
+        self.max_travels = [
+            max_travels.x() as f32,
+            max_travels.y() as f32,
+            max_travels.z() as f32,
+        ];
     }
 }

@@ -3,7 +3,10 @@
 struct Uniforms {
     window_size: vec2<f32>,
     max_travels: vec3<f32>,
+    stroke_width: f32,
 };
+@group(0) @binding(0)
+var<uniform> uniforms: Uniforms;
 
 struct VertexInput {
     @location(0) start: vec3<f32>,
@@ -22,14 +25,15 @@ struct VertexOutput {
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let start = in.start;
     let end = in.end;
+    let stroke_width = uniforms.stroke_width;
 
     let positions = array(
-        vec2<f32>(start.x, start.y - 0.1),
-        vec2<f32>(start.x, start.y + 0.1),
-        vec2<f32>(end.x, end.y - 0.1),
-        vec2<f32>(end.x, end.y - 0.1),
-        vec2<f32>(end.x, end.y + 0.1),
-        vec2<f32>(start.x, start.y + 0.1),
+        vec2<f32>(start.x, start.y - stroke_width),
+        vec2<f32>(start.x, start.y + stroke_width),
+        vec2<f32>(end.x, end.y - stroke_width),
+        vec2<f32>(end.x, end.y - stroke_width),
+        vec2<f32>(end.x, end.y + stroke_width),
+        vec2<f32>(start.x, start.y + stroke_width),
     );
 
     var out: VertexOutput;

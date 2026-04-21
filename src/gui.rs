@@ -15,7 +15,7 @@ use crate::{
     parser::Point,
 };
 
-struct Graphics {
+pub struct Graphics {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -288,6 +288,15 @@ impl Graphics {
 
         Ok(())
     }
+
+    fn set_max_travels(&mut self, max_travels: &Point) {
+        self.uniforms.set_max_travels(max_travels);
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
 }
 
 struct Gui {
@@ -332,11 +341,20 @@ impl ApplicationHandler<Command> for Gui {
             )
             .expect("Could not create a new window");
 
+        let max_travels = match self.max_travels {
+            // Received travels from command start, use those
+            // loop was started after command start
+            Some(travels) => travels,
+            // have not received max_travels from TUI thread,
+            // fill in a default and change on receiving the correct value
+            None => Point::default(),
+        };
+
         self.graphics = Some(
             pollster::block_on(Graphics::build(
                 event_loop.owned_display_handle(),
                 Arc::new(window),
-                self.max_travels.as_ref().expect("TUI did not start yet"),
+                &max_travels,
             ))
             .expect("Could not initialize GPU resources"),
         );
@@ -370,7 +388,13 @@ impl ApplicationHandler<Command> for Gui {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
         // tui thread sends Start after initializing once, and then Render commands
         match &event {
-            Command::Start(point) => self.max_travels = Some(*point),
+            Command::Start(point) => {
+                self.max_travels = Some(*point);
+                // loop started before receiving Start and created a dummy max_travels
+                if let Some(graphics) = self.graphics.as_mut() {
+                    graphics.set_max_travels(point);
+                }
+            }
             Command::Render(block) => {
                 let graphics = self.graphics.as_mut().expect("App has been started");
                 graphics.window.request_redraw();
