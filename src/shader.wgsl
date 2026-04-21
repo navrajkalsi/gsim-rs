@@ -1,7 +1,7 @@
 // source: https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
 
 struct Uniforms {
-    window_size: vec2<f32>,
+    window_size: vec4<f32>,
     max_travels: vec3<f32>,
     stroke_width: f32,
 };

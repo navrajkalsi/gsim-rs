@@ -94,9 +94,6 @@ impl Graphics {
             view_formats: vec![],
         };
 
-        // mini program that runs on the gpu
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
         // static data to be passed to the shader, that is common to vertices
         let uniforms = Uniforms::new(window_size, max_travels);
 
@@ -128,6 +125,9 @@ impl Graphics {
                 resource: uniform_buffer.as_entire_binding(),
             }],
         });
+
+        // mini program that runs on the gpu
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GSim"),
@@ -350,14 +350,14 @@ impl ApplicationHandler<Command> for Gui {
             None => Point::default(),
         };
 
-        self.graphics = Some(
-            pollster::block_on(Graphics::build(
-                event_loop.owned_display_handle(),
-                Arc::new(window),
-                &max_travels,
-            ))
-            .expect("Could not initialize GPU resources"),
-        );
+        let graphics = pollster::block_on(Graphics::build(
+            event_loop.owned_display_handle(),
+            Arc::new(window),
+            &max_travels,
+        ))
+        .expect("Could not initialize GPU resources");
+
+        self.graphics = Some(graphics);
     }
 
     fn window_event(

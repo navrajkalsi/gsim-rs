@@ -46,29 +46,29 @@ pub const VERTICES: &[Vertex] = &[
     Vertex {
         start: [-1.0, -1.0, 0.0],
         end: [1.0, -1.0, 0.0],
-        color: [0.5, 0.0, 0.5],
+        color: [0.9, 0.9, 0.9],
     }, // top line
     Vertex {
         start: [-1.0, 1.0, 0.0],
         end: [-1.0, -1.0, 0.0],
-        color: [0.5, 0.0, 0.5],
+        color: [0.9, 0.9, 0.9],
     }, // left line
     Vertex {
         start: [1.0, 1.0, 0.0],
         end: [-1.0, 1.0, 0.0],
-        color: [0.5, 0.0, 0.5],
+        color: [0.9, 0.9, 0.9],
     }, // bottom line
     Vertex {
         start: [1.0, -1.0, 0.0],
         end: [1.0, 1.0, 0.0],
-        color: [0.5, 0.0, 0.5],
+        color: [0.9, 0.9, 0.9],
     }, // right line
 ];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
-    window_size: [f32; 2],
+    window_size: [f32; 4],
     max_travels: [f32; 3],
     stroke_width: f32,
 }
@@ -76,7 +76,12 @@ pub struct Uniforms {
 impl Uniforms {
     pub fn new(window_size: PhysicalSize<u32>, max_travels: &Point) -> Self {
         Self {
-            window_size: [window_size.width as f32, window_size.height as f32],
+            window_size: [
+                window_size.width as f32,
+                window_size.height as f32,
+                0.0,
+                0.0,
+            ],
             max_travels: [
                 max_travels.x() as f32,
                 max_travels.y() as f32,
