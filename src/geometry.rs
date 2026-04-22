@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use winit::dpi::PhysicalSize;
 
 use crate::parser::Point;
@@ -65,28 +67,59 @@ pub const VERTICES: &[Vertex] = &[
     }, // right line
 ];
 
+// multiply this to machine units to get the number of pixels
+fn get_scale(window_size: [f32; 2], max_travels: [f32; 2]) -> f32 {
+    let machine_size = [max_travels[0].abs(), max_travels[1].abs()];
+    // y / x
+    let window_ratio = window_size[1] / window_size[0];
+    let machine_ratio = machine_size[1] / machine_size[0];
+
+    match machine_ratio.total_cmp(&window_ratio) {
+        // y of machine is smaller, scale to fit x of machine and shrink in y
+        Ordering::Less => window_size[0] / machine_size[0],
+        // choose any
+        Ordering::Equal => window_size[0] / machine_size[0],
+        // y of machine is larger, scale to fit y of machine and shrink in x
+        Ordering::Greater => window_size[1] / machine_size[1],
+    }
+}
+
+fn get_padding(window_size: [f32; 2], max_travels: [f32; 2], scale: f32) -> [f32; 2] {
+    [
+        (window_size[0] - max_travels[0] * scale) / 2.0,
+        (window_size[1] - max_travels[1] * scale) / 2.0,
+    ]
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
-    window_size: [f32; 4],
-    max_travels: [f32; 3],
+    window_size: [f32; 2],
+    // absolute scale, to convert machine unit to pixels
+    scale: f32,
     stroke_width: f32,
+    // signed max travels for each axis, starting at 0 for each axis
+    max_travels: [f32; 4],
+    // padding in pixels to center machine view inside the window
+    padding: [f32; 2],
 }
 
 impl Uniforms {
     pub fn new(window_size: PhysicalSize<u32>, max_travels: &Point) -> Self {
+        let window_size = [window_size.width as f32, window_size.height as f32];
+        let max_travels = [
+            max_travels.x() as f32,
+            max_travels.y() as f32,
+            max_travels.z() as f32,
+            0.0,
+        ];
+        let scale = get_scale(window_size, [max_travels[0], max_travels[1]]);
+
         Self {
-            window_size: [
-                window_size.width as f32,
-                window_size.height as f32,
-                0.0,
-                0.0,
-            ],
-            max_travels: [
-                max_travels.x() as f32,
-                max_travels.y() as f32,
-                max_travels.z() as f32,
-            ],
+            window_size,
+            max_travels,
+            scale,
+            padding: get_padding(window_size, [max_travels[0], max_travels[1]], scale),
             stroke_width: DEFAULT_STROKE_WIDTH,
         }
     }
@@ -96,6 +129,68 @@ impl Uniforms {
             max_travels.x() as f32,
             max_travels.y() as f32,
             max_travels.z() as f32,
+            0.0,
         ];
+        self.scale = get_scale(self.window_size, [self.max_travels[0], self.max_travels[1]]);
+        self.padding = get_padding(
+            self.window_size,
+            [self.max_travels[0], self.max_travels[1]],
+            self.scale,
+        );
     }
+}
+
+pub fn clip_machine_pos(
+    pos: (f32, f32),
+    window_size: (f32, f32),
+    machine_size: (f32, f32),
+) -> (f32, f32) {
+    let scaling_factor = get_scale(
+        [window_size.0, window_size.1],
+        [machine_size.0, machine_size.1],
+    );
+
+    // number of pixels from the machine zero corner of screen
+    // (this corner may or may not be the 0 points of the window)
+    let scaled_machine_pos = (pos.0 * scaling_factor, pos.1 * scaling_factor);
+    let scaled_machine_size = (
+        machine_size.0.abs() * scaling_factor,
+        machine_size.1.abs() * scaling_factor,
+    );
+    // for centering the machine view
+    let padding = (
+        (window_size.0 - scaled_machine_size.0) / 2.0,
+        (window_size.1 - scaled_machine_size.1) / 2.0,
+    );
+
+    // position on screen with respect to the window coordinate system(0 on top left corner)
+    // without padding
+    let window_pos = match (
+        machine_size.0.is_sign_positive(),
+        machine_size.1.is_sign_positive(),
+    ) {
+        // machine zero on lower left corner, all positive vals
+        (true, true) => (scaled_machine_pos.0, window_size.1 - scaled_machine_pos.1),
+        // machine zero on top left corner, negative y vals
+        (true, false) => (scaled_machine_pos.0, scaled_machine_pos.1.abs()),
+        // machine zero on lower right corner, negative x vals
+        (false, true) => (
+            window_size.0 - scaled_machine_pos.0.abs(),
+            window_size.1 - scaled_machine_pos.1,
+        ),
+        // machine zero on top right corner, all negative vals
+        (false, false) => (
+            window_size.0 - scaled_machine_pos.0.abs(),
+            scaled_machine_pos.1.abs(),
+        ),
+    };
+
+    // add padding
+    let window_pos = (window_pos.0 + padding.0, window_pos.1 + padding.1);
+
+    // flip y to match coordinate system of clip space
+    (
+        (window_pos.0 / window_size.0) * 2.0 - 1.0,
+        1.0 - (window_pos.1 / window_size.1) * 2.0,
+    )
 }
