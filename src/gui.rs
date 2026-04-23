@@ -96,6 +96,7 @@ impl Graphics {
 
         // static data to be passed to the shader, that is common to vertices
         let uniforms = Uniforms::new(window_size, max_travels);
+        eprintln!("{uniforms:?}");
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GSim"),
@@ -173,11 +174,14 @@ impl Graphics {
             cache: None,
         });
 
+        let vertices = Vertex::machine_boundary(max_travels);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GSim"),
-            contents: bytemuck::cast_slice(crate::geometry::VERTICES),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
+        let vertex_count = vertices.len() as u32;
 
         // let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         //     label: Some("GSim"),
@@ -186,7 +190,6 @@ impl Graphics {
         // });
 
         // let index_count = crate::geometry::INDICES.len() as u32;
-        let vertex_count = crate::geometry::VERTICES.len() as u32;
 
         Ok(Self {
             device,
@@ -288,34 +291,53 @@ impl Graphics {
 
         Ok(())
     }
-
-    fn set_max_travels(&mut self, max_travels: &Point) {
-        self.uniforms.set_max_travels(max_travels);
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniforms]),
-        );
-    }
 }
 
-struct Gui {
-    max_travels: Option<Point>,
+pub struct Gui {
     signal: Sender<Signal>,
+    max_travels: Point,
     last_command: Option<Command>,
     graphics: Option<Graphics>,
     // for passing render errors out of the loop
     error: Option<anyhow::Error>,
+    event_loop: Option<EventLoop<Command>>,
 }
 
 impl Gui {
-    fn new(signal: Sender<Signal>) -> Self {
+    pub fn new(signal: Sender<Signal>, max_travels: Point) -> Self {
+        let event_loop = EventLoop::<Command>::with_user_event().build().unwrap();
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+
         Self {
             signal,
-            max_travels: None,
+            max_travels,
             last_command: None,
             graphics: None,
             error: None,
+            event_loop: Some(event_loop),
+        }
+    }
+
+    pub fn create_proxy(&self) -> EventLoopProxy<Command> {
+        self.event_loop.as_ref().expect("Run method will consume self, therefore eventloop will always be present if the user has a Gui struct.").create_proxy()
+    }
+
+    pub fn run(mut self) -> anyhow::Result<()> {
+        let event_loop = self.event_loop.take().unwrap();
+        let res = event_loop.run_app(&mut self);
+
+        // check if the tui thread is still running, if so, tell it to stop
+        match self.last_command {
+            // the tui thread signalled main thread to stop
+            Some(Command::Stop(_)) => (),
+            // tui thread still running, stop it
+            _ => self.signal.send(Signal::Stop).unwrap(),
+        };
+
+        if let Some(e) = self.error {
+            Err(e)
+        } else {
+            res.map_err(|e| e.into())
         }
     }
 }
@@ -341,19 +363,10 @@ impl ApplicationHandler<Command> for Gui {
             )
             .expect("Could not create a new window");
 
-        let max_travels = match self.max_travels {
-            // Received travels from command start, use those
-            // loop was started after command start
-            Some(travels) => travels,
-            // have not received max_travels from TUI thread,
-            // fill in a default and change on receiving the correct value
-            None => Point::default(),
-        };
-
         let graphics = pollster::block_on(Graphics::build(
             event_loop.owned_display_handle(),
             Arc::new(window),
-            &max_travels,
+            &self.max_travels,
         ))
         .expect("Could not initialize GPU resources");
 
@@ -388,13 +401,7 @@ impl ApplicationHandler<Command> for Gui {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
         // tui thread sends Start after initializing once, and then Render commands
         match &event {
-            Command::Start(point) => {
-                self.max_travels = Some(*point);
-                // loop started before receiving Start and created a dummy max_travels
-                if let Some(graphics) = self.graphics.as_mut() {
-                    graphics.set_max_travels(point);
-                }
-            }
+            Command::Start() => {}
             Command::Render(block) => {
                 let graphics = self.graphics.as_mut().expect("App has been started");
                 graphics.window.request_redraw();
@@ -405,31 +412,8 @@ impl ApplicationHandler<Command> for Gui {
 
         self.last_command = Some(event);
     }
-}
 
-pub fn init_gui() -> (EventLoop<Command>, EventLoopProxy<Command>) {
-    let event_loop = EventLoop::<Command>::with_user_event().build().unwrap();
-    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
-    let proxy = event_loop.create_proxy();
-
-    (event_loop, proxy)
-}
-
-pub fn run_gui(event_loop: EventLoop<Command>, signal: Sender<Signal>) -> anyhow::Result<()> {
-    let mut gui = Gui::new(signal);
-    let res = event_loop.run_app(&mut gui);
-
-    // check if the tui thread is still running, if so, tell it to stop
-    match gui.last_command {
-        // the tui thread signalled main thread to stop
-        Some(Command::Stop(_)) => (),
-        // tui thread still running, stop it
-        _ => gui.signal.send(Signal::Stop).unwrap(),
-    };
-
-    if let Some(e) = gui.error {
-        Err(e)
-    } else {
-        res.map_err(|e| e.into())
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        let _ = event_loop;
     }
 }

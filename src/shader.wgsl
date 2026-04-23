@@ -2,11 +2,11 @@
 
 struct Uniforms {
     window_size: vec2<f32>,
+    padding: vec2<f32>,
+    max_travels: vec4<f32>,
     scale: f32,
     stroke_width: f32,
-    max_travels: vec4<f32>,
-    padding: vec2<f32>,
-};
+    _pad: vec2<f32>};
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
@@ -31,8 +31,8 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     // number of pixels from the machine zero corner of screen
     // (this corner may or may not be the 0 points of the window)
-    var start = in.start * scale;
-    var end = in.end * scale;
+    var start = abs(in.start * scale);
+    var end = abs(in.end * scale);
 
     // machine size in pixels
     let machine_size = abs(uniforms.max_travels * scale);

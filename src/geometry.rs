@@ -5,6 +5,7 @@ use winit::dpi::PhysicalSize;
 use crate::parser::Point;
 
 const DEFAULT_STROKE_WIDTH: f32 = 0.01;
+const MACHINE_BOUNDARY_COLOR: [f32; 3] = [0.5, 0.5, 0.5];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -42,30 +43,36 @@ impl Vertex {
             ],
         }
     }
-}
 
-pub const VERTICES: &[Vertex] = &[
-    Vertex {
-        start: [-1.0, -1.0, 0.0],
-        end: [1.0, -1.0, 0.0],
-        color: [0.9, 0.9, 0.9],
-    }, // top line
-    Vertex {
-        start: [-1.0, 1.0, 0.0],
-        end: [-1.0, -1.0, 0.0],
-        color: [0.9, 0.9, 0.9],
-    }, // left line
-    Vertex {
-        start: [1.0, 1.0, 0.0],
-        end: [-1.0, 1.0, 0.0],
-        color: [0.9, 0.9, 0.9],
-    }, // bottom line
-    Vertex {
-        start: [1.0, -1.0, 0.0],
-        end: [1.0, 1.0, 0.0],
-        color: [0.9, 0.9, 0.9],
-    }, // right line
-];
+    pub fn machine_boundary(max_travels: &Point) -> [Self; 4] {
+        let x = max_travels.x() as f32;
+        let y = max_travels.y() as f32;
+        let z = max_travels.z() as f32;
+
+        [
+            Self {
+                start: [x, y, z],
+                end: [0.0, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+            },
+            Self {
+                start: [x, y, z],
+                end: [x, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+            },
+            Self {
+                start: [0.0, y, z],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+            },
+            Self {
+                start: [x, 0.0, z],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+            },
+        ]
+    }
+}
 
 // multiply this to machine units to get the number of pixels
 fn get_scale(window_size: [f32; 2], max_travels: [f32; 2]) -> f32 {
@@ -95,13 +102,14 @@ fn get_padding(window_size: [f32; 2], max_travels: [f32; 2], scale: f32) -> [f32
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     window_size: [f32; 2],
+    // padding in pixels to center machine view inside the window
+    padding: [f32; 2],
+    // signed max travels for each axis, starting at 0 for each axis
+    max_travels: [f32; 4],
     // absolute scale, to convert machine unit to pixels
     scale: f32,
     stroke_width: f32,
-    // signed max travels for each axis, starting at 0 for each axis
-    max_travels: [f32; 4],
-    // padding in pixels to center machine view inside the window
-    padding: [f32; 2],
+    _pad: [f32; 2],
 }
 
 impl Uniforms {
@@ -121,22 +129,8 @@ impl Uniforms {
             scale,
             padding: get_padding(window_size, [max_travels[0], max_travels[1]], scale),
             stroke_width: DEFAULT_STROKE_WIDTH,
+            _pad: [0.0, 0.0],
         }
-    }
-
-    pub fn set_max_travels(&mut self, max_travels: &Point) {
-        self.max_travels = [
-            max_travels.x() as f32,
-            max_travels.y() as f32,
-            max_travels.z() as f32,
-            0.0,
-        ];
-        self.scale = get_scale(self.window_size, [self.max_travels[0], self.max_travels[1]]);
-        self.padding = get_padding(
-            self.window_size,
-            [self.max_travels[0], self.max_travels[1]],
-            self.scale,
-        );
     }
 }
 
@@ -194,3 +188,5 @@ pub fn clip_machine_pos(
         1.0 - (window_pos.1 / window_size.1) * 2.0,
     )
 }
+
+// think of a way to supply maxtravels on ap startup

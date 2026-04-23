@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    sync::mpsc::{Receiver, Sender, TryRecvError},
+    sync::mpsc::{Receiver, TryRecvError},
     time::Duration,
 };
 
@@ -145,11 +145,7 @@ impl App {
     {
         // to allow use of ? operator,
         // the parent sends `Command::Stop`
-        self.proxy
-            .send_event(Command::Start(
-                self.interpreter.machine().max_travels().clone(),
-            ))
-            .unwrap();
+        self.proxy.send_event(Command::Start()).unwrap();
 
         // if last proceed request was sent or not
         let mut pending = true;

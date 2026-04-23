@@ -12,18 +12,17 @@ pub mod source;
 pub mod tui;
 mod ui;
 
-use crate::{
-    gui::{init_gui, run_gui},
-    interpreter::BlockSummary,
-    parser::Point,
-    tui::run_tui,
-};
+use crate::{gui::Gui, interpreter::BlockSummary, parser::Point, tui::Tui};
+
+/// Non-Zero extremes for each axis of the machine.
+/// Passed to both GUI and TUI.
+const MACHINE_TRAVELS: Point = Point::new(500.0, 500.0, -500.0);
 
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
-    Start(Point),
+    Start(),
     Render(BlockSummary),
     Stop(Option<anyhow::Error>),
 }
@@ -37,16 +36,17 @@ pub enum Signal {
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let (gui, tui) = std::sync::mpsc::channel();
+    let (sender, receiver) = std::sync::mpsc::channel();
 
-    let (event_loop, proxy) = init_gui();
+    let gui = Gui::new(sender, MACHINE_TRAVELS);
+    let tui = Tui::new(receiver, MACHINE_TRAVELS, gui.create_proxy());
 
     let tui = std::thread::Builder::new()
-        .name("RataTUI".to_string())
-        .spawn(move || run_tui(proxy, tui))?;
+        .name("TUI".to_string())
+        .spawn(move || tui.run())?;
 
     // any errors from the tui thread will be returned through this call
-    let res = run_gui(event_loop, gui);
+    let res = gui.run();
 
     tui.join().unwrap();
 
