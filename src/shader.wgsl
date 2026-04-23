@@ -43,9 +43,9 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
         if uniforms.max_travels.y >= 0.0 {
             // machine zero on lower left corner, all positive vals
             start.x += padding.x;
-            start.y = (uniforms.window_size.y - start.y) + padding.y;
+            start.y = (uniforms.window_size.y - start.y) - padding.y;
             end.x += padding.x;
-            end.y = (uniforms.window_size.y - end.y) + padding.y;
+            end.y = (uniforms.window_size.y - end.y) - padding.y;
         } else {
             // machine zero on top left corner, negative y vals
             start.x += padding.x;
