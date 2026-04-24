@@ -1,20 +1,22 @@
-// source: https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
+// reference for stroke width:
+// https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
 
 struct Uniforms {
     window_size: vec2<f32>,
     padding: vec2<f32>,
     max_travels: vec4<f32>,
     scale: f32,
-    stroke_width: f32,
-    _pad: vec2<f32>};
+};
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
+
+// add machine boundary by default some way
 
 struct VertexInput {
     @location(0) start: vec3<f32>,
     @location(1) end: vec3<f32>,
     @location(2) color: vec3<f32>,
-};
+    @location(3) stroke_width: f32};
 
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
@@ -25,14 +27,14 @@ struct VertexOutput {
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
-    let stroke_width = uniforms.stroke_width;
+    let stroke_width = in.stroke_width;
     let scale = uniforms.scale;
     let padding = uniforms.padding;
 
     // number of pixels from the machine zero corner of screen
     // (this corner may or may not be the 0 points of the window)
-    var start = abs(in.start * scale);
-    var end = abs(in.end * scale);
+    var start = in.start * scale;
+    var end = in.end * scale;
 
     // machine size in pixels
     let machine_size = abs(uniforms.max_travels * scale);
@@ -69,24 +71,30 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
         }
     };
 
+    // flip y to match coordinate system of clip space
     start.x = (start.x / uniforms.window_size.x) * 2.0 - 1.0;
     start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
     end.x = (end.x / uniforms.window_size.x) * 2.0 - 1.0;
     end.y = 1.0 - (end.y / uniforms.window_size.y) * 2.0;
 
+    // unit vector from start to end
+    let dir = normalize(end - start);
+    // normal vector, to get perpendicular direction, with magnitude of stroke width
+    let normal = vec2<f32>(-dir.y, dir.x) * stroke_width / 2.0;
+
+    var p1 = start.xy - normal;
+    var p2 = start.xy + normal;
+    var p3 = end.xy - normal;
+    var p4 = end.xy + normal;
+
     let positions = array(
-        vec2<f32>(start.x, start.y - stroke_width),
-        vec2<f32>(start.x, start.y + stroke_width),
-        vec2<f32>(end.x, end.y - stroke_width),
-        vec2<f32>(end.x, end.y - stroke_width),
-        vec2<f32>(end.x, end.y + stroke_width),
-        vec2<f32>(start.x, start.y + stroke_width),
+        p1, p2, p3, p2, p4, p3
     );
 
     var out: VertexOutput;
 
     out.color = in.color;
-    out.clip_position = vec4<f32>(positions[index], 0.0, 1.0);
+    out.clip_position = vec4<f32>(positions[index].xy, 0.0, 1.0);
 
     return out;
 };

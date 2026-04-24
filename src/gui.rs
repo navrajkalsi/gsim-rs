@@ -12,8 +12,12 @@ use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 use crate::{
     Command, Signal,
     geometry::{Uniforms, Vertex},
+    interpreter::BlockSummary,
+    machine::{Motion, MotionSummary},
     parser::Point,
 };
+
+const MAX_VERTICES: u64 = 100_000;
 
 pub struct Graphics {
     device: wgpu::Device,
@@ -25,6 +29,7 @@ pub struct Graphics {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
+    offset: u64,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -96,7 +101,6 @@ impl Graphics {
 
         // static data to be passed to the shader, that is common to vertices
         let uniforms = Uniforms::new(window_size, max_travels);
-        eprintln!("{uniforms:?}");
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GSim"),
@@ -176,12 +180,15 @@ impl Graphics {
 
         let vertices = Vertex::machine_boundary(max_travels);
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GSim"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: MAX_VERTICES * std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let vertex_count = vertices.len() as u32;
+
+        queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        queue.submit([]);
 
         // let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         //     label: Some("GSim"),
@@ -199,7 +206,8 @@ impl Graphics {
             window,
             pipeline,
             vertex_buffer,
-            vertex_count,
+            vertex_count: vertices.len() as u32,
+            offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             uniforms,
             uniform_buffer,
             uniform_bind_group: bind_group,
@@ -214,6 +222,25 @@ impl Graphics {
             self.surface.configure(&self.device, &self.config);
             self.configured = true
         }
+    }
+
+    fn update(&mut self, block: &BlockSummary, motion: &Motion) {
+        let vertex = match motion {
+            Motion::Rapid => Vertex::rapid_move(&block.org_pos, &block.new_pos),
+            _ => Vertex::feed_move(&block.org_pos, &block.new_pos),
+        };
+
+        // since shaders are type agnostic and just see raw bytes,
+        // therefore we can only add raw byte slices to the buffer of our types
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            self.offset,
+            bytemuck::cast_slice(&[vertex]),
+        );
+
+        // bytemuck cannot infer target type, therefore provide u8
+        self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
+        self.vertex_count += 1;
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
@@ -297,6 +324,9 @@ pub struct Gui {
     signal: Sender<Signal>,
     max_travels: Point,
     last_command: Option<Command>,
+    /// have to keep track of motion type, as each [`BlockSummary`] does not contain a
+    /// [`MotionSummary`].
+    motion: Motion,
     graphics: Option<Graphics>,
     // for passing render errors out of the loop
     error: Option<anyhow::Error>,
@@ -312,6 +342,7 @@ impl Gui {
             signal,
             max_travels,
             last_command: None,
+            motion: Motion::Rapid,
             graphics: None,
             error: None,
             event_loop: Some(event_loop),
@@ -403,7 +434,17 @@ impl ApplicationHandler<Command> for Gui {
         match &event {
             Command::Start() => {}
             Command::Render(block) => {
+                if let Some(motion) = &block.motion {
+                    match motion {
+                        MotionSummary::Rapid => self.motion = Motion::Rapid,
+                        MotionSummary::Feed => self.motion = Motion::Feed,
+                        MotionSummary::Arc { dir, .. } => self.motion = Motion::Arc(*dir),
+                    };
+                };
+
+                self.signal.send(Signal::Proceed).unwrap();
                 let graphics = self.graphics.as_mut().expect("App has been started");
+                graphics.update(block, &self.motion);
                 graphics.window.request_redraw();
             }
 
