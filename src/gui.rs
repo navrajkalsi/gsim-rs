@@ -2,6 +2,7 @@ use std::sync::{Arc, mpsc::Sender};
 
 use winit::{
     application::ApplicationHandler,
+    dpi::PhysicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle},
     window::{Icon, Window, WindowId},
@@ -190,14 +191,6 @@ impl Graphics {
         queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices));
         queue.submit([]);
 
-        // let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //     label: Some("GSim"),
-        //     contents: bytemuck::cast_slice(crate::geometry::INDICES),
-        //     usage: wgpu::BufferUsages::INDEX,
-        // });
-
-        // let index_count = crate::geometry::INDICES.len() as u32;
-
         Ok(Self {
             device,
             queue,
@@ -215,13 +208,23 @@ impl Graphics {
         })
     }
 
-    fn resize(&mut self, width: u32, height: u32) {
+    fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        let width = new_size.width;
+        let height = new_size.height;
+
         if width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.configured = true
         }
+
+        self.uniforms.resize(new_size);
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
     }
 
     fn update(&mut self, block: &BlockSummary, motion: &Motion) {
@@ -416,7 +419,7 @@ impl ApplicationHandler<Command> for Gui {
         };
 
         match event {
-            WindowEvent::Resized(size) => graphics.resize(size.width, size.height),
+            WindowEvent::Resized(size) => graphics.resize(size),
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
             WindowEvent::RedrawRequested => match graphics.render() {
                 Ok(_) => (),

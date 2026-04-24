@@ -4,8 +4,8 @@ use winit::dpi::PhysicalSize;
 
 use crate::parser::Point;
 
-const DEFAULT_STROKE_WIDTH: f32 = 0.005;
-const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.0;
+const DEFAULT_STROKE_WIDTH: f32 = 0.0025;
+const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 5.0;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const FEED_MOVE_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
@@ -164,5 +164,15 @@ impl Uniforms {
             scale,
             _pad: [0.0, 0.0, 0.0],
         }
+    }
+
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+        self.window_size = [new_size.width as f32, new_size.height as f32];
+        self.scale = get_scale(self.window_size, [self.max_travels[0], self.max_travels[1]]);
+        self.padding = get_padding(
+            self.window_size,
+            [self.max_travels[0], self.max_travels[1]],
+            self.scale,
+        );
     }
 }
