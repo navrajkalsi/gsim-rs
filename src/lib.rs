@@ -12,7 +12,7 @@ pub mod source;
 pub mod tui;
 mod ui;
 
-use crate::{gui::Gui, interpreter::BlockSummary, parser::Point, tui::Tui};
+use crate::{app::View, gui::Gui, interpreter::BlockSummary, parser::Point, tui::Tui};
 
 /// Non-Zero extremes for each axis of the machine.
 /// Passed to both GUI and TUI.
@@ -23,7 +23,7 @@ const MACHINE_TRAVELS: Point = Point::new(1000.0, 750.0, -500.0);
 #[derive(Debug)]
 pub enum Command {
     Start(),
-    Render(BlockSummary),
+    Render(View, BlockSummary),
     Stop(Option<anyhow::Error>),
 }
 

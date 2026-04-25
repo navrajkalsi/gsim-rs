@@ -6,17 +6,18 @@ struct Uniforms {
     padding: vec2<f32>,
     max_travels: vec4<f32>,
     scale: f32,
+    view: u32,
 };
+
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
-
-// add machine boundary by default some way
 
 struct VertexInput {
     @location(0) start: vec3<f32>,
     @location(1) end: vec3<f32>,
     @location(2) color: vec3<f32>,
-    @location(3) stroke_width: f32};
+    @location(3) stroke_width: f32,
+};
 
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
@@ -30,6 +31,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let stroke_width = in.stroke_width;
     let scale = uniforms.scale;
     let padding = uniforms.padding;
+    let isometric = uniforms.view == 1;
 
     // number of pixels from the machine zero corner of screen
     // (this corner may or may not be the 0 points of the window)
@@ -74,18 +76,20 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // flip y to match coordinate system of clip space
     start.x = (start.x / uniforms.window_size.x) * 2.0 - 1.0;
     start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
+    start.z = (machine_size.z - abs(start.z)) / machine_size.z;
     end.x = (end.x / uniforms.window_size.x) * 2.0 - 1.0;
     end.y = 1.0 - (end.y / uniforms.window_size.y) * 2.0;
+    end.z = (machine_size.z - abs(end.z)) / machine_size.z;
 
     // unit vector from start to end
     let dir = normalize(end - start);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
     let normal = vec2<f32>(-dir.y, dir.x) * stroke_width / 2.0;
 
-    var p1 = start.xy - normal;
-    var p2 = start.xy + normal;
-    var p3 = end.xy - normal;
-    var p4 = end.xy + normal;
+    var p1 = vec3<f32>(start.xy - normal, start.z);
+    var p2 = vec3<f32>(start.xy + normal, start.z);
+    var p3 = vec3<f32>(end.xy - normal, end.z);
+    var p4 = vec3<f32>(end.xy + normal, end.z);
 
     let positions = array(
         p1, p2, p3, p2, p4, p3
@@ -93,8 +97,14 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     var out: VertexOutput;
 
-    out.color = in.color;
-    out.clip_position = vec4<f32>(positions[index].xy, 0.0, 1.0);
+    if isometric {
+        out.color = vec3<f32>(0.0, 0.0, 0.0);
+    }
+    else {
+        out.color = in.color;
+    }
+
+    out.clip_position = vec4<f32>(positions[index], 1.0);
 
     return out;
 };

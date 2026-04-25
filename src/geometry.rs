@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use winit::dpi::PhysicalSize;
 
-use crate::parser::Point;
+use crate::{app::View, parser::Point};
 
 const DEFAULT_STROKE_WIDTH: f32 = 0.0025;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 5.0;
@@ -143,7 +143,8 @@ pub struct Uniforms {
     max_travels: [f32; 4],
     // absolute scale, to convert machine unit to pixels
     scale: f32,
-    _pad: [f32; 3],
+    view: View,
+    _pad: [f32; 2],
 }
 
 impl Uniforms {
@@ -162,7 +163,8 @@ impl Uniforms {
             padding: get_padding(window_size, [max_travels[0], max_travels[1]], scale),
             max_travels,
             scale,
-            _pad: [0.0, 0.0, 0.0],
+            view: View::Isometric,
+            _pad: [0.0, 0.0],
         }
     }
 
@@ -174,5 +176,9 @@ impl Uniforms {
             [self.max_travels[0], self.max_travels[1]],
             self.scale,
         );
+    }
+
+    pub fn set_view(&mut self, view: &View) {
+        self.view = *view;
     }
 }

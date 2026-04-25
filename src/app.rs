@@ -26,16 +26,17 @@ use crate::{
 
 /// Represents the types of view possible on the left section.
 /// Right section always previews the raw code.
-#[derive(Default)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Zeroable)]
 pub enum View {
-    /// Only print text description of each block.
-    #[default]
-    Text,
     /// Simlutate `X` & `Y` axes of the [`Machine`], from **top view**.
     Plane,
     /// Simuate all three axes, from **isometric view**.
+    #[default]
     Isometric,
 }
+
+unsafe impl bytemuck::Pod for View {}
 
 /// Represents the types program cycle interruptions that need user input to resume cycle.
 pub enum Interrupt {
@@ -192,9 +193,8 @@ impl App {
                         KeyCode::Char('Q') => return Ok(self),
                         KeyCode::Char('v') => {
                             match self.view {
-                                View::Text => self.view = View::Plane,
                                 View::Plane => self.view = View::Isometric,
-                                View::Isometric => self.view = View::Text,
+                                View::Isometric => self.view = View::Plane,
                             };
                             continue;
                         }
@@ -248,7 +248,7 @@ impl App {
         // no need to execute again, just display the stored results
         if let Some(summary) = self.summary.get(self.current) {
             self.proxy
-                .send_event(Command::Render(summary.clone()))
+                .send_event(Command::Render(self.view, summary.clone()))
                 .unwrap();
             return;
         }
@@ -264,7 +264,9 @@ impl App {
         match res {
             Some(s) => {
                 self.summary.push(s.clone());
-                self.proxy.send_event(Command::Render(s)).unwrap();
+                self.proxy
+                    .send_event(Command::Render(self.view, s))
+                    .unwrap();
             }
             None => {
                 self.interrupt = Some(Interrupt::End);

@@ -12,6 +12,7 @@ use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 
 use crate::{
     Command, Signal,
+    app::View,
     geometry::{Uniforms, Vertex},
     interpreter::BlockSummary,
     machine::{Motion, MotionSummary},
@@ -25,8 +26,6 @@ pub struct Graphics {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    // needs to be arc to make sure surface gets static lifetime
-    window: Arc<Window>,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
@@ -35,6 +34,8 @@ pub struct Graphics {
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     configured: bool,
+    // needs to be arc to make sure surface gets static lifetime
+    window: Arc<Window>,
 }
 
 impl Graphics {
@@ -321,6 +322,16 @@ impl Graphics {
 
         Ok(())
     }
+
+    fn set_view(&mut self, view: &View) {
+        self.uniforms.set_view(view);
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
 }
 
 pub struct Gui {
@@ -436,7 +447,7 @@ impl ApplicationHandler<Command> for Gui {
         // tui thread sends Start after initializing once, and then Render commands
         match &event {
             Command::Start() => {}
-            Command::Render(block) => {
+            Command::Render(view, block) => {
                 if let Some(motion) = &block.motion {
                     match motion {
                         MotionSummary::Rapid => self.motion = Motion::Rapid,
@@ -447,6 +458,7 @@ impl ApplicationHandler<Command> for Gui {
 
                 self.signal.send(Signal::Proceed).unwrap();
                 let graphics = self.graphics.as_mut().expect("App has been started");
+                graphics.set_view(view);
                 graphics.update(block, &self.motion);
                 graphics.window.request_redraw();
             }
