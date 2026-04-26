@@ -30,7 +30,7 @@ use crate::{
 #[derive(Copy, Clone, Debug, Default, bytemuck::Zeroable)]
 pub enum View {
     /// Simlutate `X` & `Y` axes of the [`Machine`], from **top view**.
-    Plane,
+    Top,
     /// Simuate all three axes, from **isometric view**.
     #[default]
     Isometric,
@@ -193,8 +193,8 @@ impl App {
                         KeyCode::Char('Q') => return Ok(self),
                         KeyCode::Char('v') => {
                             match self.view {
-                                View::Plane => self.view = View::Isometric,
-                                View::Isometric => self.view = View::Plane,
+                                View::Top => self.view = View::Isometric,
+                                View::Isometric => self.view = View::Top,
                             };
                             continue;
                         }

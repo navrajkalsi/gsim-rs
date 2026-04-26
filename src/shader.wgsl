@@ -25,6 +25,16 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
 };
 
+const SQRT_2: f32 = 1.41421356;
+const SQRT_3: f32 = 1.73205081;
+
+fn iso_project(in: vec3<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        (in.x - in.y) / SQRT_2,
+        (in.x + in.y - in.z) / SQRT_3,
+    );
+}
+
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
@@ -35,61 +45,72 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     // number of pixels from the machine zero corner of screen
     // (this corner may or may not be the 0 points of the window)
-    var start = in.start * scale;
-    var end = in.end * scale;
+    var _start = in.start * scale;
+    var _end = in.end * scale;
 
-    // machine size in pixels
-    let machine_size = abs(uniforms.max_travels * scale);
+    var start: vec2<f32>;
+    var end: vec2<f32>;
 
-    // position on screen with respect to the window coordinate system(0 on top left corner)
-    // without padding
-    if uniforms.max_travels.x >= 0.0 {
-        if uniforms.max_travels.y >= 0.0 {
-            // machine zero on lower left corner, all positive vals
-            start.x += padding.x;
-            start.y = (uniforms.window_size.y - start.y) - padding.y;
-            end.x += padding.x;
-            end.y = (uniforms.window_size.y - end.y) - padding.y;
-        } else {
-            // machine zero on top left corner, negative y vals
-            start.x += padding.x;
-            start.y = abs(start.y) + padding.y;
-            end.x += padding.x;
-            end.y = abs(end.y) + padding.y;
-        }
+    if isometric {
+        start = iso_project(_start);
+        end = iso_project(_end);
+
+        start.x += padding.x;
+        start.y = (uniforms.window_size.y - start.y) - padding.y;
+        end.x += padding.x;
+        end.y = (uniforms.window_size.y - end.y) - padding.y;
     } else {
-        if uniforms.max_travels.y >= 0.0 {
-            // machine zero on lower right corner, negative x vals
-            start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
-            start.y += padding.y;
-            end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
-            end.y += padding.y;
+        start = _start.xy;
+        end = _end.xy;
+
+        // position on screen with respect to the window coordinate system(0 on top left corner)
+        // without padding
+        if uniforms.max_travels.x >= 0.0 {
+            if uniforms.max_travels.y >= 0.0 {
+                // machine zero on lower left corner, all positive vals
+                start.x += padding.x;
+                start.y = (uniforms.window_size.y - start.y) - padding.y;
+                end.x += padding.x;
+                end.y = (uniforms.window_size.y - end.y) - padding.y;
+            } else {
+                // machine zero on top left corner, negative y vals
+                start.x += padding.x;
+                start.y = abs(start.y) + padding.y;
+                end.x += padding.x;
+                end.y = abs(end.y) + padding.y;
+            }
         } else {
-            // machine zero on top right corner, all negative vals
-            start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
-            start.y = abs(start.y) + padding.y;
-            end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
-            end.y = abs(end.y) + padding.y;
+            if uniforms.max_travels.y >= 0.0 {
+                // machine zero on lower right corner, negative x vals
+                start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
+                start.y += padding.y;
+                end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
+                end.y += padding.y;
+            } else {
+                // machine zero on top right corner, all negative vals
+                start.x = (uniforms.window_size.x - abs(start.x)) + padding.x;
+                start.y = abs(start.y) + padding.y;
+                end.x = (uniforms.window_size.x - abs(end.x)) + padding.x;
+                end.y = abs(end.y) + padding.y;
+            }
         }
-    };
+    }
 
     // flip y to match coordinate system of clip space
     start.x = (start.x / uniforms.window_size.x) * 2.0 - 1.0;
     start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
-    start.z = (machine_size.z - abs(start.z)) / machine_size.z;
     end.x = (end.x / uniforms.window_size.x) * 2.0 - 1.0;
     end.y = 1.0 - (end.y / uniforms.window_size.y) * 2.0;
-    end.z = (machine_size.z - abs(end.z)) / machine_size.z;
 
     // unit vector from start to end
     let dir = normalize(end - start);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
     let normal = vec2<f32>(-dir.y, dir.x) * stroke_width / 2.0;
 
-    var p1 = vec3<f32>(start.xy - normal, start.z);
-    var p2 = vec3<f32>(start.xy + normal, start.z);
-    var p3 = vec3<f32>(end.xy - normal, end.z);
-    var p4 = vec3<f32>(end.xy + normal, end.z);
+    var p1 = vec2<f32>(start.xy - normal);
+    var p2 = vec2<f32>(start.xy + normal);
+    var p3 = vec2<f32>(end.xy - normal);
+    var p4 = vec2<f32>(end.xy + normal);
 
     let positions = array(
         p1, p2, p3, p2, p4, p3
@@ -97,14 +118,8 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     var out: VertexOutput;
 
-    if isometric {
-        out.color = vec3<f32>(0.0, 0.0, 0.0);
-    }
-    else {
-        out.color = in.color;
-    }
-
-    out.clip_position = vec4<f32>(positions[index], 1.0);
+    out.clip_position = vec4<f32>(positions[index], 0.0, 1.0);
+    out.color = in.color;
 
     return out;
 };

@@ -180,7 +180,7 @@ fn get_active(app: &App) -> Paragraph<'_> {
     }
 
     active.push(match app.view {
-        View::Plane => Span::styled("TOP", style),
+        View::Top => Span::styled("TOP", style),
         View::Isometric => Span::styled("ISOMETRIC", style),
     });
 

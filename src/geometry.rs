@@ -4,6 +4,7 @@ use winit::dpi::PhysicalSize;
 
 use crate::{app::View, parser::Point};
 
+const DEFAULT_VIEW: View = View::Isometric;
 const DEFAULT_STROKE_WIDTH: f32 = 0.0025;
 const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 5.0;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
@@ -105,34 +106,6 @@ impl Vertex {
     }
 }
 
-// multiply this to machine units to get the number of pixels
-fn get_scale(window_size: [f32; 2], max_travels: [f32; 2]) -> f32 {
-    let machine_size = [max_travels[0].abs(), max_travels[1].abs()];
-    // y / x
-    let window_ratio = window_size[1] / window_size[0];
-    let machine_ratio = machine_size[1] / machine_size[0];
-
-    let scale = match machine_ratio.total_cmp(&window_ratio) {
-        // y of machine is smaller, scale to fit x of machine and shrink in y
-        Ordering::Less => window_size[0] / machine_size[0],
-        // choose any
-        Ordering::Equal => window_size[0] / machine_size[0],
-        // y of machine is larger, scale to fit y of machine and shrink in x
-        Ordering::Greater => window_size[1] / machine_size[1],
-    };
-
-    // reduce scale to compensate for machine boundary thickness on both sides
-    scale - MACHINE_BOUNDARY_WIDTH
-}
-
-fn get_padding(window_size: [f32; 2], max_travels: [f32; 2], scale: f32) -> [f32; 2] {
-    [
-        // compensate for machine boundary width
-        (window_size[0] - max_travels[0].abs() * scale) / 2.0,
-        (window_size[1] - max_travels[1].abs() * scale) / 2.0,
-    ]
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
@@ -156,29 +129,79 @@ impl Uniforms {
             max_travels.z() as f32,
             0.0,
         ];
-        let scale = get_scale(window_size, [max_travels[0], max_travels[1]]);
+
+        let machine_size = machine_size(max_travels.as_slice(), &DEFAULT_VIEW);
+        let scale = scale(window_size, machine_size);
 
         Self {
             window_size,
-            padding: get_padding(window_size, [max_travels[0], max_travels[1]], scale),
+            padding: padding(window_size, machine_size, scale),
+            view: DEFAULT_VIEW,
             max_travels,
             scale,
-            view: View::Isometric,
             _pad: [0.0, 0.0],
         }
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         self.window_size = [new_size.width as f32, new_size.height as f32];
-        self.scale = get_scale(self.window_size, [self.max_travels[0], self.max_travels[1]]);
-        self.padding = get_padding(
-            self.window_size,
-            [self.max_travels[0], self.max_travels[1]],
-            self.scale,
-        );
+        let machine_size = machine_size(self.max_travels.as_slice(), &self.view);
+        self.scale = scale(self.window_size, machine_size);
+        self.padding = padding(self.window_size, machine_size, self.scale);
     }
 
     pub fn set_view(&mut self, view: &View) {
         self.view = *view;
+        self.resize(PhysicalSize {
+            width: self.window_size[0] as u32,
+            height: self.window_size[1] as u32,
+        });
     }
+}
+
+// returns rect dims to fit inside the window, but in machine units
+fn machine_size(max_travels: &[f32], view: &View) -> [f32; 2] {
+    match view {
+        // use x and y of the machine
+        View::Top => [max_travels[0].abs(), max_travels[1].abs()],
+        // use projection of the bounding box to get final x and y
+        View::Isometric => project_bounding_box(max_travels),
+    }
+}
+
+// returns the real estate required to project the whole machine cuboid, in machine units
+fn project_bounding_box(machine_size: &[f32]) -> [f32; 2] {
+    [
+        (machine_size[0] + machine_size[1]) / 2.0_f32.sqrt(),
+        (machine_size[0] + machine_size[1] + machine_size[2]) / 3.0_f32.sqrt(),
+    ]
+}
+
+// multiply this to machine units to get the number of pixels
+// takes final machine_size, after projection if applicable
+fn scale(window_size: [f32; 2], machine_size: [f32; 2]) -> f32 {
+    // y / x
+    let window_ratio = window_size[1] / window_size[0];
+    let machine_ratio = machine_size[1] / machine_size[0];
+
+    let scale = match machine_ratio.total_cmp(&window_ratio) {
+        // y of machine is smaller, scale to fit x of machine and shrink in y
+        Ordering::Less => window_size[0] / machine_size[0],
+        // choose any
+        Ordering::Equal => window_size[0] / machine_size[0],
+        // y of machine is larger, scale to fit y of machine and shrink in x
+        Ordering::Greater => window_size[1] / machine_size[1],
+    };
+
+    // reduce scale to compensate for machine boundary thickness on both sides
+    scale - MACHINE_BOUNDARY_WIDTH
+}
+
+// returns the padding to center the machine view inside the window
+// takes final machine_size, after projection if applicable
+fn padding(window_size: [f32; 2], machine_size: [f32; 2], scale: f32) -> [f32; 2] {
+    [
+        (window_size[0] - machine_size[0] * scale) / 2.0,
+        (window_size[1] - machine_size[1] * scale) / 2.0,
+    ]
 }
