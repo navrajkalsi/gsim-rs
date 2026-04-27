@@ -31,13 +31,15 @@ const SQRT_3: f32 = 1.73205081;
 fn iso_project(in: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(
         (in.x - in.y) / SQRT_2,
-        (in.x + in.y - in.z) / SQRT_3,
+        (in.x + in.y + in.z) / SQRT_3, // since z will always be negative, in.z is + here
     );
 }
 
 // mark as a valid vertex shader
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
+    let window_size = uniforms.window_size;
+    let max_travels = uniforms.max_travels;
     let stroke_width = in.stroke_width;
     let scale = uniforms.scale;
     let padding = uniforms.padding;
@@ -52,13 +54,17 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     var end: vec2<f32>;
 
     if isometric {
+        // coordinates wrt origin of the bounding box
         start = iso_project(_start);
         end = iso_project(_end);
 
-        start.x += padding.x;
-        start.y = (uniforms.window_size.y - start.y) - padding.y;
-        end.x += padding.x;
-        end.y = (uniforms.window_size.y - end.y) - padding.y;
+        let x_offset = abs(max_travels.y) * scale / SQRT_2;
+        let y_offset = abs(max_travels.z) * scale / SQRT_3;
+
+        start.x += x_offset + padding.x;
+        start.y = (uniforms.window_size.y - start.y) - (padding.y + y_offset);
+        end.x += x_offset + padding.x;
+        end.y = (uniforms.window_size.y - end.y) - (padding.y + y_offset);
     } else {
         start = _start.xy;
         end = _end.xy;
@@ -98,8 +104,8 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     // flip y to match coordinate system of clip space
     start.x = (start.x / uniforms.window_size.x) * 2.0 - 1.0;
-    start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
     end.x = (end.x / uniforms.window_size.x) * 2.0 - 1.0;
+    start.y = 1.0 - (start.y / uniforms.window_size.y) * 2.0;
     end.y = 1.0 - (end.y / uniforms.window_size.y) * 2.0;
 
     // unit vector from start to end
@@ -107,10 +113,10 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // normal vector, to get perpendicular direction, with magnitude of stroke width
     let normal = vec2<f32>(-dir.y, dir.x) * stroke_width / 2.0;
 
-    var p1 = vec2<f32>(start.xy - normal);
-    var p2 = vec2<f32>(start.xy + normal);
-    var p3 = vec2<f32>(end.xy - normal);
-    var p4 = vec2<f32>(end.xy + normal);
+    var p1 = vec2<f32>(start - normal);
+    var p2 = vec2<f32>(start + normal);
+    var p3 = vec2<f32>(end - normal);
+    var p4 = vec2<f32>(end + normal);
 
     let positions = array(
         p1, p2, p3, p2, p4, p3

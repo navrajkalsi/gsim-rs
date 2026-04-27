@@ -33,7 +33,12 @@ impl Tui {
     pub fn run(self) {
         let config = Config::parse();
 
-        let app = match App::build(config, self.event_proxy.clone(), self.signal) {
+        let app = match App::build(
+            config,
+            self.event_proxy.clone(),
+            self.signal,
+            self.max_travels,
+        ) {
             Ok(app) => app,
             Err(err) => {
                 return self

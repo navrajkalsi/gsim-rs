@@ -5,8 +5,8 @@ use winit::dpi::PhysicalSize;
 use crate::{app::View, parser::Point};
 
 const DEFAULT_VIEW: View = View::Isometric;
-const DEFAULT_STROKE_WIDTH: f32 = 0.0025;
-const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 5.0;
+const DEFAULT_STROKE_WIDTH: f32 = 0.003;
+const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.5;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const FEED_MOVE_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
@@ -54,7 +54,7 @@ impl Vertex {
         }
     }
 
-    pub fn machine_boundary(max_travels: &Point) -> [Self; 4] {
+    pub fn machine_boundary(max_travels: &Point) -> [Self; 12] {
         let x = max_travels.x() as f32;
         let y = max_travels.y() as f32;
         let z = max_travels.z() as f32;
@@ -80,6 +80,54 @@ impl Vertex {
             },
             Self {
                 start: [x, 0.0, z],
+                end: [0.0, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [0.0, y, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [x, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [0.0, y, 0.0],
+                end: [0.0, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [x, 0.0, 0.0],
+                end: [0.0, 0.0, 0.0],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [x, y, 0.0],
+                end: [x, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [x, 0.0, 0.0],
+                end: [x, 0.0, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [0.0, y, 0.0],
+                end: [0.0, y, z],
+                color: MACHINE_BOUNDARY_COLOR,
+                stroke_width: MACHINE_BOUNDARY_WIDTH,
+            },
+            Self {
+                start: [0.0, 0.0, 0.0],
                 end: [0.0, 0.0, z],
                 color: MACHINE_BOUNDARY_COLOR,
                 stroke_width: MACHINE_BOUNDARY_WIDTH,
@@ -132,10 +180,11 @@ impl Uniforms {
 
         let machine_size = machine_size(max_travels.as_slice(), &DEFAULT_VIEW);
         let scale = scale(window_size, machine_size);
+        let padding = padding(window_size, machine_size, scale);
 
         Self {
             window_size,
-            padding: padding(window_size, machine_size, scale),
+            padding,
             view: DEFAULT_VIEW,
             max_travels,
             scale,
@@ -172,8 +221,8 @@ fn machine_size(max_travels: &[f32], view: &View) -> [f32; 2] {
 // returns the real estate required to project the whole machine cuboid, in machine units
 fn project_bounding_box(machine_size: &[f32]) -> [f32; 2] {
     [
-        (machine_size[0] + machine_size[1]) / 2.0_f32.sqrt(),
-        (machine_size[0] + machine_size[1] + machine_size[2]) / 3.0_f32.sqrt(),
+        (machine_size[0].abs() + machine_size[1].abs()) / 2.0_f32.sqrt(),
+        (machine_size[0].abs() + machine_size[1].abs() + machine_size[2].abs()) / 3.0_f32.sqrt(),
     ]
 }
 

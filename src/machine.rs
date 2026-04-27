@@ -802,7 +802,7 @@ impl Machine {
         };
 
         match self.max_travels.z().is_sign_positive() {
-            true => panic!("Positive passed Machine construction. Logic Error!"),
+            true => unreachable!("Positive passed Machine construction. Logic Error!"),
 
             false => {
                 if !(self.max_travels.z()..=HOME_POS.z()).contains(&point.z()) {

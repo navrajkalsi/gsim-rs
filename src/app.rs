@@ -107,6 +107,7 @@ impl App {
         config: Config,
         proxy: EventLoopProxy<Command>,
         signal: Receiver<Signal>,
+        max_travels: Point,
     ) -> Result<Self, GSimError> {
         let src = Source::from_file(&config.filepath)?;
 
@@ -116,7 +117,7 @@ impl App {
             single: false,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(Point::new(1000.0, 750.0, -500.0), Unit::default())?,
+                Machine::build(max_travels, Unit::default())?,
             ),
             current: 0,
             interrupt: Some(Interrupt::Start),
