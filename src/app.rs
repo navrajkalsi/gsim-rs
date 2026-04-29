@@ -27,7 +27,7 @@ use crate::{
 /// Represents the types of view possible on the left section.
 /// Right section always previews the raw code.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Default, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
 pub enum View {
     /// Simlutate `X` & `Y` axes of the [`Machine`], from **top view**.
     Top,
@@ -131,7 +131,7 @@ impl App {
     // check for any updates from the main thread
     fn signal(&mut self) -> anyhow::Result<Option<Signal>> {
         self.last_signal = match self.signal.try_recv() {
-            Ok(proceed) => Some(proceed),
+            Ok(signal) => Some(signal),
             Err(err) => match err {
                 TryRecvError::Empty => None,
                 TryRecvError::Disconnected => return Err(err.into()),
@@ -147,9 +147,9 @@ impl App {
     {
         // to allow use of ? operator,
         // the parent sends `Command::Stop`
-        self.proxy.send_event(Command::Start()).unwrap();
 
         // if last proceed request was sent or not
+        // one render command is sent regardless of receiving proceed signal or not
         let mut pending = true;
 
         loop {

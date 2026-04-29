@@ -10,12 +10,13 @@ const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.5;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const FEED_MOVE_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
+const SPEED: f64 = 2.5;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     start: [f32; 3],
-    end: [f32; 3],
+    pub end: [f32; 3],
     color: [f32; 3],
     stroke_width: f32,
 }
@@ -199,8 +200,12 @@ impl Uniforms {
         self.padding = padding(self.window_size, machine_size, self.scale);
     }
 
-    pub fn set_view(&mut self, view: &View) {
-        self.view = *view;
+    pub fn view(&self) -> View {
+        self.view
+    }
+
+    pub fn set_view(&mut self, view: View) {
+        self.view = view;
         self.resize(PhysicalSize {
             width: self.window_size[0] as u32,
             height: self.window_size[1] as u32,
@@ -253,4 +258,52 @@ fn padding(window_size: [f32; 2], machine_size: [f32; 2], scale: f32) -> [f32; 2
         (window_size[0] - machine_size[0] * scale) / 2.0,
         (window_size[1] - machine_size[1] * scale) / 2.0,
     ]
+}
+
+pub fn points(start: &Point, end: &Point) -> Vec<Point> {
+    let dir = *end - *start;
+    let dir = [dir.x(), dir.y()];
+    let dist = (dir[0].powi(2) + dir[1].powi(2)).sqrt();
+
+    if dist <= SPEED {
+        return vec![*start, *end];
+    }
+    // impl arithmetric on Point
+    let delta = Point::new(SPEED * dir[0] / dist, SPEED * dir[1] / dist, 0.0);
+
+    let mut ret = vec![*start];
+
+    loop {
+        let new = *ret.last().unwrap() + delta;
+
+        // determine how to detect when to step applying ratios
+        // depending on the dir and end pos
+        match (dir[0].is_sign_positive(), dir[1].is_sign_positive()) {
+            (true, true) => {
+                if new.x() > end.x() || new.y() > end.y() || new.z() > end.z() {
+                    break;
+                }
+            }
+            (true, false) => {
+                if new.x() > end.x() || new.y() < end.y() || new.z() > end.z() {
+                    break;
+                }
+            }
+            (false, true) => {
+                if new.x() < end.x() || new.y() > end.y() || new.z() > end.z() {
+                    break;
+                }
+            }
+            (false, false) => {
+                if new.x() < end.x() || new.y() < end.y() || new.z() > end.z() {
+                    break;
+                }
+            }
+        };
+
+        ret.push(new);
+    }
+
+    ret.push(*end);
+    ret
 }

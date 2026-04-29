@@ -22,7 +22,6 @@ const MACHINE_TRAVELS: Point = Point::new(400.0, 250.0, -200.0);
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
-    Start(),
     Render(View, BlockSummary),
     Stop(Option<anyhow::Error>),
 }

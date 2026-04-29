@@ -16,6 +16,7 @@
 use std::{
     cmp::PartialEq,
     fmt::{Debug, Display},
+    ops::{Add, Sub},
 };
 
 use crate::describe::{Describe, Description};
@@ -132,6 +133,22 @@ impl Point {
             Plane::XZ => ((self.x() - other.x()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
             Plane::YZ => ((self.y() - other.y()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
         }
+    }
+}
+
+impl Sub for Point {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.x() - rhs.x(), self.y() - rhs.y(), self.z() - rhs.z())
+    }
+}
+
+impl Add for Point {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.x() + rhs.x(), self.y() + rhs.y(), self.z() + rhs.z())
     }
 }
 

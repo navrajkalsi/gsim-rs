@@ -13,8 +13,7 @@ use wgpu::{BindGroupLayoutEntry, CurrentSurfaceTexture, util::DeviceExt};
 use crate::{
     Command, Signal,
     app::View,
-    geometry::{Uniforms, Vertex},
-    interpreter::BlockSummary,
+    geometry::{Uniforms, Vertex, points},
     machine::{Motion, MotionSummary},
     parser::Point,
 };
@@ -29,6 +28,9 @@ pub struct Graphics {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
+    // segments of current line vertex LEFT TO RENDER
+    current_vertex: Option<Box<dyn Iterator<Item = Point>>>,
+    last_vertex: Option<Vertex>,
     offset: u64,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
@@ -201,6 +203,8 @@ impl Graphics {
             pipeline,
             vertex_buffer,
             vertex_count: vertices.len() as u32,
+            current_vertex: None,
+            last_vertex: None,
             offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             uniforms,
             uniform_buffer,
@@ -228,10 +232,11 @@ impl Graphics {
         );
     }
 
-    fn update(&mut self, block: &BlockSummary, motion: &Motion) {
+    // adds a new vertex to the buffer
+    fn add(&mut self, start: &Point, end: &Point, motion: &Motion) {
         let vertex = match motion {
-            Motion::Rapid => Vertex::rapid_move(&block.org_pos, &block.new_pos),
-            _ => Vertex::feed_move(&block.org_pos, &block.new_pos),
+            Motion::Rapid => Vertex::rapid_move(start, end),
+            _ => Vertex::feed_move(start, end),
         };
 
         // since shaders are type agnostic and just see raw bytes,
@@ -245,6 +250,23 @@ impl Graphics {
         // bytemuck cannot infer target type, therefore provide u8
         self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
         self.vertex_count += 1;
+        self.last_vertex = Some(vertex);
+    }
+
+    // updates last vertex and does not add anything to the buffer
+    fn update(&mut self, end: &Point) {
+        let mut vertex = self
+            .last_vertex
+            .expect("Update must only be called after adding a vertex.");
+
+        vertex.end = [end.x() as f32, end.y() as f32, end.z() as f32];
+
+        // update the last vertex
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            self.offset - bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64,
+            bytemuck::cast_slice(&[vertex]),
+        );
     }
 
     fn render(&mut self) -> anyhow::Result<()> {
@@ -320,17 +342,32 @@ impl Graphics {
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
 
+        if let Some(current) = &mut self.current_vertex {
+            if let Some(point) = current.next() {
+                self.update(&point);
+                self.window.request_redraw();
+            }
+        }
+
         Ok(())
     }
 
-    fn set_view(&mut self, view: &View) {
-        self.uniforms.set_view(view);
+    fn set_view(&mut self, view: View) {
+        if self.uniforms.view() == view {
+            return;
+        } else {
+            self.uniforms.set_view(view);
+        }
 
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
             bytemuck::cast_slice(&[self.uniforms]),
         );
+    }
+
+    fn set_current_vertex(&mut self, vertex: Box<dyn Iterator<Item = Point>>) {
+        self.current_vertex = Some(vertex);
     }
 }
 
@@ -444,23 +481,30 @@ impl ApplicationHandler<Command> for Gui {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
-        // tui thread sends Start after initializing once, and then Render commands
         match &event {
-            Command::Start() => {}
             Command::Render(view, block) => {
+                self.signal.send(Signal::Proceed).unwrap();
+
+                if block.new_pos == block.org_pos {
+                    return;
+                }
+
                 if let Some(motion) = &block.motion {
-                    match motion {
-                        MotionSummary::Rapid => self.motion = Motion::Rapid,
-                        MotionSummary::Feed => self.motion = Motion::Feed,
-                        MotionSummary::Arc { dir, .. } => self.motion = Motion::Arc(*dir),
+                    self.motion = match motion {
+                        MotionSummary::Rapid => Motion::Rapid,
+                        MotionSummary::Feed => Motion::Feed,
+                        MotionSummary::Arc { dir, .. } => Motion::Arc(*dir),
                     };
                 };
 
-                self.signal.send(Signal::Proceed).unwrap();
                 let graphics = self.graphics.as_mut().expect("App has been started");
-                graphics.set_view(view);
-                graphics.update(block, &self.motion);
+                graphics.set_view(*view);
+
+                let points = points(&block.org_pos, &block.new_pos);
+                graphics.add(&points[0], &points[1], &self.motion); // atleast 2 points are guarranteed
                 graphics.window.request_redraw();
+
+                graphics.set_current_vertex(Box::new(points.into_iter()));
             }
 
             Command::Stop(_) => event_loop.exit(),
