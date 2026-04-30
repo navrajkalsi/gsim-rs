@@ -28,9 +28,7 @@ pub struct Graphics {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
-    // segments of current line vertex LEFT TO RENDER
-    current_vertex: Option<Box<dyn Iterator<Item = Point>>>,
-    last_vertex: Option<Vertex>,
+    current_vertex: Option<Vertex>,
     offset: u64,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
@@ -204,7 +202,6 @@ impl Graphics {
             vertex_buffer,
             vertex_count: vertices.len() as u32,
             current_vertex: None,
-            last_vertex: None,
             offset: bytemuck::cast_slice::<Vertex, u8>(&vertices).len() as u64,
             uniforms,
             uniform_buffer,
@@ -250,13 +247,13 @@ impl Graphics {
         // bytemuck cannot infer target type, therefore provide u8
         self.offset += bytemuck::cast_slice::<Vertex, u8>(&[vertex]).len() as u64;
         self.vertex_count += 1;
-        self.last_vertex = Some(vertex);
+        self.current_vertex = Some(vertex);
     }
 
     // updates last vertex and does not add anything to the buffer
     fn update(&mut self, end: &Point) {
         let mut vertex = self
-            .last_vertex
+            .current_vertex
             .expect("Update must only be called after adding a vertex.");
 
         vertex.end = [end.x() as f32, end.y() as f32, end.z() as f32];
@@ -342,13 +339,6 @@ impl Graphics {
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
 
-        if let Some(current) = &mut self.current_vertex {
-            if let Some(point) = current.next() {
-                self.update(&point);
-                self.window.request_redraw();
-            }
-        }
-
         Ok(())
     }
 
@@ -365,16 +355,14 @@ impl Graphics {
             bytemuck::cast_slice(&[self.uniforms]),
         );
     }
-
-    fn set_current_vertex(&mut self, vertex: Box<dyn Iterator<Item = Point>>) {
-        self.current_vertex = Some(vertex);
-    }
 }
 
 pub struct Gui {
     signal: Sender<Signal>,
     max_travels: Point,
     last_command: Option<Command>,
+    // segments of current line vertex LEFT TO RENDER
+    current_points: Option<Box<dyn Iterator<Item = Point>>>,
     /// have to keep track of motion type, as each [`BlockSummary`] does not contain a
     /// [`MotionSummary`].
     motion: Motion,
@@ -393,6 +381,7 @@ impl Gui {
             signal,
             max_travels,
             last_command: None,
+            current_points: None,
             motion: Motion::Rapid,
             graphics: None,
             error: None,
@@ -469,13 +458,36 @@ impl ApplicationHandler<Command> for Gui {
         match event {
             WindowEvent::Resized(size) => graphics.resize(size),
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
-            WindowEvent::RedrawRequested => match graphics.render() {
-                Ok(_) => (),
-                Err(e) => {
-                    self.error = Some(e);
-                    event_loop.exit();
+            WindowEvent::RedrawRequested => {
+                let mut redraw = false;
+
+                // if None, signal has already been sent to retrieve a command from previous block
+                // exhaustion
+                if let Some(points) = self.current_points.as_mut() {
+                    match points.next() {
+                        // update current vertex
+                        Some(point) => {
+                            graphics.update(&point);
+                            redraw = true;
+                        }
+                        None => {
+                            self.signal.send(Signal::Proceed).unwrap();
+                            self.current_points = None;
+                        }
+                    }
+                };
+
+                match graphics.render() {
+                    Ok(_) if redraw => {
+                        graphics.window.request_redraw();
+                    }
+                    Ok(_) => (),
+                    Err(e) => {
+                        self.error = Some(e);
+                        event_loop.exit();
+                    }
                 }
-            },
+            }
             _ => (),
         }
     }
@@ -483,10 +495,9 @@ impl ApplicationHandler<Command> for Gui {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
         match &event {
             Command::Render(view, block) => {
-                self.signal.send(Signal::Proceed).unwrap();
-
                 if block.new_pos == block.org_pos {
-                    return;
+                    // do not use this block and request another
+                    return self.signal.send(Signal::Proceed).unwrap();
                 }
 
                 if let Some(motion) = &block.motion {
@@ -504,7 +515,7 @@ impl ApplicationHandler<Command> for Gui {
                 graphics.add(&points[0], &points[1], &self.motion); // atleast 2 points are guarranteed
                 graphics.window.request_redraw();
 
-                graphics.set_current_vertex(Box::new(points.into_iter()));
+                self.current_points = Some(Box::new(points.into_iter()));
             }
 
             Command::Stop(_) => event_loop.exit(),
