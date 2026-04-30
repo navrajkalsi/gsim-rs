@@ -10,6 +10,7 @@ const MACHINE_BOUNDARY_WIDTH: f32 = DEFAULT_STROKE_WIDTH * 2.5;
 const MACHINE_BOUNDARY_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
 const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.0, 0.0];
 const FEED_MOVE_COLOR: [f32; 3] = [0.0, 1.0, 0.0];
+// units travelled per frame
 const SPEED: f64 = 2.5;
 
 #[repr(C)]
@@ -260,50 +261,38 @@ fn padding(window_size: [f32; 2], machine_size: [f32; 2], scale: f32) -> [f32; 2
     ]
 }
 
-pub fn points(start: &Point, end: &Point) -> Vec<Point> {
-    let dir = *end - *start;
-    let dir = [dir.x(), dir.y()];
-    let dist = (dir[0].powi(2) + dir[1].powi(2)).sqrt();
+// start is not included in the iterated output
+pub fn points(start: Point, end: Point) -> Box<dyn Iterator<Item = Point>> {
+    // relative distance of end point from start
+    let dir = end - start;
+    // distance between start and end points
+    let dist = (dir.x().powi(2) + dir.y().powi(2) + dir.z().powi(2)).sqrt();
 
     if dist <= SPEED {
-        return vec![*start, *end];
-    }
-    // impl arithmetric on Point
-    let delta = Point::new(SPEED * dir[0] / dist, SPEED * dir[1] / dist, 0.0);
-
-    let mut ret = vec![*start];
-
-    loop {
-        let new = *ret.last().unwrap() + delta;
-
-        // determine how to detect when to step applying ratios
-        // depending on the dir and end pos
-        match (dir[0].is_sign_positive(), dir[1].is_sign_positive()) {
-            (true, true) => {
-                if new.x() > end.x() || new.y() > end.y() || new.z() > end.z() {
-                    break;
-                }
-            }
-            (true, false) => {
-                if new.x() > end.x() || new.y() < end.y() || new.z() > end.z() {
-                    break;
-                }
-            }
-            (false, true) => {
-                if new.x() < end.x() || new.y() > end.y() || new.z() > end.z() {
-                    break;
-                }
-            }
-            (false, false) => {
-                if new.x() < end.x() || new.y() < end.y() || new.z() > end.z() {
-                    break;
-                }
-            }
-        };
-
-        ret.push(new);
+        return Box::new([end].into_iter());
     }
 
-    ret.push(*end);
-    ret
+    // amount to move each axis by to get next point
+    let delta = dir.mul_float(SPEED).div_float(dist);
+
+    let mut current = start;
+
+    Box::new(std::iter::from_fn(move || {
+        // done
+        if current == end {
+            return None;
+        }
+
+        let next = current + delta;
+        let remaining = end - next;
+
+        // use dot product to see if the next point is between start and end
+        if remaining.x() * dir.x() + remaining.y() * dir.y() + remaining.z() * dir.z() <= 0.0 {
+            current = end;
+        } else {
+            current = next;
+        }
+
+        Some(current)
+    }))
 }

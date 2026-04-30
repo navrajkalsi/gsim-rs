@@ -511,11 +511,17 @@ impl ApplicationHandler<Command> for Gui {
                 let graphics = self.graphics.as_mut().expect("App has been started");
                 graphics.set_view(*view);
 
-                let points = points(&block.org_pos, &block.new_pos);
-                graphics.add(&points[0], &points[1], &self.motion); // atleast 2 points are guarranteed
+                let mut points = points(block.org_pos, block.new_pos); // output does not include start pos
+                graphics.add(
+                    &block.org_pos,
+                    &points
+                        .next()
+                        .expect("At least one point is guarranteed, which would be the end point."),
+                    &self.motion,
+                );
                 graphics.window.request_redraw();
 
-                self.current_points = Some(Box::new(points.into_iter()));
+                self.current_points = Some(points);
             }
 
             Command::Stop(_) => event_loop.exit(),

@@ -134,6 +134,14 @@ impl Point {
             Plane::YZ => ((self.y() - other.y()).powi(2) + (self.z() - other.z()).powi(2)).sqrt(),
         }
     }
+
+    pub fn mul_float(&self, factor: f64) -> Self {
+        Self::new(self.x() * factor, self.y() * factor, self.z() * factor)
+    }
+
+    pub fn div_float(&self, divisor: f64) -> Self {
+        Self::new(self.x() / divisor, self.y() / divisor, self.z() / divisor)
+    }
 }
 
 impl Sub for Point {
