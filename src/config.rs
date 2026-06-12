@@ -7,21 +7,25 @@
 //! The following is an example of a valid config file:
 //! ```text
 //! {
+//!  "setup": "milling",
 //!  "units": "metric",
-//!  "stock_size": {
-//!    "x": 500,
-//!    "y": 500,
-//!    "z": 500
+//!  "stock": {
+//!    "shape": "cuboid",
+//!    "dimensions": {
+//!      "x": 500,
+//!      "y": 500,
+//!      "z": 500
+//!    }
 //!  },
 //!  "zero_pos": {
-//!    "x": "mid",
-//!    "y": "mid",
-//!    "z": "max"
-//!  },
-//!  "start_pos": {
 //!    "x": 0,
 //!    "y": 0,
-//!    "z": 100
+//!    "z": 0
+//!  },
+//!  "start_pos": {
+//!    "x": 250,
+//!    "y": 250,
+//!    "z": 750
 //!  },
 //!  "tools": [
 //!    {
@@ -37,17 +41,21 @@
 //!  ]
 //! }
 //! ```
+//! - Sets up a `milling` simulation.
 //! - Treats every dimension in `metric` system.
-//! - Creates a stock with each side measuring `500mm`.
-//! - Anchors the `zero_pos` at middle of **X**(250mm), middle of **Y**(250mm) and top of
-//! **Z**(500mm).
+//! - Creates a `cuboid` shaped stock, with each side measuring `500mm`.
+//! - Does not offset reference point of the stock, and sets it as the `zero_pos`. Here, for a
+//!   `cuboid` stock, the reference point is the **left-bottom-near** point.
+//! - Starts the simulation at `start_pos`, which is offset from the reference point. Here, it
+//!   will start at middle of **X** and **Y** of the stock and **250mm** above the stock.
 //! - Creates two tools(numbered `1` & `2`), each with `diameter` `5mm` and `length` `10mm`.
 //!
 //! ## Restrictions
 //! - Any **excess elements** will be rejected.
+//! - `setup` can only have two possible values: `milling` or `turning`.
 //! - `units` can only have two possible values: `imperial` or `metric`.
+//! - Stock `shape` can only have two possible values: `cuboid` or `cylinder`.
 //! - Every stock dimension **must** be positive and non-zero.
-//! - `zero_pos` for each axis can only have three possible values: `zero`, `mid` or `max`.
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
 use crate::FLOAT_VARIANCE;
@@ -57,18 +65,30 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Machining setup for the entire program.
+    pub setup: Setup,
     /// Unit system applied to all dimensional values (e.g. `stock_size`, `tool_length`).
     pub units: Unit,
-    /// Size of the stock along each axis.
-    /// Each axis value is guaranteed to be positive and non zero.
-    pub stock_size: Point,
-    /// Work offset zero position, relative to stock dimensions.
-    pub zero_pos: ZeroPosition,
+    /// Stock description.
+    pub stock: Stock,
+    /// Work offset zero position.
+    /// This is relative to a **stock reference point**.
+    /// Check [`Stock`] for details on reference point.
+    pub zero_pos: Point,
     /// Start position at the beginning of the program.
-    /// This is relative to [`Self::zero_pos`].
+    /// This is relative to **stock reference point**.
+    /// Check [`Stock`] for details on reference point.
     pub start_pos: Point,
     /// Collection of tool configurations to be used during G-code execution.
     pub tools: Vec<ToolConfig>,
+}
+
+/// Available types of machining setups.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Setup {
+    Milling,
+    Turning,
 }
 
 /// Possible unit standards for dimensional values.
@@ -79,20 +99,41 @@ pub enum Unit {
     Imperial,
 }
 
+/// Description of a stock, irrespective of the machining setup.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(tag = "shape", content = "dimensions", rename_all = "lowercase")]
+pub enum Stock {
+    /// A solid box.
+    /// Reference point is at `0.0` for each axis (**bottom-left-near**).
+    Cuboid { x: f32, y: f32, z: f32 },
+
+    /// A solid cylinder.
+    /// Reference point is also at `0.0` for each axis (**center of base-face**).
+    Cylinder {
+        /// Axis along which the curved face should be laid.
+        axis: Axis,
+        /// Diameter of the cylinder.
+        diameter: f32,
+        /// Distance between both circular faces of the cylinder.
+        length: f32,
+    },
+}
+
+/// Axis choices for a 3 axis setup.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
 /// A 3D point in space.
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-}
-
-impl PartialEq for Point {
-    fn eq(&self, other: &Self) -> bool {
-        (self.x - other.x).abs() < FLOAT_VARIANCE
-            && (self.y - other.y).abs() < FLOAT_VARIANCE
-            && (self.z - other.z).abs() < FLOAT_VARIANCE
-    }
 }
 
 /// Tool configuration.
@@ -107,29 +148,6 @@ pub struct ToolConfig {
     /// Length of the tool to render when `self.number` tool is activated.
     /// This is guaranteed to be positive and non zero.
     pub length: f32,
-}
-
-/// Work offset zero position.
-///
-/// This is similar to the `G54` work piece offset in G-code,
-/// but is always active.
-///
-/// This can only be at the middle or any of the ends of each axis of the stock.
-/// Therefore, giving us 27 total possible combinations.
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct ZeroPosition {
-    pub x: AxisPoint,
-    pub y: AxisPoint,
-    pub z: AxisPoint,
-}
-
-/// Possible zero position on each axis of the stock.
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum AxisPoint {
-    Zero,
-    Mid,
-    Max,
 }
 
 impl Config {
@@ -155,50 +173,48 @@ impl Config {
     ///
     /// # Errors:
     /// - [`ConfigError::Parse`] -- Could not parse the provided slice.
-    /// - [`ConfigError::StockNonPositive`] -- At least one of the stock axis was zero or negative.
+    /// - [`ConfigError::StockNonPositive`] -- At least one of the stock dimension was zero or negative.
     /// - [`ConfigError::ToolNonPositive`] -- At least one of the tools has zero or negative
     ///   diameter or length.
     pub fn from_str(json: &str) -> Result<Self, ConfigError> {
-        let mut ret: Self = serde_json::from_str(json)?;
+        let ret: Self = serde_json::from_str(json)?;
 
         // make sure stock size and tool diameter and length are positive and non zero
-        if ret.stock_size.x < FLOAT_VARIANCE {
-            Err(ConfigError::StockNonPositive('X'))
-        } else if ret.stock_size.y < FLOAT_VARIANCE {
-            Err(ConfigError::StockNonPositive('Y'))
-        } else if ret.stock_size.z < FLOAT_VARIANCE {
-            Err(ConfigError::StockNonPositive('Z'))
-        } else {
-            for tool in &mut ret.tools {
-                if tool.diameter < FLOAT_VARIANCE || tool.length < FLOAT_VARIANCE {
-                    return Err(ConfigError::ToolNonPositive(tool.number));
+        match &ret.stock {
+            Stock::Cuboid { x, y, z } => {
+                if let Setup::Turning = ret.setup {
+                    return Err(ConfigError::TurningStock); // unusual turning stock
+                }
+
+                if *x < FLOAT_VARIANCE || *y < FLOAT_VARIANCE || *z < FLOAT_VARIANCE {
+                    return Err(ConfigError::StockNonPositive);
                 }
             }
 
-            Ok(ret)
-        }
-    }
+            Stock::Cylinder {
+                axis,
+                diameter,
+                length,
+            } => {
+                if let Setup::Turning = ret.setup
+                    && !matches!(axis, Axis::Z)
+                {
+                    return Err(ConfigError::TurningStock); // unusual turning stock setup
+                }
 
-    /// Converts a [`Self::zero_pos`] to a [`Point`] filled with the absolute positive of the
-    /// `zero_pos`.
-    pub fn zero_point(&self) -> Point {
-        Point {
-            x: match self.zero_pos.x {
-                AxisPoint::Zero => 0.0,
-                AxisPoint::Mid => self.stock_size.x / 2.0,
-                AxisPoint::Max => self.stock_size.x,
-            },
-            y: match self.zero_pos.y {
-                AxisPoint::Zero => 0.0,
-                AxisPoint::Mid => self.stock_size.y / 2.0,
-                AxisPoint::Max => self.stock_size.y,
-            },
-            z: match self.zero_pos.z {
-                AxisPoint::Zero => 0.0,
-                AxisPoint::Mid => self.stock_size.z / 2.0,
-                AxisPoint::Max => self.stock_size.z,
-            },
+                if *diameter < FLOAT_VARIANCE || *length < FLOAT_VARIANCE {
+                    return Err(ConfigError::StockNonPositive);
+                }
+            }
+        };
+
+        for tool in &ret.tools {
+            if tool.diameter < FLOAT_VARIANCE || tool.length < FLOAT_VARIANCE {
+                return Err(ConfigError::ToolNonPositive(tool.number));
+            }
         }
+
+        Ok(ret)
     }
 }
 
@@ -206,16 +222,19 @@ impl Config {
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     /// Failed to read the config file.
-    #[error("failed to read file at '{}'", .1)]
+    #[error("failed to read file at '{1}'")]
     IO(#[source] std::io::Error, String),
     /// Failed to parse the config file as JSON.
     #[error("failed to parse JSON")]
     Parse(#[from] serde_json::Error),
     /// Stock dimensions are not all positive.
-    #[error("stock dimension is either negative or zero for '{}' axis", .0)]
-    StockNonPositive(char),
+    #[error("a stock dimension is either negative or zero")]
+    StockNonPositive,
+    /// Abnormal turning stock setup.
+    #[error("the stock description/setup is abnormal for a turning setup")]
+    TurningStock,
     /// Tool dimensions are not all positive.
-    #[error("diameter or length is either negative or zero for tool number '{}'", .0)]
+    #[error("diameter or length is either negative or zero for tool number '{0}'")]
     ToolNonPositive(u32),
 }
 
@@ -231,37 +250,41 @@ mod tests {
 
     #[test]
     fn good() {
-        let json = "
+        let json = r#"
             {
-              \"units\": \"metric\",
-              \"stock_size\": {
-                \"x\": 500,
-                \"y\": 500,
-                \"z\": 500
+              "setup": "milling",
+              "units": "metric",
+              "stock": {
+                "shape": "cuboid",
+                "dimensions": {
+                  "x": 500,
+                  "y": 500,
+                  "z": 500
+                }
               },
-              \"zero_pos\": {
-                \"x\": \"mid\",
-                \"y\": \"mid\",
-                \"z\": \"max\"
+              "zero_pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
               },
-              \"start_pos\" : {
-                \"x\": 0,
-                \"y\": 0,
-                \"z\": 100
+              "start_pos": {
+                "x": 250,
+                "y": 250,
+                "z": 750
               },
-              \"tools\": [
+              "tools": [
                 {
-                  \"number\": 1,
-                  \"diameter\": 5,
-                  \"length\": 10
+                  "number": 1,
+                  "diameter": 5,
+                  "length": 10
                 },
                 {
-                  \"number\": 2,
-                  \"diameter\": 5,
-                  \"length\": 10
+                  "number": 2,
+                  "diameter": 5,
+                  "length": 10
                 }
               ]
-            }";
+            }"#;
 
         let ret = Config::from_str(json).unwrap();
 
@@ -269,21 +292,22 @@ mod tests {
         assert_eq!(
             ret,
             Config {
+                setup: Setup::Milling,
                 units: Unit::Metric,
-                stock_size: Point {
+                stock: Stock::Cuboid {
                     x: 500.0,
                     y: 500.0,
                     z: 500.0
                 },
-                zero_pos: ZeroPosition {
-                    x: AxisPoint::Mid,
-                    y: AxisPoint::Mid,
-                    z: AxisPoint::Max
-                },
-                start_pos: Point {
+                zero_pos: Point {
                     x: 0.0,
                     y: 0.0,
-                    z: 100.0
+                    z: 0.0,
+                },
+                start_pos: Point {
+                    x: 250.0,
+                    y: 250.0,
+                    z: 750.0
                 },
                 tools: vec![
                     ToolConfig {
@@ -299,101 +323,120 @@ mod tests {
                 ]
             }
         );
-
-        assert_eq!(
-            ret.zero_point(),
-            Point {
-                x: 250.0,
-                y: 250.0,
-                z: 500.0
-            }
-        );
     }
 
     #[test]
     #[should_panic = "unknown variant `invalid`, expected `metric` or `imperial`"]
     fn bad_units() {
-        let json = "
+        let json = r#"
             {
-              \"units\": \"invalid\",
-              \"stock_size\": {
-                \"x\": 500,
-                \"y\": 500,
-                \"z\": 500
+              "setup": "milling",
+              "units": "invalid",
+              "stock": {
+                "shape": "cuboid",
+                "dimensions": {
+                  "x": 500,
+                  "y": 500,
+                  "z": 500
+                }
               },
-              \"zero_pos\": {
-                \"x\": \"mid\",
-                \"y\": \"mid\",
-                \"z\": \"max\"
+              "zero_pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
               },
-              \"start_pos\" : {
-                \"x\": 0,
-                \"y\": 0,
-                \"z\": 100
+              "start_pos": {
+                "x": 250,
+                "y": 250,
+                "z": 750
               },
-              \"tools\": [
+              "tools": [
                 {
-                  \"number\": 1,
-                  \"diameter\": 5,
-                  \"length\": 10
+                  "number": 1,
+                  "diameter": 5,
+                  "length": 10
+                },
+                {
+                  "number": 2,
+                  "diameter": 5,
+                  "length": 10
                 }
               ]
-            }";
+            }"#;
 
         Config::from_str(json).unwrap();
     }
 
     #[test]
-    #[should_panic = "unknown field `excess`, expected one of `units`, `stock_size`, `zero_pos`, `start_pos`, `tools`"]
+    #[should_panic = "unknown field `excess`, expected one of `setup`, `units`, `stock`, `zero_pos`, `start_pos`, `tools`"]
     fn excess() {
-        let json = "
+        let json = r#"
             {
-              \"units\": \"metric\",
-              \"stock_size\": {
-                \"x\": 500,
-                \"y\": 500,
-                \"z\": 500
+              "setup": "milling",
+              "units": "metric",
+              "stock": {
+                "shape": "cuboid",
+                "dimensions": {
+                  "x": 500,
+                  "y": 500,
+                  "z": 500
+                }
               },
-              \"zero_pos\": {
-                \"x\": \"mid\",
-                \"y\": \"mid\",
-                \"z\": \"max\"
+              "zero_pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
               },
-              \"start_pos\" : {
-                \"x\": 0,
-                \"y\": 0,
-                \"z\": 100
+              "start_pos": {
+                "x": 250,
+                "y": 250,
+                "z": 750
               },
-              \"tools\": [],
-              \"excess\": \"invalid\"
-            }";
+              "tools": [
+                {
+                  "number": 1,
+                  "diameter": 5,
+                  "length": 10
+                },
+                {
+                  "number": 2,
+                  "diameter": 5,
+                  "length": 10
+                }
+              ],
+              "excess": "invalid"
+            }"#;
 
         Config::from_str(json).unwrap();
     }
 
     #[test]
-    #[should_panic = "stock dimension is either negative or zero for 'X' axis"]
+    #[should_panic = "a stock dimension is either negative or zero"]
     fn invalid_stock() {
-        let json = "
+        let json = r#"
             {
-              \"units\": \"metric\",
-              \"stock_size\": {
-                \"x\": -500,
-                \"y\": 500,
-                \"z\": 500
+              "setup": "milling",
+              "units": "metric",
+              "stock": {
+                "shape": "cuboid",
+                "dimensions": {
+                  "x": -500,
+                  "y": 500,
+                  "z": 500
+                }
               },
-              \"zero_pos\": {
-                \"x\": \"mid\",
-                \"y\": \"mid\",
-                \"z\": \"max\"
+              "zero_pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
               },
-              \"start_pos\" : {
-                \"x\": 0,
-                \"y\": 0,
-                \"z\": 100
+              "start_pos": {
+                "x": 250,
+                "y": 250,
+                "z": 750
               },
-              \"tools\": []
-            }";
+              "tools": []
+            }"#;
 
         Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));
     }
@@ -401,32 +444,36 @@ mod tests {
     #[test]
     #[should_panic = "diameter or length is either negative or zero for tool number '2'"]
     fn invalid_tool() {
-        let json = "
+        let json = r#"
             {
-              \"units\": \"metric\",
-              \"stock_size\": {
-                \"x\": 500,
-                \"y\": 500,
-                \"z\": 500
+              "setup": "milling",
+              "units": "metric",
+              "stock": {
+                "shape": "cuboid",
+                "dimensions": {
+                  "x": 500,
+                  "y": 500,
+                  "z": 500
+                }
               },
-              \"zero_pos\": {
-                \"x\": \"mid\",
-                \"y\": \"mid\",
-                \"z\": \"max\"
+              "zero_pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
               },
-              \"start_pos\" : {
-                \"x\": 0,
-                \"y\": 0,
-                \"z\": 100
+              "start_pos": {
+                "x": 250,
+                "y": 250,
+                "z": 750
               },
-              \"tools\": [
+              "tools": [
                 {
-                  \"number\": 2,
-                  \"diameter\": -5,
-                  \"length\": 10
+                  "number": 2,
+                  "diameter": -5,
+                  "length": 10
                 }
               ]
-            }";
+            }"#;
 
         Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));
     }

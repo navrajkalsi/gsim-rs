@@ -13,6 +13,10 @@ exclude = ["gcodes", "media"]
 harness = false
 name = "source_bench"
 
+[[bench]]
+harness = false
+name = "lexer_bench"
+
 [dependencies]
 anyhow = "1.0.102"
 bytemuck = { version = "1.24", features = ["derive"] }

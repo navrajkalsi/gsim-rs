@@ -2,7 +2,7 @@
 ## 1 > 2
 
 . Merged two different `map`s for splitting into one, removing an additional allocation.
-. Tried `filter_map`, but found the performance to be **5%** worse than separate `map` and `filter`.
+. Tried `filter_map`, but found the performance to be **~5%** worse than separate `map` and `filter`.
 
 ``` diff
      pub fn from_lines(lines: Lines) -> Self {
