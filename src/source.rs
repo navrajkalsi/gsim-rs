@@ -8,24 +8,13 @@ use std::{
     str::Lines,
 };
 
-/// Represents a sanitized line.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Line(String);
-
-impl Line {
-    /// Extracts a string slice containing the entire [`Line`].
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized.
 ///
 /// Also keeps track of the index to return for [`Source::next`] call.
 #[derive(Clone, Debug)]
 pub struct Source {
-    lines: Vec<Line>,
+    lines: Vec<String>,
     index: usize,
 }
 
@@ -69,7 +58,7 @@ impl Source {
 
     /// Constructs a new [`Source`], from [`Lines`].
     ///
-    /// Each [`Line`] is computed **eagerly** on this function call.
+    /// Each line is computed **eagerly** on this function call.
     ///
     /// The `Source` returned is sanitized to have **NO**:
     /// - **comments**, starting with `(`.
@@ -89,7 +78,7 @@ impl Source {
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%')); // delete blocks and control character
 
         Self {
-            lines: sanitized.map(|l| Line(l.to_string())).collect(),
+            lines: sanitized.map(|l| l.to_string()).collect(),
             index: 0,
         }
     }
@@ -101,7 +90,7 @@ impl Source {
         self.index = 0
     }
 
-    /// **Optionally** returns the reference to contents of a [`Line`] at `index`,
+    /// **Optionally** returns the reference to contents of a line at `index`,
     /// as a `string slice`.
     pub fn get(&self, index: usize) -> Option<&str> {
         self.lines.get(index).map(|line| line.as_str())
@@ -111,18 +100,14 @@ impl Source {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
-}
 
-impl Iterator for Source {
-    type Item = Line;
-
-    /// **Optionally** returns a copy of the next [`Line`].
-    /// **Does not** remove the returned [`Line`] to support reloading the [`Source`].
-    fn next(&mut self) -> Option<Self::Item> {
+    /// **Optionally** returns a the next line as a string slice.
+    /// **Does not** remove the returned line to support reloading the [`Source`].
+    pub fn next(&mut self) -> Option<&str> {
         let line = self.lines.get(self.index)?;
         self.index += 1;
 
-        Some(line.clone())
+        Some(line)
     }
 }
 
@@ -491,20 +476,17 @@ mod tests {
     #[test]
     fn good() {
         std::fs::write(TESTFILE, TESTCODE).unwrap();
-        let result: Vec<Line> = RESULT
-            .lines()
-            .map(|line| Line(line.trim().to_string()))
-            .collect();
+        let result: Vec<String> = RESULT.lines().map(|line| line.trim().to_string()).collect();
 
         // file
         let src = Source::from_file(TESTFILE).unwrap();
-        let collected: Vec<Line> = src.collect();
+        let collected: Vec<String> = src.collect();
         std::fs::remove_file(TESTFILE).unwrap();
         assert_eq!(result, collected);
 
         // text
         let src = Source::from_str(TESTCODE);
-        let collected: Vec<Line> = src.collect();
+        let collected: Vec<String> = src.collect();
         assert_eq!(result, collected);
     }
 }

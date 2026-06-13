@@ -781,7 +781,8 @@ impl GCode {
 
 impl Display for GCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut textual = vec![format!("G{:0>2} - ", self.suffix())];
+        let mut textual = Vec::with_capacity(4);
+        textual.push(format!("G{:0>2} - ", self.suffix()));
 
         match self {
             Self::RapidMove(pos) => {
@@ -1031,7 +1032,8 @@ impl MCode {
 
 impl Display for MCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut textual = vec![format!("M{:0>2} - ", self.suffix())];
+        let mut textual = Vec::with_capacity(2);
+        textual.push(format!("M{:0>2} - ", self.suffix()));
 
         textual.push(match self {
             Self::Stop => "Program Stop".into(),
