@@ -84,3 +84,67 @@ Found 6 outliers among 100 measurements (6.00%)
   1 (1.00%) high mild
   5 (5.00%) high severe
 ```
+
+# Parser
+## 1 > 2
+
+. Removed `block.clone()` call and instead save the G and M codes in a `Vec` and parse them later.
+
+
+``` diff
+         let mut gcodes = GCodes::new();
+         let mut mcode = None;
+         let mut codes = Codes::new();
++        let mut gcodes_unparsed = Vec::new();
++        let mut mcode_unparsed = None;
+
+-        // parse and store only non G and non M tokens
+-        for token in block
+-            .clone()
+-            .filter(|token| token.prefix != b'G' && token.prefix != b'M')
+-        {
++        // do not parse G or M codes until every other code is parsed
++        for token in block {
+             let code = Code::parse(&token)?;
+-            codes.push(code)?;
++
++            match token.prefix {
++                b'G' => gcodes_unparsed.push(code),
++                b'M' => {
++                    if mcode_unparsed.is_some() {
++                        return Err(ParserError::DuplicatePrefix(b'M'));
++                    }
++                    mcode_unparsed = Some(code);
++                }
++                _ => codes.push(code)?,
++            }
+         }
+
+         // parse any mcode & gcode(s)
+-        for token in block.filter(|token| token.prefix == b'G' || token.prefix == b'M') {
+-            let code = Code::parse(&token)?;
++        for code in gcodes_unparsed {
++            gcodes.push(GCode::parse(code, &mut codes)?)?;
++        }
+
+-            if token.prefix == b'M' {
+-                if mcode.is_some() {
+-                    return Err(ParserError::DuplicatePrefix(b'M'));
+-                }
+-                mcode = Some(MCode::parse(code, &mut codes)?);
+-            } else {
+-                gcodes.push(GCode::parse(code, &mut codes)?)?;
+-            }
++        if let Some(code) = mcode_unparsed {
++            mcode = Some(MCode::parse(code, &mut codes)?);
+         }
+```
+
+```
+parser                  time:   [1.3781 ms 1.3907 ms 1.4042 ms]
+                        change: [−11.024% −9.4890% −7.7924%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 5 outliers among 100 measurements (5.00%)
+  4 (4.00%) high mild
+  1 (1.00%) high severe
+```

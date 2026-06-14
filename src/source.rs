@@ -479,14 +479,20 @@ mod tests {
         let result: Vec<String> = RESULT.lines().map(|line| line.trim().to_string()).collect();
 
         // file
-        let src = Source::from_file(TESTFILE).unwrap();
-        let collected: Vec<String> = src.collect();
+        let mut src = Source::from_file(TESTFILE).unwrap();
+        let mut collected = Vec::with_capacity(src.len());
+        while let Some(l) = src.next() {
+            collected.push(l.to_string());
+        }
         std::fs::remove_file(TESTFILE).unwrap();
         assert_eq!(result, collected);
 
         // text
-        let src = Source::from_str(TESTCODE);
-        let collected: Vec<String> = src.collect();
+        let mut src = Source::from_str(TESTCODE);
+        let mut collected = Vec::with_capacity(src.len());
+        while let Some(l) = src.next() {
+            collected.push(l.to_string());
+        }
         assert_eq!(result, collected);
     }
 }

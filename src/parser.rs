@@ -1088,28 +1088,32 @@ impl CodeBlock {
         let mut gcodes = GCodes::new();
         let mut mcode = None;
         let mut codes = Codes::new();
+        let mut gcodes_unparsed = Vec::new();
+        let mut mcode_unparsed = None;
 
-        // parse and store only non G and non M tokens
-        for token in block
-            .clone()
-            .filter(|token| token.prefix != b'G' && token.prefix != b'M')
-        {
+        // do not parse G or M codes until every other code is parsed
+        for token in block {
             let code = Code::parse(&token)?;
-            codes.push(code)?;
+
+            match token.prefix {
+                b'G' => gcodes_unparsed.push(code),
+                b'M' => {
+                    if mcode_unparsed.is_some() {
+                        return Err(ParserError::DuplicatePrefix(b'M'));
+                    }
+                    mcode_unparsed = Some(code);
+                }
+                _ => codes.push(code)?,
+            }
         }
 
         // parse any mcode & gcode(s)
-        for token in block.filter(|token| token.prefix == b'G' || token.prefix == b'M') {
-            let code = Code::parse(&token)?;
+        for code in gcodes_unparsed {
+            gcodes.push(GCode::parse(code, &mut codes)?)?;
+        }
 
-            if token.prefix == b'M' {
-                if mcode.is_some() {
-                    return Err(ParserError::DuplicatePrefix(b'M'));
-                }
-                mcode = Some(MCode::parse(code, &mut codes)?);
-            } else {
-                gcodes.push(GCode::parse(code, &mut codes)?)?;
-            }
+        if let Some(code) = mcode_unparsed {
+            mcode = Some(MCode::parse(code, &mut codes)?);
         }
 
         Ok(Self {
@@ -1156,7 +1160,7 @@ impl Parser {
         self.0.reload();
     }
 
-    /// **Optionally** returns the next [`Line`](crate::source::Line) as a string slice from the [`Source`](crate::source::Source).
+    /// **Optionally** returns the next line as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.0.get_line(index)
     }
