@@ -2,14 +2,20 @@ mod cli;
 mod config;
 mod geometry;
 mod gui;
-mod interpreter;
+pub mod interpreter;
 pub mod lexer;
 mod machine;
 pub mod parser;
 pub mod source;
 mod tui;
 
-use crate::{cli::Cli, config::Config, gui::Gui, machine::MotionSummary, tui::Tui};
+use crate::{
+    cli::Cli,
+    config::{Config, Setup},
+    gui::Gui,
+    machine::MotionSummary,
+    tui::Tui,
+};
 use clap::Parser;
 use std::fmt::Display;
 
@@ -99,6 +105,8 @@ pub fn run() -> anyhow::Result<()> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let cli = Cli::parse();
     let config = Config::from_file(cli.config.as_str())?;
+
+    assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
 
     let gui = Gui::build(sender)?;
     let tui = Tui::build(receiver, &cli, &config, gui.create_proxy())?;

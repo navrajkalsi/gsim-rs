@@ -35,8 +35,12 @@ pub enum Plane {
 
 impl Point {
     /// Constructor for a [`Point`] from X,Y, and Z axis values.
-    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
+    }
+
+    pub fn zero() -> Self {
+        Self::new(0.0, 0.0, 0.0)
     }
 
     /// Treats all the axes values in **metric** system, and converts them to **imperial** system.

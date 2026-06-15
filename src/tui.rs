@@ -30,6 +30,7 @@ use std::{
 };
 use winit::event_loop::EventLoopProxy;
 
+use crate::config::{Config, Unit};
 #[allow(unused_imports)]
 use crate::{
     BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
@@ -38,13 +39,12 @@ use crate::{
     interpreter::InterpreterError,
     interpreter::{BlockSummary, Interpreter},
     lexer::Lexer,
+    machine::Machine,
     machine::{CircularDirection, FeedMode, Motion, Positioning},
-    machine::{Machine, Unit},
     parser::Plane,
     parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
-use crate::{config::Config, config::Point};
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -162,7 +162,7 @@ impl Tui {
             boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
-                Machine::build(Point::new(500.0, 250.0, 250.0), Unit::default())?,
+                Machine::new(config.units, config.zero_pos, config.start_pos),
             ),
             current: 0,
             total: None,

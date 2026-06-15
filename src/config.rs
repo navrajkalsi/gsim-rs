@@ -68,6 +68,7 @@ pub struct Config {
     /// Machining setup for the entire program.
     pub setup: Setup,
     /// Unit system applied to all dimensional values (e.g. `stock_size`, `tool_length`).
+    /// [`Machine`](crate::machine) will also be configured with this system.
     pub units: Unit,
     /// Stock description.
     pub stock: Stock,

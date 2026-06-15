@@ -5,10 +5,10 @@
 
 #[allow(unused_imports)]
 use crate::{
-    config::Point,
+    config::{Point, Unit},
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
-        Positioning, ReturnLevel, Unit,
+        Positioning, ReturnLevel,
     },
     parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane},
 };
@@ -105,14 +105,9 @@ impl Interpreter {
 
                 GCode::CancelLenComp => machine.cancel_height_offset(),
 
-                GCode::MachineCoord(pos) => motion = Some(machine.move_machine_pos(pos)?),
+                GCode::MachineCoord(pos) => motion = Some(machine.move_machine_pos(pos)),
 
-                // always make the machine center as g54 offset
-                GCode::WorkCoord => machine.set_work_offset(Point::new(
-                    machine.max_travels().x / 2.0,
-                    machine.max_travels().y / 2.0,
-                    machine.max_travels().z / 2.0,
-                )),
+                GCode::WorkCoord => (),
 
                 GCode::CancelCanned => machine.cancel_canned(),
 
@@ -252,7 +247,7 @@ impl Interpreter {
         self.machine.reset();
     }
 
-    /// **Optionally** returns the next [`Line`](crate::source::Line)
+    /// **Optionally** returns the next line.
     /// as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.parser.get_line(index)

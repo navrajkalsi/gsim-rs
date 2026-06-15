@@ -12,7 +12,6 @@ use crate::{
     geometry::{
         BufferAction, LineInstance, LineInstancesTracker, StaticConfig, ToolInstance, Uniforms,
     },
-    machine::HOME_POS,
     tui::Tui,
 };
 use std::{
@@ -606,7 +605,7 @@ impl Graphics {
             mapped_at_creation: false,
         });
 
-        let tool = ToolInstance::at_point(HOME_POS);
+        let tool = ToolInstance::at_point(Point::zero());
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
         queue.submit([]);
 
