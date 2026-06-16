@@ -21,6 +21,10 @@ name = "lexer_bench"
 harness = false
 name = "parser_bench"
 
+[[bench]]
+harness = false
+name = "interpreter_bench"
+
 [dependencies]
 anyhow = "1.0.102"
 bytemuck = { version = "1.24", features = ["derive"] }

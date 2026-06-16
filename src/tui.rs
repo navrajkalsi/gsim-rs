@@ -142,14 +142,18 @@ impl Tui {
     /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
     pub fn build(
         signal: Receiver<Signal>,
-        cli: &Cli,
-        config: &Config,
+        cli: Cli,
+        config: Config,
         proxy: EventLoopProxy<Command>,
     ) -> anyhow::Result<Self> {
         let src = match &cli.source {
             Some(path) => Source::from_file(path),
             None => Source::from_stdin(),
         }?;
+
+        // this may be larger than the total number of summaries at the end,
+        // as summaries are only stored till the first M30 detect.
+        let len = src.len(); // for preallocation
 
         Ok(Self {
             signal,
@@ -167,7 +171,7 @@ impl Tui {
             current: 0,
             total: None,
             interrupt: Some(Interrupt::Start),
-            summaries: Vec::new(),
+            summaries: Vec::with_capacity(len),
             last_signal: None,
             error: None,
         })
@@ -314,7 +318,6 @@ impl Tui {
                             proceed = self.execute();
                         }
 
-                        // TODO verify interrupt order
                         KeyCode::Enter => match self.interrupt {
                             Some(Interrupt::End) => self.reload(),
                             Some(Interrupt::Start) => {

@@ -1,10 +1,10 @@
 mod cli;
-mod config;
+pub mod config;
 mod geometry;
 mod gui;
 pub mod interpreter;
 pub mod lexer;
-mod machine;
+pub mod machine;
 pub mod parser;
 pub mod source;
 mod tui;
@@ -108,8 +108,8 @@ pub fn run() -> anyhow::Result<()> {
 
     assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
 
-    let gui = Gui::build(sender)?;
-    let tui = Tui::build(receiver, &cli, &config, gui.create_proxy())?;
+    let gui = Gui::build(sender, config.clone())?;
+    let tui = Tui::build(receiver, cli, config, gui.create_proxy())?;
 
     let tui = std::thread::Builder::new()
         .name("TUI".to_string())

@@ -5,6 +5,7 @@
 //! The render loop receives render job [`Command`]s from the [`Tui`] thread,
 //! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
 
+use crate::config::Config;
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
@@ -28,6 +29,12 @@ use winit::{
     window::{Window, WindowId},
 };
 
+const max_travels: Point = Point {
+    x: 500.0,
+    y: 250.0,
+    z: 250.0,
+};
+
 /// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_buffer`].
 const MAX_INSTANCES: u32 = 100_000;
 
@@ -35,8 +42,8 @@ const MAX_INSTANCES: u32 = 100_000;
 pub struct Gui {
     /// Sender half of the channel for [`Signal`] to [`Tui`].
     signal: Sender<Signal>,
-    /// Maximum travel lengths of the [`Machine`](crate::machine::Machine) being rendered.
-    max_travels: Point,
+    /// [`Config`] for tool start position and stock dimensions.
+    config: Config,
     /// Currently processing [`Command`] received from [`Tui`].
     current_command: Option<Command>,
     /// Active GPU graphics state. [`None`] before window creation.
@@ -64,17 +71,17 @@ impl Gui {
     /// Constructs a new [`Gui`],
     /// initializing the [`EventLoop`] ready to receive [`Command`]s and send [`Signal`]s.
     ///
-    /// The event loop is configured to block and wait until a new (user of OS) event arrives.
+    /// The event loop is configured to block and wait until a new (user or OS) event arrives.
     ///
     /// # Errors
     /// Returns [`EventLoopError`] on failure to build the event loop.
-    pub fn build(signal: Sender<Signal>) -> Result<Self, EventLoopError> {
+    pub fn build(signal: Sender<Signal>, config: Config) -> Result<Self, EventLoopError> {
         let event_loop = EventLoop::<Command>::with_user_event().build()?;
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
         Ok(Self {
             signal,
-            max_travels: Point::new(500.0, 250.0, 250.0),
+            config,
             current_command: None,
             graphics: None,
             error: None,
@@ -149,7 +156,7 @@ impl ApplicationHandler<Command> for Gui {
         let graphics = match pollster::block_on(Graphics::build(
             event_loop.owned_display_handle(),
             Arc::new(window),
-            self.max_travels,
+            self.config.clone(),
             self.static_config,
         )) {
             Ok(g) => g,
@@ -261,19 +268,19 @@ impl ApplicationHandler<Command> for Gui {
 
             Command::SetBoundary(boundary) => {
                 self.static_config.set_machine_boundary(*boundary);
-                graphics.update_statics(self.max_travels, self.static_config);
+                graphics.update_statics(max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::SetGrid(grid) => {
                 self.static_config.set_grid(*grid);
-                graphics.update_statics(self.max_travels, self.static_config);
+                graphics.update_statics(max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::SetOrigin(origin) => {
                 self.static_config.set_origin(*origin);
-                graphics.update_statics(self.max_travels, self.static_config);
+                graphics.update_statics(max_travels, self.static_config);
                 graphics.window.request_redraw();
             }
 
@@ -339,6 +346,9 @@ pub struct Graphics {
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
 
+    stock_pipeline: wgpu::RenderPipeline,
+    stock_buffer: wgpu::Buffer,
+
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
     /// Read-only buffer containing [`Uniforms`].
@@ -359,13 +369,13 @@ impl Graphics {
     /// - [`LineInstance`] buffer and pipeline. Writes the static instances,
     ///   corresponding to the supplied [`StaticConfig`], to the beginning of [`Self::lines_buffer`].
     /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
-    ///   with the tool at [`HOME_POS`], and writes it to [`Self::tool_buffer`].
+    ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_buffer`].
     ///
     /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     async fn build(
         handle: OwnedDisplayHandle,
         window: Arc<Window>,
-        max_travels: Point,
+        config: Config,
         static_config: StaticConfig,
     ) -> anyhow::Result<Self> {
         let window_size = window.inner_size();
@@ -605,7 +615,7 @@ impl Graphics {
             mapped_at_creation: false,
         });
 
-        let tool = ToolInstance::at_point(Point::zero());
+        let tool = ToolInstance::at_point(Point::new(250.0, 125.0, 300.0));
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
         queue.submit([]);
 
@@ -767,7 +777,7 @@ impl Graphics {
 
     /// Regenerates the static [`LineInstance`]s with [`LineInstance::statics`],
     /// and overwrites them to the beginning of [`Self::lines_buffer`].
-    fn update_statics(&mut self, max_travels: Point, static_config: StaticConfig) {
+    fn update_statics(&mut self, _max_travels: Point, static_config: StaticConfig) {
         let instances = LineInstance::statics(max_travels, static_config);
 
         // update the fixed vertices

@@ -59,7 +59,7 @@ impl Interpreter {
 
         let mcode = block.mcode();
 
-        let mut gcodes = vec![];
+        let mut gcodes = vec![]; // preallocating does not help here and makes the performance worse
         for gcode in block.gcodes() {
             gcodes.push(gcode);
             match gcode {
@@ -149,7 +149,7 @@ impl Interpreter {
 
         let mut excess_codes = Codes::new(); // storing any coord codes for parsing them altogether
         let mut excess = false; // flag for deciding later if to parse or not
-        let mut codes = vec![];
+        let mut codes = vec![]; // preallocating does not help here and makes the performance worse
 
         for code in block.codes() {
             match code {

@@ -62,7 +62,7 @@ use crate::FLOAT_VARIANCE;
 use serde::Deserialize;
 
 /// Program configuration at start.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Machining setup for the entire program.
@@ -85,7 +85,7 @@ pub struct Config {
 }
 
 /// Available types of machining setups.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Setup {
     Milling,
@@ -101,7 +101,7 @@ pub enum Unit {
 }
 
 /// Description of a stock, irrespective of the machining setup.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "shape", content = "dimensions", rename_all = "lowercase")]
 pub enum Stock {
     /// A solid box.
@@ -121,7 +121,7 @@ pub enum Stock {
 }
 
 /// Axis choices for a 3 axis setup.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Axis {
     X,
@@ -138,7 +138,7 @@ pub struct Point {
 }
 
 /// Tool configuration.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ToolConfig {
     /// Number of the tool.
     /// This is denoted with a `T` code in G-code.
