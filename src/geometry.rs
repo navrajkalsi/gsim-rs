@@ -126,20 +126,20 @@ pub struct LineInstance {
 impl LineInstance {
     pub fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: size_of::<i32>() as wgpu::BufferAddress * 2,
+            array_stride: size_of::<u32>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[wgpu::VertexAttribute {
                 offset: 0,
                 shader_location: 0,
-                format: wgpu::VertexFormat::Sint8x2,
+                format: wgpu::VertexFormat::Uint32,
             }],
         }
     }
 
     // vertices of a quad
     // one quad per instance
-    pub fn vertices() -> [[i8; 2]; 4] {
-        [[-1, -1], [1, -1], [-1, 1], [1, 1]]
+    pub fn vertices() -> [u32; 4] {
+        [0, 1, 2, 3]
     }
 
     pub fn instance_buffer_layout() -> wgpu::VertexBufferLayout<'static> {

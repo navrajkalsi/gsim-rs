@@ -21,7 +21,7 @@ struct Uniforms {
 var<uniform> uniforms: Uniforms;
 
 struct VertexInput {
-    @location(0) vertex: vec2<i32>,
+    @location(0) vertex: u32,
 };
 
 struct InstanceInput {
@@ -51,21 +51,30 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     }
 
     let window_size = uniforms.window_size;
+
+    // scaled to fit the screen, in pixels
+    let start = uniforms.projection * vec4<f32>(instance.start, 1.0);
+    let end = uniforms.projection * vec4<f32>(instance.end, 1.0);
+
     // unit vector from start to end
-    let dir = normalize(instance.end.xy - instance.start.xy);
+    let dir = normalize(end - start);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
-    let normal = vec2<f32>(-dir.y, dir.x);
-    let tangent = dir;
+    let normal = vec2<f32>(-dir.y, dir.x) * instance.stroke_width * 0.5;
 
-    let offset = f32(quad.vertex.x) * tangent +
-    f32(quad.vertex.y) * normal * instance.stroke_width * 0.5;
-
-    let world = mix(instance.start.xy, instance.end.xy, 0.5) + offset;
+    // 4 vertices to form a rectangular line
+    let vertices = array(
+        vec2<f32>(start.xy - normal),
+        vec2<f32>(start.xy + normal),
+        vec2<f32>(end.xy - normal),
+        vec2<f32>(end.xy + normal),
+    );
 
     var out: VertexOutput;
-    out.color = instance.color;
 
-    out.clip_position = uniforms.projection * vec4<f32>(world, instance.depth, 1.0);
+    // convert to ndc
+    // direction already match ndc
+    out.clip_position = vec4<f32>((vertices[quad.vertex] / window_size * 2.0), instance.depth, 1.0);
+    out.color = instance.color;
 
     return out;
 };
