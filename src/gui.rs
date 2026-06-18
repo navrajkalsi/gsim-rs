@@ -36,7 +36,7 @@ const max_travels: Point = Point {
 };
 
 /// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_buffer`].
-const MAX_INSTANCES: u32 = 100_000;
+const MAX_INSTANCES: u64 = 1_000_000;
 
 /// Represents the current state of the [`Gui`](crate::gui), owned by the **main thread**.
 pub struct Gui {
@@ -322,10 +322,14 @@ pub struct Graphics {
 
     /// Pipeline for rendering [`LineInstance`].
     lines_pipeline: wgpu::RenderPipeline,
+
     /// Vertex buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
     /// [`Self::static_count`] number of static instances hold the start of this buffer,
     /// which makes upto [`Self::static_offset`] in memory.
-    lines_buffer: wgpu::Buffer,
+    lines_vertex_buffer: wgpu::Buffer,
+    lines_instance_buffer: wgpu::Buffer,
+    lines_index_buffer: wgpu::Buffer,
+
     /// Total number of [`LineInstance`]s in [`Self::lines_buffer`],
     /// including both static and toolpath representing instances.
     lines_count: u32,
@@ -345,9 +349,6 @@ pub struct Graphics {
     /// Tracks total [`LineInstance`]s drawn and left to be drawn to
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
-
-    stock_pipeline: wgpu::RenderPipeline,
-    stock_buffer: wgpu::Buffer,
 
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
@@ -493,19 +494,23 @@ impl Graphics {
 
         let lines_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Lines"),
+                label: Some("Lines Pipeline Layout"),
                 bind_group_layouts: &[Some(&bind_group_layout)],
                 immediate_size: 0,
             });
 
         let lines_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Lines"),
+            label: Some("Lines Pipeline"),
             layout: Some(&lines_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[LineInstance::buffer_layout()],
+                buffers: &[
+                    // @location of buffers is decided here
+                    LineInstance::vertex_buffer_layout(),
+                    LineInstance::instance_buffer_layout(),
+                ],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -544,14 +549,31 @@ impl Graphics {
 
         let static_instances = LineInstance::statics(max_travels, static_config);
 
-        let lines_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Lines"),
-            size: MAX_INSTANCES as u64 * size_of::<LineInstance>() as u64,
+        // this vertex buffer is constant and can be mapped at creation
+        let lines_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Lines Vertex Buffer"),
+            contents: bytemuck::cast_slice(&LineInstance::vertices()),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let lines_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Lines Instance Buffer"),
+            size: MAX_INSTANCES * size_of::<LineInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        queue.write_buffer(&lines_buffer, 0, bytemuck::cast_slice(&static_instances));
+        let lines_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Lines Index Buffer"),
+            contents: bytemuck::cast_slice(&LineInstance::indices()),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        queue.write_buffer(
+            &lines_instance_buffer,
+            0,
+            bytemuck::cast_slice(&static_instances),
+        );
 
         // ######## Tool Vertex ########
         //
@@ -627,7 +649,11 @@ impl Graphics {
             depth_view,
             config,
             lines_pipeline,
-            lines_buffer,
+
+            lines_vertex_buffer,
+            lines_instance_buffer,
+            lines_index_buffer,
+
             lines_count: static_instances.len() as u32,
             lines_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
             static_count: static_instances.len() as u32,
@@ -729,7 +755,7 @@ impl Graphics {
     /// to the buffer.
     fn overwrite_instance(&mut self, instance: LineInstance, update_tool: bool) {
         self.queue.write_buffer(
-            &self.lines_buffer,
+            &self.lines_instance_buffer,
             self.lines_offset - bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64,
             bytemuck::cast_slice(&[instance]),
         );
@@ -752,12 +778,12 @@ impl Graphics {
     /// [`LineInstance`].
     fn add_instance(&mut self, instance: LineInstance, update_tool: bool) -> anyhow::Result<()> {
         self.queue.write_buffer(
-            &self.lines_buffer,
+            &self.lines_instance_buffer,
             self.lines_offset,
             bytemuck::cast_slice(&[instance]),
         );
 
-        if self.lines_count + 1 > MAX_INSTANCES {
+        if self.lines_count + 1 > MAX_INSTANCES as u32 {
             anyhow::bail!("Lines vertex buffer overflow.");
         }
 
@@ -781,8 +807,11 @@ impl Graphics {
         let instances = LineInstance::statics(max_travels, static_config);
 
         // update the fixed vertices
-        self.queue
-            .write_buffer(&self.lines_buffer, 0, bytemuck::cast_slice(&instances));
+        self.queue.write_buffer(
+            &self.lines_instance_buffer,
+            0,
+            bytemuck::cast_slice(&instances),
+        );
     }
 
     /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_buffer`].
@@ -839,7 +868,7 @@ impl Graphics {
             });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("GSim"),
+            label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &view,
                 depth_slice: None,
@@ -870,8 +899,10 @@ impl Graphics {
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
         render_pass.set_pipeline(&self.lines_pipeline);
-        render_pass.set_vertex_buffer(0, self.lines_buffer.slice(..));
-        render_pass.draw(0..6, 0..self.lines_count);
+        render_pass.set_vertex_buffer(0, self.lines_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.lines_instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.lines_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..6, 0, 0..self.lines_count);
 
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));

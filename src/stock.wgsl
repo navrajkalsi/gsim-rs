@@ -30,97 +30,76 @@ fn clipped() -> VertexOutput {
 
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
-    if index >= 12 {
+    if index >= 36 {
         // not possible
         // clip out
         return clipped();
     }
 
-    var position = vec4<f32>(in.pos, 1.0);
-    let half = 12.5;
+    // one of the 6 faces of the cube
+    let face = index / 6;
+    // one of the 6 vertices to create 2 triangles which make a face
+    let vertex = index % 6;
 
-    switch index {
-        case 0 {
-            position.x -= half;
-            position.y += half;
-            position.z += half;
-        }
-        case 1 {
-            position.x -= half;
-            position.y -= half;
-            position.z += half;
-        }
-        case 2 {
-            position.x -= half;
-            position.y += half;
-            position.z -= half;
-        }
-        case 3 {
-            position.x -= half;
-            position.y += half;
-            position.z += half;
-        }
-        case 7 {
-            // first wall triangle top first
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
-            position.z += tool_len;
-        }
-        case 6 {
-            // first wall triangle top second
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
-            position.z += tool_len;
-        }
-        case 5 {
-            // second wall triangle top
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
-            position.z += tool_len;
-        }
-        case 4 {
-            // second wall triangle bottom first
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
-            position.z += 0.0;
-        }
-        case 3 {
-            // second wall triangle bottom second
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
-            position.z += 0.0;
-        }
-        case 2 {
-            // top circle center
-            position.x += 0.0;
-            position.y += 0.0;
-            position.z += tool_len;
-        }
-        case 1 {
-            // top circle perimeter point at curent angle
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
-            position.z += tool_len;
-        }
-        case 0u {
-            // bottom circle perimeter point at next unit degree angle
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
-            position.z += tool_len;
-        }
-        default {
-            return clipped();
-        }
-    }
+    let half = 100.0;
+
+    // offsets for different corners
+    let left_bottom_near = in.pos + vec3<f32>(-half, -half, -half);
+    let left_bottom_far = in.pos + vec3<f32>(-half, -half, half);
+    let left_top_near = in.pos + vec3<f32>(-half, half, -half);
+    let left_top_far = in.pos + vec3<f32>(-half, half, half);
+    let right_bottom_near = in.pos + vec3<f32>(half, -half, -half);
+    let right_bottom_far = in.pos + vec3<f32>(half, -half, half);
+    let right_top_near = in.pos + vec3<f32>(half, half, -half);
+    let right_top_far = in.pos + vec3<f32>(half, half, half);
+
+    let vertices = array(
+        left_bottom_far, // bottom face
+        left_bottom_near,
+        right_bottom_far,
+        right_bottom_far,
+        left_bottom_near,
+        right_bottom_near,
+        left_top_far, // top face
+        left_top_near,
+        right_top_far,
+        right_top_far,
+        left_top_near,
+        right_top_near,
+        left_bottom_near,// left face
+        left_bottom_far,
+        left_top_near,
+        left_top_near,
+        left_bottom_far,
+        left_top_far,
+        right_bottom_near,// right face
+        right_bottom_far,
+        right_top_near,
+        right_top_near,
+        right_bottom_far,
+        right_top_far,
+        left_top_far,// top face
+        left_top_near,
+        right_top_far,
+        right_top_far,
+        left_top_near,
+        left_bottom_far,// bottom face
+        left_bottom_near,
+        right_bottom_far,
+        right_bottom_far,
+        left_bottom_near,
+        right_bottom_near,
+        right_bottom_near,
+    );
 
     let window_size = uniforms.window_size;
 
     // convert position to number of pixels
-    position = uniforms.projection * position;
+    let position = uniforms.projection * vec4<f32>(vertices[index], 1.0);
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>((position.xy / window_size * 2.0), 0.0, 1.0);
-    out.color = uniforms.tool_color;
+    out.color = vec4<f32>(0.5, 0.5, 0.5, 1.0);
 
     return out;
 }

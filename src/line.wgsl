@@ -21,12 +21,16 @@ struct Uniforms {
 var<uniform> uniforms: Uniforms;
 
 struct VertexInput {
-    @location(0) start: vec3<f32>,
-    @location(1) end: vec3<f32>,
-    @location(2) color: vec3<f32>,
-    @location(3) stroke_width: f32,
-    @location(4) depth: f32,
+    @location(0) vertex: vec2<i32>,
 };
+
+struct InstanceInput {
+    @location(1) start: vec3<f32>,
+    @location(2) end: vec3<f32>,
+    @location(3) color: vec3<f32>,
+    @location(4) stroke_width: f32,
+    @location(5) depth: f32,
+}
 
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
@@ -38,41 +42,30 @@ const smooth_step = 1.5;
 
 // mark as a valid vertex shader
 @vertex
-fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
+fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     // exactly 0 stroke width is intentional and meant when the vertex is not to be shown
-    if in.stroke_width == 0.0 {
+    if instance.stroke_width == 0.0 {
         var clipped: VertexOutput;
         clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
         return clipped;
     }
 
     let window_size = uniforms.window_size;
-
-    // scaled to fit the screen, in pixels
-    let start = uniforms.projection * vec4<f32>(in.start, 1.0);
-    let end = uniforms.projection * vec4<f32>(in.end, 1.0);
-
     // unit vector from start to end
-    let dir = normalize(end - start);
+    let dir = normalize(instance.end.xy - instance.start.xy);
     // normal vector, to get perpendicular direction, with magnitude of stroke width
-    let normal = vec2<f32>(-dir.y, dir.x) * in.stroke_width * 0.5;
+    let normal = vec2<f32>(-dir.y, dir.x);
+    let tangent = dir;
 
-    // 4 vertices to form a rectangular line
-    var v1 = vec2<f32>(start.xy - normal);
-    var v2 = vec2<f32>(start.xy + normal);
-    var v3 = vec2<f32>(end.xy - normal);
-    var v4 = vec2<f32>(end.xy + normal);
+    let offset = f32(quad.vertex.x) * tangent +
+    f32(quad.vertex.y) * normal * instance.stroke_width * 0.5;
 
-    let vertices = array(
-        v1, v2, v3, v2, v4, v3
-    );
+    let world = mix(instance.start.xy, instance.end.xy, 0.5) + offset;
 
     var out: VertexOutput;
+    out.color = instance.color;
 
-    // convert to ndc
-    // direction already match ndc
-    out.clip_position = vec4<f32>((vertices[index] / window_size * 2.0), in.depth, 1.0);
-    out.color = in.color;
+    out.clip_position = uniforms.projection * vec4<f32>(world, instance.depth, 1.0);
 
     return out;
 };

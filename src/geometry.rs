@@ -124,45 +124,61 @@ pub struct LineInstance {
 }
 
 impl LineInstance {
-    /// Returns a [`VertexBufferLayout`](wgpu::VertexBufferLayout) that describes how
-    /// [`LineInstance`]s are stored in a GPU buffer.
-    ///
-    /// The layout is set to use [`VertexStepMode::Instance`](wgpu::VertexStepMode::Instance),
-    /// which allows the vertex shader to expand a single line segment into polygons (two triangles)
-    /// by receiving the same [`LineInstance`] 6 times.
-    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+    pub fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: size_of::<i32>() as wgpu::BufferAddress * 2,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Sint8x2,
+            }],
+        }
+    }
+
+    // vertices of a quad
+    // one quad per instance
+    pub fn vertices() -> [[i8; 2]; 4] {
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]]
+    }
+
+    pub fn instance_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: size_of::<Self>() as wgpu::BufferAddress,
-            // share the same buffer entry across a number of vertices
+            // this buffer represents unique data across instances
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttribute {
                     offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    offset: size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    shader_location: 4,
                     format: wgpu::VertexFormat::Float32,
                 },
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 10]>() as wgpu::BufferAddress,
-                    shader_location: 4,
+                    shader_location: 5,
                     format: wgpu::VertexFormat::Float32,
                 },
             ],
         }
+    }
+
+    pub fn indices() -> [u16; 6] {
+        [0, 1, 2, 2, 1, 3] // counter clockwise
     }
 
     /// Generates a vector of [`LineInstance`]s which render the static geometry (boundary, grid,
