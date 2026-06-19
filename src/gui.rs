@@ -5,7 +5,6 @@
 //! The render loop receives render job [`Command`]s from the [`Tui`] thread,
 //! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
 
-use crate::config::Config;
 #[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
@@ -15,6 +14,7 @@ use crate::{
     },
     tui::Tui,
 };
+use crate::{config::Config, geometry::StockInstance};
 use std::{
     mem::size_of,
     sync::{Arc, mpsc::Sender},
@@ -346,6 +346,12 @@ pub struct Graphics {
     /// Vertex buffer configured to hold a single [`ToolInstance`].
     tool_buffer: wgpu::Buffer,
 
+    stock_pipeline: wgpu::RenderPipeline,
+    stock_vertex_buffer: wgpu::Buffer,
+    stock_instance_buffer: wgpu::Buffer,
+    stock_index_buffer: wgpu::Buffer,
+    stock_count: u32,
+
     /// Tracks total [`LineInstance`]s drawn and left to be drawn to
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
@@ -639,6 +645,95 @@ impl Graphics {
 
         let tool = ToolInstance::at_point(Point::new(250.0, 125.0, 300.0));
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
+
+        // ######## Stock Vertex ########
+        //
+        // mini program that runs on the gpu
+        let shader = device.create_shader_module(wgpu::include_wgsl!("stock.wgsl"));
+
+        let stock_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Stock Pipeline Layout"),
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
+            });
+
+        let stock_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Stock Pipeline"),
+            layout: Some(&stock_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[
+                    // @location of buffers is decided here
+                    StockInstance::vertex_buffer_layout(),
+                    StockInstance::instance_buffer_layout(),
+                ],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // render every triangle, irrespective of forward facing or not
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        // this vertex buffer is constant and can be mapped at creation
+        let stock_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Stock Vertex Buffer"),
+            contents: bytemuck::cast_slice(&StockInstance::vertices()),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        // let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: Some("Stock Instance Buffer"),
+        //     size: MAX_INSTANCES * size_of::<StockInstance>() as u64,
+        //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
+
+        let stock = StockInstance::stock(max_travels);
+
+        let stock_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Stock Instance Buffer"),
+            contents: bytemuck::cast_slice(&stock),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let stock_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Stock Index Buffer"),
+            contents: bytemuck::cast_slice(&StockInstance::indices()),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         queue.submit([]);
 
         Ok(Self {
@@ -660,6 +755,13 @@ impl Graphics {
             static_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
             tool_pipeline,
             tool_buffer,
+
+            stock_pipeline,
+            stock_vertex_buffer,
+            stock_instance_buffer,
+            stock_index_buffer,
+            stock_count: stock.len() as u32,
+
             lines_tracker: LineInstancesTracker::new(),
             uniforms,
             uniform_buffer,
@@ -907,6 +1009,12 @@ impl Graphics {
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
         render_pass.draw(0..432, 0..1);
+
+        render_pass.set_pipeline(&self.stock_pipeline);
+        render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
 
         drop(render_pass);
 
