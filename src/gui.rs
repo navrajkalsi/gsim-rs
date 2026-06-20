@@ -443,17 +443,17 @@ impl Graphics {
         };
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("GSim"),
+            label: Some("Depth Texture"),
             size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
+                width: config.width.max(1),
+                height: config.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -783,7 +783,7 @@ impl Graphics {
             self.configured = true;
 
             self.depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("GSim"),
+                label: Some("Depth Texture"),
                 size: wgpu::Extent3d {
                     width,
                     height,
@@ -1000,16 +1000,19 @@ impl Graphics {
 
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
+        // lines
         render_pass.set_pipeline(&self.lines_pipeline);
         render_pass.set_vertex_buffer(0, self.lines_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.lines_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.lines_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..6, 0, 0..self.lines_count);
 
+        // tool
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
         render_pass.draw(0..432, 0..1);
 
+        // stock
         render_pass.set_pipeline(&self.stock_pipeline);
         render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));

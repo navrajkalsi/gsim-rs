@@ -59,7 +59,8 @@ const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
 /// Machine units travelled per frame.
 const SPEED: f32 = 5.0;
 
-const STOCK_RESOLUTION: f32 = 5.0;
+/// stock width, number of cubes on the longest axis
+const STOCK_RESOLUTION: f32 = 100.0;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
@@ -995,23 +996,22 @@ impl StockInstance {
 
     pub fn stock(size: Point) -> Vec<Self> {
         let largest = size.x.max(size.y).max(size.z);
-        let resolution = largest / STOCK_RESOLUTION; // number of cubes on the largest axis
-        let edge = largest / resolution; // edge of each cube
+        let edge = largest / STOCK_RESOLUTION; // edge of each cube
 
         let start = edge / 2.0;
 
         let mut current_x = start;
         let mut current_y = start;
         let mut current_z = start;
-        let mut ret = Vec::with_capacity(
-            (size.x / edge).ceil() as usize
-                * (size.y / edge).ceil() as usize
-                * (size.z / edge).ceil() as usize,
-        );
+        let len_x = (size.x / edge).ceil() as usize;
+        let len_y = (size.y / edge).ceil() as usize;
+        let len_z = (size.z / edge).ceil() as usize;
 
-        while current_x < size.x {
-            while current_y < size.y {
-                while current_z < size.z {
+        let mut ret = Vec::with_capacity(len_x * len_y * len_z);
+
+        for _ in 0..len_x {
+            for _ in 0..len_y {
+                for _ in 0..len_z {
                     ret.push(Self {
                         center: [current_x, current_y, current_z],
                     });
@@ -1025,5 +1025,47 @@ impl StockInstance {
         }
 
         ret
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stock() {
+        let size = Point::new(500.0, 250.0, 250.0);
+        let edge = size.x.max(size.y).max(size.z) / STOCK_RESOLUTION; // edge of each cube
+
+        let start = edge / 2.0;
+
+        let mut current_x = start;
+        let mut current_y = start;
+        let mut current_z = start;
+
+        let mut oracle = Vec::with_capacity(
+            (size.x / edge).ceil() as usize
+                + (size.y / edge).ceil() as usize
+                + (size.z / edge).ceil() as usize,
+        );
+
+        while current_x < size.x {
+            while current_y < size.y {
+                while current_z < size.z {
+                    oracle.push(StockInstance {
+                        center: [current_x, current_y, current_z],
+                    });
+                    current_z += edge;
+                }
+                current_z = start;
+                current_y += edge;
+            }
+            current_y = start;
+            current_x += edge;
+        }
+
+        let stock = StockInstance::stock(size);
+
+        assert_eq!(stock, oracle);
     }
 }

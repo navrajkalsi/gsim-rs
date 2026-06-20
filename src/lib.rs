@@ -1,6 +1,6 @@
 mod cli;
 pub mod config;
-mod geometry;
+pub mod geometry;
 mod gui;
 pub mod interpreter;
 pub mod lexer;

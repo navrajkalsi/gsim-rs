@@ -148,3 +148,49 @@ Found 5 outliers among 100 measurements (5.00%)
   4 (4.00%) high mild
   1 (1.00%) high severe
 ```
+
+# Geometry
+## 1 > 2
+
+. Removed equality check for every loop.
+
+``` diff
+diff --git a/src/geometry.rs b/src/geometry.rs
+index 7956882..a0b411b 100644
+--- a/src/geometry.rs
++++ b/src/geometry.rs
+@@ -1003,16 +1003,15 @@ impl StockInstance {
+         let mut current_x = start;
+         let mut current_y = start;
+         let mut current_z = start;
++        let len_x = (size.x / edge).ceil() as usize;
++        let len_y = (size.y / edge).ceil() as usize;
++        let len_z = (size.z / edge).ceil() as usize;
+
+-        let mut ret = Vec::with_capacity(
+-            (size.x / edge).ceil() as usize
+-                + (size.y / edge).ceil() as usize
+-                + (size.z / edge).ceil() as usize,
+-        );
++        let mut ret = Vec::with_capacity(len_x * len_y * len_z);
+
+-        while current_x < size.x {
+-            while current_y < size.y {
+-                while current_z < size.z {
++        for _ in 0..len_x {
++            for _ in 0..len_y {
++                for _ in 0..len_z {
+                     ret.push(Self {
+                         center: [current_x, current_y, current_z],
+                     });
+```
+
+```
+geometry                time:   [3.4586 ms 3.4779 ms 3.4972 ms]
+                        change: [−10.278% −9.6613% −9.0756%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 18 outliers among 100 measurements (18.00%)
+  11 (11.00%) low mild
+  6 (6.00%) high mild
+  1 (1.00%) high severe
+```

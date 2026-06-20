@@ -37,7 +37,7 @@ fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
     // convert to ndc
     // direction already match ndc
     out.clip_position = vec4<f32>((world.xy / window_size * 2.0), 0.0, 1.0);
-    out.color = vec3<f32>(0.6, 0.6, 0.6);
+    out.color = vec3<f32>(0.0, 0.0, 0.0);
 
     return out;
 };
