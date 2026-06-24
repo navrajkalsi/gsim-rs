@@ -35,10 +35,12 @@ struct InstanceInput {
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) @interpolate(flat) color: vec3<f32>,
+    @location(1) center: f32, // distance from center
+    @location(2) @interpolate(flat) stroke_width: f32, // optimize so that each pixel gets the same width
 };
 
-const smooth_step = 1.5;
+const smoothing = 1.75; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 // mark as a valid vertex shader
 @vertex
@@ -58,28 +60,32 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     // unit vector from start to end
     let dir = normalize(end - start);
-    // normal vector, to get perpendicular direction, with magnitude of stroke width
-    let normal = vec2<f32>(-dir.y, dir.x) * instance.stroke_width * 0.5;
+    // normal vector, to get perpendicular direction
+    let normal = vec2<f32>(-dir.y, dir.x);
 
-    // 4 vertices to form a rectangular line
-    let vertices = array(
-        vec2<f32>(start.xy - normal),
-        vec2<f32>(start.xy + normal),
-        vec2<f32>(end.xy - normal),
-        vec2<f32>(end.xy + normal),
-    );
+    // vertex: 0,2 = -normal
+    // vertex: 1,3 = +normal
+    // halfs the normal vector and adds sign to it
+    let side = select(0.5, -0.5, quad.vertex % 2 == 0);
+
+    let offset = normal * instance.stroke_width * side;
+    // use first two vertex invocations for start side
+    let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
 
     var out: VertexOutput;
-
-    // convert to ndc
-    // direction already match ndc
-    out.clip_position = vec4<f32>((vertices[quad.vertex] / window_size * 2.0), instance.depth, 1.0);
+    out.clip_position = vec4<f32>(pos / uniforms.window_size * 2.0, instance.depth, 1.0);
     out.color = instance.color;
-
+    out.center = side;
+    out.stroke_width = instance.stroke_width;
     return out;
-};
+}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    let offset = abs(in.center) * in.stroke_width; // distance from center in pixels
+    let stroke = in.stroke_width * 0.5; // half the stroke width in pixels
+
+    let alpha = 1.0 - smoothstep(stroke - smoothing, stroke, offset);
+
+    return vec4<f32>(in.color, alpha);
 }

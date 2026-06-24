@@ -29,7 +29,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-const max_travels: Point = Point {
+const MAX_TRAVELS: Point = Point {
     x: 500.0,
     y: 250.0,
     z: 250.0,
@@ -268,19 +268,19 @@ impl ApplicationHandler<Command> for Gui {
 
             Command::SetBoundary(boundary) => {
                 self.static_config.set_machine_boundary(*boundary);
-                graphics.update_statics(max_travels, self.static_config);
+                graphics.update_statics(MAX_TRAVELS, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::SetGrid(grid) => {
                 self.static_config.set_grid(*grid);
-                graphics.update_statics(max_travels, self.static_config);
+                graphics.update_statics(MAX_TRAVELS, self.static_config);
                 graphics.window.request_redraw();
             }
 
             Command::SetOrigin(origin) => {
                 self.static_config.set_origin(*origin);
-                graphics.update_statics(max_travels, self.static_config);
+                graphics.update_statics(MAX_TRAVELS, self.static_config);
                 graphics.window.request_redraw();
             }
 
@@ -318,7 +318,7 @@ pub struct Graphics {
     /// View for [`Self::depth_texture`] to be used in the render pass.
     depth_view: wgpu::TextureView,
     /// Description of a [`Surface`](wgpu::Surface).
-    config: wgpu::SurfaceConfiguration,
+    surface_config: wgpu::SurfaceConfiguration,
 
     /// Pipeline for rendering [`LineInstance`].
     lines_pipeline: wgpu::RenderPipeline,
@@ -431,7 +431,7 @@ impl Graphics {
             .find(|format| format.is_srgb())
             .unwrap_or(*surface_caps.formats.first().expect("At least one format must be present, as the adapter is created to be compatible with the surface"));
 
-        let config = wgpu::SurfaceConfiguration {
+        let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: window_size.width,
@@ -445,8 +445,8 @@ impl Graphics {
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
             size: wgpu::Extent3d {
-                width: config.width.max(1),
-                height: config.height.max(1),
+                width: surface_config.width.max(1),
+                height: surface_config.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -462,7 +462,7 @@ impl Graphics {
         // ######## Uniforms ########
         //
         // static data to be passed to the shader, that is common to vertices
-        let uniforms = Uniforms::new(window_size, max_travels);
+        let uniforms = Uniforms::new(window_size, MAX_TRAVELS);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GSim"),
@@ -544,8 +544,19 @@ impl Graphics {
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -553,7 +564,7 @@ impl Graphics {
             cache: None,
         });
 
-        let static_instances = LineInstance::statics(max_travels, static_config);
+        let static_instances = LineInstance::statics(MAX_TRAVELS, static_config);
 
         // this vertex buffer is constant and can be mapped at creation
         let lines_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -627,7 +638,7 @@ impl Graphics {
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: surface_config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -643,7 +654,7 @@ impl Graphics {
             mapped_at_creation: false,
         });
 
-        let tool = ToolInstance::at_point(Point::new(250.0, 125.0, 300.0));
+        let tool = ToolInstance::at_point(config.start_pos);
         queue.write_buffer(&tool_buffer, 0, bytemuck::cast_slice(&[tool]));
 
         // ######## Stock Vertex ########
@@ -697,7 +708,7 @@ impl Graphics {
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: surface_config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -720,12 +731,13 @@ impl Graphics {
         //     mapped_at_creation: false,
         // });
 
-        let stock = StockInstance::stock(max_travels);
+        let stock = StockInstance::stock(MAX_TRAVELS);
 
-        let stock_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
-            contents: bytemuck::cast_slice(&stock),
+            size: stock.len() as u64 * size_of::<LineInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let stock_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -734,6 +746,7 @@ impl Graphics {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        queue.write_buffer(&stock_instance_buffer, 0, bytemuck::cast_slice(&stock));
         queue.submit([]);
 
         Ok(Self {
@@ -742,7 +755,7 @@ impl Graphics {
             surface,
             depth_texture,
             depth_view,
-            config,
+            surface_config,
             lines_pipeline,
 
             lines_vertex_buffer,
@@ -777,9 +790,9 @@ impl Graphics {
         let height = new_size.height;
 
         if width > 0 && height > 0 {
-            self.config.width = width;
-            self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
+            self.surface_config.width = width;
+            self.surface_config.height = height;
+            self.surface.configure(&self.device, &self.surface_config);
             self.configured = true;
 
             self.depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -906,7 +919,7 @@ impl Graphics {
     /// Regenerates the static [`LineInstance`]s with [`LineInstance::statics`],
     /// and overwrites them to the beginning of [`Self::lines_buffer`].
     fn update_statics(&mut self, _max_travels: Point, static_config: StaticConfig) {
-        let instances = LineInstance::statics(max_travels, static_config);
+        let instances = LineInstance::statics(MAX_TRAVELS, static_config);
 
         // update the fixed vertices
         self.queue.write_buffer(
@@ -939,7 +952,7 @@ impl Graphics {
             CurrentSurfaceTexture::Suboptimal(surface_texture) => {
                 // texture out of date with respect to the surface, need reconfiguration
                 // still got the texture though
-                self.surface.configure(&self.device, &self.config);
+                self.surface.configure(&self.device, &self.surface_config);
                 surface_texture
             }
             CurrentSurfaceTexture::Timeout
@@ -950,7 +963,7 @@ impl Graphics {
             }
             CurrentSurfaceTexture::Outdated => {
                 // texture out of date with respect to the surface, need reconfiguration
-                self.surface.configure(&self.device, &self.config);
+                self.surface.configure(&self.device, &self.surface_config);
                 return Ok(());
             }
             CurrentSurfaceTexture::Lost => {
@@ -1017,7 +1030,7 @@ impl Graphics {
         render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
+        // render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
 
         drop(render_pass);
 

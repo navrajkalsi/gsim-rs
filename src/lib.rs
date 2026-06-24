@@ -11,7 +11,7 @@ mod tui;
 
 use crate::{
     cli::Cli,
-    config::{Config, Setup},
+    config::{Config, Setup, Stock},
     gui::Gui,
     machine::MotionSummary,
     tui::Tui,
@@ -107,6 +107,10 @@ pub fn run() -> anyhow::Result<()> {
     let config = Config::from_file(cli.config.as_str())?;
 
     assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
+    assert!(
+        matches!(config.stock, Stock::Cuboid { .. }),
+        "cylindrical stock is not implemented yet"
+    );
 
     let gui = Gui::build(sender, config.clone())?;
     let tui = Tui::build(receiver, cli, config, gui.create_proxy())?;

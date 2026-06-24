@@ -26,8 +26,19 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
 };
 
+fn clipped() -> VertexOutput {
+    var clipped: VertexOutput;
+    clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
+    return clipped;
+}
+
 @vertex
 fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
+    let tool_pos = vec3<f32>(250.0, 125.0, 300.0);
+    if distance(tool_pos.xy, instance.center.xy) < uniforms.tool_size * 2.0 {
+        return clipped();
+    }
+
     let window_size = uniforms.window_size;
 
     let world = uniforms.projection * vec4<f32>((instance.center + cube.vertex), 1.0);
@@ -36,7 +47,7 @@ fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     // convert to ndc
     // direction already match ndc
-    out.clip_position = vec4<f32>((world.xy / window_size * 2.0), 0.0, 1.0);
+    out.clip_position = vec4<f32>((world.xy / window_size * 2.0), 0.7, 1.0);
     out.color = vec3<f32>(0.0, 0.0, 0.0);
 
     return out;
