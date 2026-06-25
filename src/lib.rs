@@ -26,12 +26,6 @@ const FLOAT_VARIANCE: f32 = 1e-5;
 pub const SINGLE: bool = false;
 /// Tool visibility at program start.
 pub const TOOL: bool = true;
-/// XY plane grid visibility at program start.
-pub const GRID: bool = true;
-/// Origin visibility at program start.
-pub const ORIGIN: bool = true;
-/// Machine boudnary visibility at program start.
-pub const BOUNDARY: bool = false;
 
 /// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
 #[repr(C)]
@@ -66,9 +60,6 @@ pub enum Command {
     SetView(View),
     SetSingle(bool),
     SetTool(bool),
-    SetGrid(bool),
-    SetOrigin(bool),
-    SetBoundary(bool),
     Clear,
     Stop(Option<anyhow::Error>),
 }

@@ -1,11 +1,7 @@
 struct Uniforms {
-    window_size: vec2<f32>,
-    _pad: vec2<f32>,
-    max_travels: vec4<f32>,
     projection: mat4x4<f32>,
-    tool_color: vec4<f32>,
-    tool_size: f32,
-    tool_len: f32,
+    stock_size: vec4<f32>,
+    window_size: vec2<f32>,
     view: u32,
 };
 
@@ -18,6 +14,7 @@ struct VertexInput {
 
 struct InstanceInput {
     @location(1) center: vec3<f32>,
+    @location(2) visibility: u32,
 }
 
 struct VertexOutput {
@@ -35,7 +32,7 @@ fn clipped() -> VertexOutput {
 @vertex
 fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
     let tool_pos = vec3<f32>(250.0, 125.0, 300.0);
-    if distance(tool_pos.xy, instance.center.xy) < uniforms.tool_size * 2.0 {
+    if instance.visibility == 0 {
         return clipped();
     }
 

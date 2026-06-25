@@ -5,16 +5,17 @@
 //! The render loop receives render job [`Command`]s from the [`Tui`] thread,
 //! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
 
-#[allow(unused_imports)]
 use crate::{
     Command, Signal, View,
-    config::Point,
+    config::{Config, Point},
     geometry::{
-        BufferAction, LineInstance, LineInstancesTracker, StaticConfig, ToolInstance, Uniforms,
+        line::{BufferAction, LineInstance, LineInstancesTracker},
+        stock::{StockInstance, StockTracker},
+        tools::ToolInstance,
+        uniforms::Uniforms,
     },
     tui::Tui,
 };
-use crate::{config::Config, geometry::StockInstance};
 use std::{
     mem::size_of,
     sync::{Arc, mpsc::Sender},
@@ -50,8 +51,6 @@ pub struct Gui {
     graphics: Option<Graphics>,
     /// Stores any errors that occur during [`Graphics::render`] call.
     error: Option<anyhow::Error>,
-    /// Configuration for static [`LineInstance`]s which are toggled by the [`Tui`].
-    static_config: StaticConfig,
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<Command>>,
@@ -85,7 +84,6 @@ impl Gui {
             current_command: None,
             graphics: None,
             error: None,
-            static_config: StaticConfig::default(),
             event_loop: Some(event_loop),
             first: true,
             render_received: false,
@@ -157,7 +155,6 @@ impl ApplicationHandler<Command> for Gui {
             event_loop.owned_display_handle(),
             Arc::new(window),
             self.config.clone(),
-            self.static_config,
         )) {
             Ok(g) => g,
             Err(e) => {
@@ -266,24 +263,6 @@ impl ApplicationHandler<Command> for Gui {
                 self.single = *single;
             }
 
-            Command::SetBoundary(boundary) => {
-                self.static_config.set_machine_boundary(*boundary);
-                graphics.update_statics(MAX_TRAVELS, self.static_config);
-                graphics.window.request_redraw();
-            }
-
-            Command::SetGrid(grid) => {
-                self.static_config.set_grid(*grid);
-                graphics.update_statics(MAX_TRAVELS, self.static_config);
-                graphics.window.request_redraw();
-            }
-
-            Command::SetOrigin(origin) => {
-                self.static_config.set_origin(*origin);
-                graphics.update_statics(MAX_TRAVELS, self.static_config);
-                graphics.window.request_redraw();
-            }
-
             Command::SetTool(tool) => {
                 graphics.set_tool(*tool);
                 graphics.window.request_redraw();
@@ -324,22 +303,14 @@ pub struct Graphics {
     lines_pipeline: wgpu::RenderPipeline,
 
     /// Vertex buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
-    /// [`Self::static_count`] number of static instances hold the start of this buffer,
-    /// which makes upto [`Self::static_offset`] in memory.
     lines_vertex_buffer: wgpu::Buffer,
     lines_instance_buffer: wgpu::Buffer,
     lines_index_buffer: wgpu::Buffer,
 
-    /// Total number of [`LineInstance`]s in [`Self::lines_buffer`],
-    /// including both static and toolpath representing instances.
+    /// Total number of [`LineInstance`]s in [`Self::lines_buffer`].
     lines_count: u32,
     /// Memory offset to write next toolpath [`LineInstance`] to.
     lines_offset: u64,
-    /// Number of static [`LineInstance`]s (grid, origin, machine boundary) at the start of
-    /// [`Self::lines_buffer`]..
-    static_count: u32,
-    /// Memory offset to start toolpath [`LineInstance`]s from in [`Self::lines_buffer`].
-    static_offset: u64,
 
     /// Pipeline for rendering the [`ToolInstance`].
     tool_pipeline: wgpu::RenderPipeline,
@@ -373,8 +344,7 @@ impl Graphics {
     /// Constructs a new [`Graphics`] by initializing all GPU resources, including:
     /// - [`Uniforms`] buffer and bind group, to pass constant data to the [`ToolInstance`] and all
     ///   [`LineInstance`]s.
-    /// - [`LineInstance`] buffer and pipeline. Writes the static instances,
-    ///   corresponding to the supplied [`StaticConfig`], to the beginning of [`Self::lines_buffer`].
+    /// - [`LineInstance`] buffer and pipeline.
     /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
     ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_buffer`].
     ///
@@ -383,7 +353,6 @@ impl Graphics {
         handle: OwnedDisplayHandle,
         window: Arc<Window>,
         config: Config,
-        static_config: StaticConfig,
     ) -> anyhow::Result<Self> {
         let window_size = window.inner_size();
 
@@ -564,8 +533,6 @@ impl Graphics {
             cache: None,
         });
 
-        let static_instances = LineInstance::statics(MAX_TRAVELS, static_config);
-
         // this vertex buffer is constant and can be mapped at creation
         let lines_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Lines Vertex Buffer"),
@@ -585,12 +552,6 @@ impl Graphics {
             contents: bytemuck::cast_slice(&LineInstance::indices()),
             usage: wgpu::BufferUsages::INDEX,
         });
-
-        queue.write_buffer(
-            &lines_instance_buffer,
-            0,
-            bytemuck::cast_slice(&static_instances),
-        );
 
         // ######## Tool Vertex ########
         //
@@ -720,7 +681,7 @@ impl Graphics {
         // this vertex buffer is constant and can be mapped at creation
         let stock_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Stock Vertex Buffer"),
-            contents: bytemuck::cast_slice(&StockInstance::vertices()),
+            contents: bytemuck::cast_slice(&StockInstance::vertices(5.0)),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -731,7 +692,8 @@ impl Graphics {
         //     mapped_at_creation: false,
         // });
 
-        let stock = StockInstance::stock(MAX_TRAVELS);
+        let stock_tracker = StockTracker::new(config.stock);
+        let stock = stock_tracker.instances;
 
         let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
@@ -762,10 +724,8 @@ impl Graphics {
             lines_instance_buffer,
             lines_index_buffer,
 
-            lines_count: static_instances.len() as u32,
-            lines_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
-            static_count: static_instances.len() as u32,
-            static_offset: bytemuck::cast_slice::<LineInstance, u8>(&static_instances).len() as u64,
+            lines_count: 0,
+            lines_offset: 0,
             tool_pipeline,
             tool_buffer,
 
@@ -916,23 +876,10 @@ impl Graphics {
         Ok(())
     }
 
-    /// Regenerates the static [`LineInstance`]s with [`LineInstance::statics`],
-    /// and overwrites them to the beginning of [`Self::lines_buffer`].
-    fn update_statics(&mut self, _max_travels: Point, static_config: StaticConfig) {
-        let instances = LineInstance::statics(MAX_TRAVELS, static_config);
-
-        // update the fixed vertices
-        self.queue.write_buffer(
-            &self.lines_instance_buffer,
-            0,
-            bytemuck::cast_slice(&instances),
-        );
-    }
-
     /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_buffer`].
     fn clear(&mut self) {
-        self.lines_count = self.static_count;
-        self.lines_offset = self.static_offset;
+        self.lines_count = 0;
+        self.lines_offset = 0;
         self.lines_tracker.reset();
     }
 
@@ -1059,8 +1006,6 @@ impl Graphics {
     /// Sets the tool visibility in [`Self::uniforms`] and uploads the updated uniforms to
     /// [`Self::uniform_buffer`].
     fn set_tool(&mut self, tool: bool) {
-        self.uniforms.set_tool(tool);
-
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,

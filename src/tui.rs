@@ -30,11 +30,11 @@ use std::{
 };
 use winit::event_loop::EventLoopProxy;
 
-use crate::config::{Config, Unit};
 #[allow(unused_imports)]
 use crate::{
-    BOUNDARY, Command, GRID, ORIGIN, SINGLE, Signal, TOOL, View,
+    Command, SINGLE, Signal, TOOL, View,
     cli::Cli,
+    config::{Config, Unit},
     gui::Gui,
     interpreter::InterpreterError,
     interpreter::{BlockSummary, Interpreter},
@@ -105,12 +105,6 @@ pub struct Tui {
     single: bool,
     /// Tool visibility flag.
     tool: bool,
-    /// XY plane grid visibility flag.
-    grid: bool,
-    /// Axes rooted at origin visibility flag.
-    origin: bool,
-    /// Machine boundary box visibility flag.
-    boundary: bool,
     /// Parsed source loaded [`Interpreter`], ready for iteration.
     interpreter: Interpreter,
     /// Index of current block being executed for preview.
@@ -161,9 +155,6 @@ impl Tui {
             view: View::default(),
             single: SINGLE,
             tool: TOOL,
-            grid: GRID,
-            origin: ORIGIN,
-            boundary: BOUNDARY,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
                 Machine::new(config.units, config.zero_pos, config.start_pos),
@@ -287,25 +278,6 @@ impl Tui {
                             self.single = !self.single;
                             self.proxy
                                 .send_event(Command::SetSingle(self.single))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('b') => {
-                            self.boundary = !self.boundary;
-                            self.proxy
-                                .send_event(Command::SetBoundary(self.boundary))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('g') => {
-                            self.grid = !self.grid;
-                            self.proxy.send_event(Command::SetGrid(self.grid)).unwrap()
-                        }
-
-                        KeyCode::Char('o') => {
-                            self.origin = !self.origin;
-                            self.proxy
-                                .send_event(Command::SetOrigin(self.origin))
                                 .unwrap()
                         }
 
@@ -714,33 +686,6 @@ impl Tui {
                     THEME.inactive_mode
                 },
             ),
-            Span::styled(" | ", THEME.root),
-            Span::styled(
-                "GRID",
-                if self.grid {
-                    THEME.active_mode
-                } else {
-                    THEME.inactive_mode
-                },
-            ),
-            Span::styled(" | ", THEME.root),
-            Span::styled(
-                "ORIGIN",
-                if self.origin {
-                    THEME.active_mode
-                } else {
-                    THEME.inactive_mode
-                },
-            ),
-            Span::styled(" | ", THEME.root),
-            Span::styled(
-                "BOUNDARY",
-                if self.boundary {
-                    THEME.active_mode
-                } else {
-                    THEME.inactive_mode
-                },
-            ),
         ];
 
         Paragraph::new(Line::from(modes))
@@ -776,12 +721,6 @@ impl Tui {
         let spans2 = vec![
             Span::styled("  t  ", THEME.key),
             Span::styled(" Toggle Tool ", THEME.key_desc),
-            Span::styled("  g  ", THEME.key),
-            Span::styled(" Toggle Grid ", THEME.key_desc),
-            Span::styled("  o  ", THEME.key),
-            Span::styled(" Toggle Origin ", THEME.key_desc),
-            Span::styled("  b  ", THEME.key),
-            Span::styled(" Toggle Machine Boundary ", THEME.key_desc),
         ];
 
         Paragraph::new(Text::from(vec![

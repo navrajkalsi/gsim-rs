@@ -10,13 +10,9 @@
 // The tool is drawn at depth `0.0`, which is the nearest plane.
 
 struct Uniforms {
-    window_size: vec2<f32>,
-    _pad: vec2<f32>,
-    max_travels: vec4<f32>,
     projection: mat4x4<f32>,
-    tool_color: vec4<f32>,
-    tool_size: f32,
-    tool_len: f32,
+    stock_size: vec4<f32>,
+    window_size: vec2<f32>,
     view: u32,
 };
 
@@ -63,8 +59,8 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let angle = radians(f32(triangle % 36) * 10.0);
     let angle_next = radians(f32(triangle % 36) * 10.0 + 10.0);
 
-    let tool_size = uniforms.tool_size;
-    let tool_len = uniforms.tool_len;
+    let tool_size = 12.5;
+    let tool_len = 125.0;
 
     var position = vec4<f32>(in.pos, 1.0);
 
@@ -153,7 +149,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>((position.xy / window_size * 2.0), 0.0, 1.0);
-    out.color = uniforms.tool_color;
+    out.color = vec4<f32>(0.25, 0.25, 0.25, 1.0);
 
     return out;
 }
