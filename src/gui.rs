@@ -693,7 +693,7 @@ impl Graphics {
         // });
 
         let stock_tracker = StockTracker::new(config.stock);
-        let stock = stock_tracker.instances;
+        let stock = stock_tracker.instances();
 
         let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
@@ -977,7 +977,7 @@ impl Graphics {
         render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        // render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
+        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
 
         drop(render_pass);
 
