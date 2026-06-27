@@ -1,12 +1,14 @@
 use crate::config::{Point, Stock, ToolConfig};
+use std::f32::consts::SQRT_2;
 
 /// number of cubes on the longest axis
 const STOCK_RESOLUTION: f32 = 100.0;
 
 // create a relation between distance travelled per frame and stock resolution
+#[derive(Debug)]
 pub struct StockTracker {
     instances: Vec<StockInstance>,
-    voxel_counts: (usize, usize, usize),
+    voxel_counts: (usize, usize, usize), // not zero indexed
     size: Point,
     total_count: usize,
     hidden: usize,
@@ -61,12 +63,13 @@ impl StockTracker {
         }
     }
 
-    fn hide(&mut self, tool: ToolConfig, pos: Point) -> bool {
+    pub fn hide(&mut self, tool: ToolConfig, pos: Point) -> bool {
         if pos.z >= self.size.z {
             return false; // tool is not touching the stock
         }
 
         let rad = tool.diameter / 2.0;
+        // create rectangular bounds
         let max_x = pos.x + rad;
         let min_x = pos.x - rad;
         let max_y = pos.y + rad;
@@ -76,49 +79,80 @@ impl StockTracker {
             return false; // tool is not touching the stock
         }
 
+        let edge = self.voxel_edge;
+        // these indices do not consider z axis
         let min_x_index = if min_x < 0.0 {
             0
         } else {
-            (min_x / self.voxel_edge).floor() as usize
+            (min_x / edge).floor() as usize
         };
         let min_y_index = if min_y < 0.0 {
             0
         } else {
-            (min_y / self.voxel_edge).floor() as usize
+            (min_y / edge).floor() as usize
         };
         let min_z_index = if pos.z < 0.0 {
             0
         } else {
-            (pos.z / self.voxel_edge).floor() as usize
+            (pos.z / edge).floor() as usize
         };
 
         let max_x_index = if max_x > self.size.x {
-            self.voxel_counts.0
+            self.voxel_counts.0 - 1 // counts are not 0 indexed
         } else {
-            (max_x / self.voxel_edge).ceil() as usize
+            let ret = max_x / self.voxel_edge;
+            let floored = ret.floor();
+            if ret - floored > 0.1 {
+                floored as usize // beyond boundary, hide this cell
+            } else {
+                floored as usize - 1 // on the boundary, hide previous cell
+            }
         };
         let max_y_index = if max_y > self.size.y {
-            self.voxel_counts.1
+            self.voxel_counts.1 - 1
         } else {
-            (max_y / self.voxel_edge).ceil() as usize
+            let ret = max_y / self.voxel_edge;
+            let floored = ret.floor();
+            if ret - floored > 0.1 {
+                floored as usize // beyond boundary, hide this cell
+            } else {
+                floored as usize - 1 // on the boundary, hide previous cell
+            }
         };
-        let max_z_index = self.voxel_counts.2;
+        let max_z_index = self.voxel_counts.2 - 1;
 
         let mut hidden = 0;
 
-        for x in min_x_index..=max_x_index {
-            for y in min_y_index..=max_y_index {
-                unsafe {
-                    let targets = self
-                        .instances
-                        .get_unchecked_mut((x * y + min_z_index)..=(x * y + max_z_index));
+        for x_index in min_x_index..=max_x_index {
+            'base: for y_index in min_y_index..=max_y_index {
+                for z_index in min_z_index..=max_z_index {
+                    let x = self.voxel_counts.1 * self.voxel_counts.2 * x_index;
+                    let y = self.voxel_counts.2 * y_index;
+                    let index = x + y + z_index;
 
-                    targets.iter_mut().for_each(|target| {
-                        if target.visible == 1 {
-                            target.visible = 0;
-                            hidden += 1;
-                        }
-                    });
+                    let target = self
+                        .instances
+                        .get_mut(index)
+                        .expect("stock buffer layout invalid, logic error!");
+
+                    // between tool center and voxel center
+                    // consider a 2d voxel square, split the edge and its diagonal is the max
+                    // possible distance
+                    // let max_dist = rad + (edge / 2.0) * SQRT_2;
+                    let max_dist = rad + edge / 2.0;
+                    let dist = ((pos.x - target.center[0]).powi(2)
+                        + (pos.y - target.center[1]).powi(2))
+                    .sqrt();
+
+                    // do not check upper z voxel with the same xy base
+                    if dist > max_dist {
+                        continue 'base;
+                    }
+
+                    if target.visible == 1 {
+                        target.visible = 0;
+                        hidden += 1;
+                    }
                 }
             }
         }
@@ -200,11 +234,11 @@ impl StockInstance {
     pub fn indices() -> [u16; 36] {
         [
             2, 0, 1, 1, 3, 2, // front face
-            6, 2, 3, 3, 7, 6, // top face
-            0, 4, 5, 5, 1, 0, // bottom face
+            3, 1, 5, 5, 7, 3, // right face
             7, 5, 4, 4, 6, 7, // back face
             6, 4, 0, 0, 2, 6, // left face
-            3, 1, 5, 5, 7, 3, // right face
+            6, 2, 3, 3, 7, 6, // top face
+            0, 4, 5, 5, 1, 0, // bottom face
         ]
     }
 }
@@ -283,11 +317,15 @@ mod tests {
         let mut current_y = start;
         let mut current_z = start;
         while current_x < stock_tracker.size.x {
-            if current_x >= 225.0 && current_x <= 275.0 {
-                continue;
-            }
             while current_y < stock_tracker.size.y {
-                if current_y >= 100.0 && current_y <= 150.0 {
+                if current_y >= 100.0
+                    && current_y <= 150.0
+                    && current_x >= 225.0
+                    && current_x <= 275.0
+                    && ((250.0 - current_x).powi(2) + (125.0 - current_y).powi(2)).sqrt()
+                        < 25.0 + start
+                {
+                    current_y += stock_tracker.voxel_edge;
                     continue;
                 }
                 while current_z < stock_tracker.size.z {
@@ -305,6 +343,6 @@ mod tests {
         }
 
         assert!(altered);
-        assert_eq!(stock_tracker.instances, instances);
+        assert_eq!(stock_tracker.instances(), instances);
     }
 }

@@ -43,6 +43,10 @@ impl Point {
         Self::new(0.0, 0.0, 0.0)
     }
 
+    pub fn from_array(array: [f32; 3]) -> Self {
+        Self::new(array[0], array[1], array[2])
+    }
+
     /// Treats all the axes values in **metric** system, and converts them to **imperial** system.
     pub fn to_imperial(&mut self) {
         self.x /= 25.4;

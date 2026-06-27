@@ -327,6 +327,8 @@ pub struct Graphics {
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
 
+    stock_tracker: StockTracker,
+
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
     /// Read-only buffer containing [`Uniforms`].
@@ -381,7 +383,7 @@ impl Graphics {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("GSim"),
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
@@ -647,7 +649,7 @@ impl Graphics {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, // render every triangle, irrespective of forward facing or not
+                cull_mode: Some(wgpu::Face::Front),
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
@@ -685,19 +687,13 @@ impl Graphics {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        // let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        //     label: Some("Stock Instance Buffer"),
-        //     size: MAX_INSTANCES * size_of::<StockInstance>() as u64,
-        //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        //     mapped_at_creation: false,
-        // });
-
         let stock_tracker = StockTracker::new(config.stock);
         let stock = stock_tracker.instances();
 
         let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
-            size: stock.len() as u64 * size_of::<LineInstance>() as u64,
+            size: stock.len() as u64 * size_of::<LineInstance>() as u64, // will only need at max
+            // full stock instances
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -736,6 +732,9 @@ impl Graphics {
             stock_count: stock.len() as u32,
 
             lines_tracker: LineInstancesTracker::new(),
+
+            stock_tracker,
+
             uniforms,
             uniform_buffer,
             uniform_bind_group,
@@ -803,55 +802,74 @@ impl Graphics {
     /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
     /// [`LineInstance`].
     fn update(&mut self, force_render_tool: bool) -> anyhow::Result<(bool, bool)> {
-        // if None, signal has already been sent to retrieve a command from previous block
-        // exhaustion
+        let mut new_pos = None;
+
+        // if None, signal has already been sent to retrieve a command from previous block exhaustion
         let (proceed, render) = match self.lines_tracker.next() {
             // update tool if we are going to request redraw
             BufferAction::Overwrite { instance, render } => {
-                self.overwrite_instance(instance, render || force_render_tool);
+                new_pos = Some(instance.end);
+                self.overwrite_instance(instance);
                 (false, render)
             }
             BufferAction::Add { instance, render } => {
-                self.add_instance(instance, render || force_render_tool)?;
+                new_pos = Some(instance.end);
+                self.add_instance(instance)?;
                 (false, render)
             }
             BufferAction::Exhausted => (true, false),
         };
+
+        // if new instance is available, update tool and stock
+        // skip if not going to call graphics render
+        if let Some(pos) = new_pos {
+            if render || force_render_tool {
+                let pos = Point::from_array(pos);
+                self.queue.write_buffer(
+                    &self.tool_buffer,
+                    0,
+                    bytemuck::cast_slice(&[ToolInstance::at_point(pos)]),
+                );
+
+                if self.stock_tracker.hide(
+                    crate::config::ToolConfig {
+                        number: 1,
+                        diameter: 12.5,
+                        length: 125.0,
+                    },
+                    pos,
+                ) {
+                    let stock = self.stock_tracker.instances();
+                    // is guarraunteed to be rendered
+                    self.queue.write_buffer(
+                        &self.stock_instance_buffer,
+                        0,
+                        bytemuck::cast_slice(&stock),
+                    );
+                }
+            }
+        }
 
         Ok((proceed, render))
     }
 
     /// Overwrites the provided [`LineInstance`] over the last instance inside [`Self::lines_buffer`].
     ///
-    /// Accepts an `update_tool` flag to update the position of [`ToolInstance`]
-    /// in [`Self::tool_buffer`] to the end position of the provided line instance.
-    ///
     /// [`Self::lines_buffer`] cannot overflow on this call, because there is no instance addition
     /// to the buffer.
-    fn overwrite_instance(&mut self, instance: LineInstance, update_tool: bool) {
+    fn overwrite_instance(&mut self, instance: LineInstance) {
         self.queue.write_buffer(
             &self.lines_instance_buffer,
             self.lines_offset - bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64,
             bytemuck::cast_slice(&[instance]),
         );
-
-        if update_tool {
-            self.queue.write_buffer(
-                &self.tool_buffer,
-                0,
-                bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
-            );
-        }
     }
 
     /// Appends the provided [`LineInstance`] to [`Self::lines_buffer`].
     ///
-    /// Accepts an `update_tool` flag to update the position of [`ToolInstance`]
-    /// in [`Self::tool_buffer`] to the end position of the provided line instance.
-    ///
     /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
     /// [`LineInstance`].
-    fn add_instance(&mut self, instance: LineInstance, update_tool: bool) -> anyhow::Result<()> {
+    fn add_instance(&mut self, instance: LineInstance) -> anyhow::Result<()> {
         self.queue.write_buffer(
             &self.lines_instance_buffer,
             self.lines_offset,
@@ -864,14 +882,6 @@ impl Graphics {
 
         self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
         self.lines_count += 1;
-
-        if update_tool {
-            self.queue.write_buffer(
-                &self.tool_buffer,
-                0,
-                bytemuck::cast_slice(&[ToolInstance::at_line_end(instance)]),
-            );
-        }
 
         Ok(())
     }
