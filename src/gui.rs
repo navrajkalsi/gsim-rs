@@ -704,7 +704,7 @@ impl Graphics {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        queue.write_buffer(&stock_instance_buffer, 0, bytemuck::cast_slice(&stock));
+        queue.write_buffer(&stock_instance_buffer, 0, bytemuck::cast_slice(stock));
         queue.submit([]);
 
         Ok(Self {
@@ -831,10 +831,11 @@ impl Graphics {
                     bytemuck::cast_slice(&[ToolInstance::at_point(pos)]),
                 );
 
-                if self.stock_tracker.hide(
+                // only reconsturct instances if there was a change
+                if self.stock_tracker.cut(
                     crate::config::ToolConfig {
                         number: 1,
-                        diameter: 12.5,
+                        diameter: 25.0,
                         length: 125.0,
                     },
                     pos,
@@ -844,7 +845,7 @@ impl Graphics {
                     self.queue.write_buffer(
                         &self.stock_instance_buffer,
                         0,
-                        bytemuck::cast_slice(&stock),
+                        bytemuck::cast_slice(stock),
                     );
                 }
             }

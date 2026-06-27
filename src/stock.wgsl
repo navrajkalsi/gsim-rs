@@ -13,14 +13,14 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(1) center: vec3<f32>,
-    @location(2) visibility: u32,
+    @location(1) center: vec2<f32>,
+    @location(2) height: f32,
 }
 
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) @interpolate(flat) color: vec3<f32>,
 };
 
 fn clipped() -> VertexOutput {
@@ -31,14 +31,15 @@ fn clipped() -> VertexOutput {
 
 @vertex
 fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
-    let tool_pos = vec3<f32>(250.0, 125.0, 300.0);
-    if instance.visibility == 0 {
+    if instance.height <= 0.0 {
         return clipped();
     }
 
     let window_size = uniforms.window_size;
+    let center = vec2<f32>(instance.center + cube.vertex.xy);
+    let height = instance.height * cube.vertex.z;
 
-    let world = uniforms.projection * vec4<f32>((instance.center + cube.vertex), 1.0);
+    let world = uniforms.projection * vec4<f32>(center, height, 1.0);
 
     var out: VertexOutput;
 
