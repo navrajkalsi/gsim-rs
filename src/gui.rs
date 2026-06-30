@@ -10,11 +10,10 @@ use crate::{
     config::{Config, Point},
     geometry::{
         line::{BufferAction, LineInstance, LineInstancesTracker},
-        stock::{StockInstance, StockTracker},
+        stock::{Stock, StockInstance},
         tools::ToolInstance,
         uniforms::Uniforms,
     },
-    tui::Tui,
 };
 use std::{
     mem::size_of,
@@ -327,7 +326,7 @@ pub struct Graphics {
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
 
-    stock_tracker: StockTracker,
+    stock: Stock,
 
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
@@ -382,7 +381,7 @@ impl Graphics {
         // logical connection to a gpu and its command queue
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("GSim"),
+                label: Some("Device"),
                 required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -436,13 +435,13 @@ impl Graphics {
         let uniforms = Uniforms::new(window_size, MAX_TRAVELS);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("GSim"),
+            label: Some("Uniforms Buffer"),
             contents: bytemuck::cast_slice(&[uniforms]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("GSim"),
+            label: Some("Uniforms Bind Group Layout"),
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
@@ -456,7 +455,7 @@ impl Graphics {
         });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("GSim"),
+            label: Some("Uniforms Bind Group"),
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -523,7 +522,7 @@ impl Graphics {
                             operation: wgpu::BlendOperation::Add,
                         },
                         alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
                             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
@@ -680,19 +679,18 @@ impl Graphics {
             cache: None,
         });
 
+        let stock = Stock::new(config.stock); // create new stock from config stock body
+
         // this vertex buffer is constant and can be mapped at creation
         let stock_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Stock Vertex Buffer"),
-            contents: bytemuck::cast_slice(&StockInstance::vertices(5.0)),
+            contents: bytemuck::cast_slice(&StockInstance::vertices(&stock)),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let stock_tracker = StockTracker::new(config.stock);
-        let stock = stock_tracker.instances();
-
         let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
-            size: stock.len() as u64 * size_of::<LineInstance>() as u64, // will only need at max
+            size: stock.total_count as u64 * size_of::<StockInstance>() as u64, // will only need at max
             // full stock instances
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -704,7 +702,11 @@ impl Graphics {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        queue.write_buffer(&stock_instance_buffer, 0, bytemuck::cast_slice(stock));
+        queue.write_buffer(
+            &stock_instance_buffer,
+            0,
+            bytemuck::cast_slice(stock.instances()),
+        );
         queue.submit([]);
 
         Ok(Self {
@@ -729,11 +731,11 @@ impl Graphics {
             stock_vertex_buffer,
             stock_instance_buffer,
             stock_index_buffer,
-            stock_count: stock.len() as u32,
+            stock_count: stock.total_count as u32,
 
             lines_tracker: LineInstancesTracker::new(),
 
-            stock_tracker,
+            stock,
 
             uniforms,
             uniform_buffer,
@@ -832,7 +834,7 @@ impl Graphics {
                 );
 
                 // only reconsturct instances if there was a change
-                if self.stock_tracker.cut(
+                if self.stock.cut(
                     crate::config::ToolConfig {
                         number: 1,
                         diameter: 25.0,
@@ -840,7 +842,7 @@ impl Graphics {
                     },
                     pos,
                 ) {
-                    let stock = self.stock_tracker.instances();
+                    let stock = self.stock.instances();
                     // is guarraunteed to be rendered
                     self.queue.write_buffer(
                         &self.stock_instance_buffer,
@@ -971,6 +973,13 @@ impl Graphics {
 
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
+        // stock
+        render_pass.set_pipeline(&self.stock_pipeline);
+        render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
+
         // lines
         render_pass.set_pipeline(&self.lines_pipeline);
         render_pass.set_vertex_buffer(0, self.lines_vertex_buffer.slice(..));
@@ -982,13 +991,6 @@ impl Graphics {
         render_pass.set_pipeline(&self.tool_pipeline);
         render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
         render_pass.draw(0..432, 0..1);
-
-        // stock
-        render_pass.set_pipeline(&self.stock_pipeline);
-        render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
 
         drop(render_pass);
 

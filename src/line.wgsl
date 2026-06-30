@@ -32,9 +32,9 @@ struct VertexOutput {
     @location(1) center: f32, // distance from center
 };
 
-const stroke_width = 2.5;
+const stroke_width = 3.0;
 const depth = 0.5;
-const smoothing = 1.75; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
+const smoothing = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 // mark as a valid vertex shader
 @vertex

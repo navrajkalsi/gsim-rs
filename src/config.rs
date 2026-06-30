@@ -70,8 +70,8 @@ pub struct Config {
     /// Unit system applied to all dimensional values (e.g. `stock_size`, `tool_length`).
     /// [`Machine`](crate::machine) will also be configured with this system.
     pub units: Unit,
-    /// Stock description.
-    pub stock: Stock,
+    /// Stock body description.
+    pub stock: Body,
     /// Work offset zero position.
     /// This is relative to a **stock reference point**.
     /// Check [`Stock`] for details on reference point.
@@ -103,7 +103,7 @@ pub enum Unit {
 /// Description of a stock, irrespective of the machining setup.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "shape", content = "dimensions", rename_all = "lowercase")]
-pub enum Stock {
+pub enum Body {
     /// A solid box.
     /// Reference point is at `0.0` for each axis (**bottom-left-near**).
     Cuboid { x: f32, y: f32, z: f32 },
@@ -182,7 +182,7 @@ impl Config {
 
         // make sure stock size and tool diameter and length are positive and non zero
         match &ret.stock {
-            Stock::Cuboid { x, y, z } => {
+            Body::Cuboid { x, y, z } => {
                 if let Setup::Turning = ret.setup {
                     return Err(ConfigError::TurningStock); // unusual turning stock
                 }
@@ -192,7 +192,7 @@ impl Config {
                 }
             }
 
-            Stock::Cylinder {
+            Body::Cylinder {
                 axis,
                 diameter,
                 length,
@@ -295,7 +295,7 @@ mod tests {
             Config {
                 setup: Setup::Milling,
                 units: Unit::Metric,
-                stock: Stock::Cuboid {
+                stock: Body::Cuboid {
                     x: 500.0,
                     y: 500.0,
                     z: 500.0

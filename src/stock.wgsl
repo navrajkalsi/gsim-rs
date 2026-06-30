@@ -21,6 +21,7 @@ struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
     @location(0) @interpolate(flat) color: vec3<f32>,
+    @location(1) center: f32, // distance from center
 };
 
 fn clipped() -> VertexOutput {
@@ -28,6 +29,9 @@ fn clipped() -> VertexOutput {
     clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
     return clipped;
 }
+
+const edge = 1.0;
+const smoothing = 1.75; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
 fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -46,7 +50,7 @@ fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
     // convert to ndc
     // direction already match ndc
     out.clip_position = vec4<f32>((world.xy / window_size * 2.0), 0.7, 1.0);
-    out.color = vec3<f32>(1.0, 1.0, 1.0);
+    out.color = vec3<f32>(0.5, 0.5, 0.5);
 
     return out;
 };

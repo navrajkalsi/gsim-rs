@@ -1,29 +1,28 @@
-use crate::config::{Point, Stock, ToolConfig};
+use crate::config::{Body, Point, ToolConfig};
 use std::f32::consts::SQRT_2;
 
 /// number of cubes on the longest axis
-const STOCK_RESOLUTION: f32 = 1000.0;
+const STOCK_RESOLUTION: f32 = 500.0;
 
 // create a relation between distance travelled per frame and stock resolution
 #[derive(Debug)]
-pub struct StockTracker {
+pub struct Stock {
     instances: Vec<StockInstance>,
-    voxel_counts: (usize, usize), // not zero indexed
+    voxel_counts: (usize, usize), // 1 base
     size: Point,
-    total_count: usize,
-    hidden: usize,
+    pub total_count: usize,
     voxel_edge: f32,
 }
 
-impl StockTracker {
-    pub fn new(stock: Stock) -> Self {
-        let size = match stock {
-            Stock::Cuboid { x, y, z } => Point { x, y, z },
-            Stock::Cylinder { .. } => unreachable!("cylinder not implemented yet"),
+impl Stock {
+    pub fn new(body: Body) -> Self {
+        let size = match body {
+            Body::Cuboid { x, y, z } => Point { x, y, z },
+            Body::Cylinder { .. } => unreachable!("cylinder not implemented yet"),
         };
 
         let largest = size.x.max(size.y);
-        let edge = largest / STOCK_RESOLUTION; // edge of each cube
+        let edge = largest / STOCK_RESOLUTION; // edge of each bar
 
         let start = edge / 2.0;
 
@@ -52,7 +51,6 @@ impl StockTracker {
             voxel_counts: (count_x, count_y),
             size,
             total_count,
-            hidden: 0,
             voxel_edge: edge,
         }
     }
@@ -109,7 +107,6 @@ impl StockTracker {
             }
         };
 
-        let mut hidden = 0;
         let mut cut = false;
 
         for x_index in min_x_index..=max_x_index {
@@ -136,21 +133,19 @@ impl StockTracker {
                 // the voxel is higher than the tool and will be shortened
                 cut = true;
 
-                if pos.z <= 0.0 {
-                    // the voxel is hidden now
-                    hidden += 1;
-                    target.height = 0.0;
+                target.height = if pos.z <= 0.0 {
+                    0.0 // the voxel is hidden now
                 } else {
-                    target.height = pos.z;
-                }
+                    pos.z
+                };
             }
         }
-
-        self.hidden += hidden;
 
         cut
     }
 
+    // returns all the instances hidden and visible,
+    // shader will check which ones to show
     pub fn instances(&self) -> &Vec<StockInstance> {
         &self.instances
     }
@@ -179,8 +174,8 @@ impl StockInstance {
     // vertices of a voxel
     // one cube per instance
     // z of the voxel depends on its final height, which may be less than the stock height
-    pub fn vertices(edge: f32) -> [[f32; 3]; 8] {
-        let half_edge = edge / 2.0;
+    pub fn vertices(stock: &Stock) -> [[f32; 3]; 8] {
+        let half_edge = stock.voxel_edge / 2.0;
         [
             [-half_edge, -half_edge, 0.0], // 0 left-near-bottom
             [half_edge, -half_edge, 0.0],  // 1 rigth-near-bottom
@@ -240,9 +235,8 @@ mod tests {
         let mut current_y = start;
         let count_x = (size.x / edge).ceil() as usize;
         let count_y = (size.y / edge).ceil() as usize;
-        let total_count = count_x * count_y;
 
-        let mut oracle = Vec::with_capacity(total_count);
+        let mut oracle = Vec::with_capacity(count_x * count_y);
 
         // slower version, but better reasoning
         while current_x < size.x {
@@ -257,7 +251,7 @@ mod tests {
             current_x += edge;
         }
 
-        let stock_tracker = StockTracker::new(Stock::Cuboid {
+        let stock_tracker = Stock::new(Body::Cuboid {
             x: size.x,
             y: size.y,
             z: size.z,
@@ -265,13 +259,12 @@ mod tests {
 
         assert_eq!(stock_tracker.instances, oracle);
         assert_eq!(stock_tracker.voxel_counts, (count_x, count_y));
-        assert_eq!(stock_tracker.total_count, total_count);
         assert_eq!(stock_tracker.voxel_edge, edge);
     }
 
     #[test]
     fn cut() {
-        let mut stock_tracker = StockTracker::new(Stock::Cuboid {
+        let mut stock_tracker = Stock::new(Body::Cuboid {
             x: 500.0,
             y: 250.0,
             z: 250.0,
@@ -288,6 +281,7 @@ mod tests {
         let mut instances = Vec::new();
 
         let start = stock_tracker.voxel_edge / 2.0;
+        let max_dist = 25.0 + (stock_tracker.voxel_edge / 2.0) * SQRT_2;
 
         let mut current_x = start;
         let mut current_y = start;
@@ -297,8 +291,7 @@ mod tests {
                     && current_y <= 150.0
                     && current_x >= 225.0
                     && current_x <= 275.0
-                    && ((250.0 - current_x).powi(2) + (125.0 - current_y).powi(2)).sqrt()
-                        < 25.0 + start
+                    && ((250.0 - current_x).powi(2) + (125.0 - current_y).powi(2)).sqrt() < max_dist
                 {
                     current_y += stock_tracker.voxel_edge;
                     continue;
@@ -313,7 +306,19 @@ mod tests {
             current_x += stock_tracker.voxel_edge;
         }
 
+        let res: Vec<StockInstance> = stock_tracker
+            .instances()
+            .iter()
+            .filter_map(|instance| {
+                if instance.height > 0.0 {
+                    Some(*instance)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         assert!(altered);
-        assert_eq!(stock_tracker.instances(), instances);
+        assert_eq!(res, instances);
     }
 }

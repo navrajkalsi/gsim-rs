@@ -11,7 +11,7 @@ mod tui;
 
 use crate::{
     cli::Cli,
-    config::{Config, Setup, Stock},
+    config::{Body, Config, Setup},
     gui::Gui,
     machine::MotionSummary,
     tui::Tui,
@@ -99,7 +99,7 @@ pub fn run() -> anyhow::Result<()> {
 
     assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
     assert!(
-        matches!(config.stock, Stock::Cuboid { .. }),
+        matches!(config.stock, Body::Cuboid { .. }),
         "cylindrical stock is not implemented yet"
     );
 
