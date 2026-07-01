@@ -21,7 +21,6 @@ struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
     @location(0) @interpolate(flat) color: vec3<f32>,
-    @location(1) center: f32, // distance from center
 };
 
 fn clipped() -> VertexOutput {

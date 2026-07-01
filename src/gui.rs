@@ -295,6 +295,10 @@ pub struct Graphics {
     depth_texture: wgpu::Texture,
     /// View for [`Self::depth_texture`] to be used in the render pass.
     depth_view: wgpu::TextureView,
+
+    msaa_texture: wgpu::Texture,
+    msaa_view: wgpu::TextureView,
+
     /// Description of a [`Surface`](wgpu::Surface).
     surface_config: wgpu::SurfaceConfiguration,
 
@@ -382,7 +386,8 @@ impl Graphics {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Device"),
-                required_features: wgpu::Features::POLYGON_MODE_LINE,
+                // required_features: wgpu::Features::POLYGON_MODE_LINE,
+                required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
@@ -420,7 +425,7 @@ impl Graphics {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: 4,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -428,6 +433,23 @@ impl Graphics {
         });
 
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("MSAA Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width.max(1),
+                height: surface_config.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4,
+            dimension: wgpu::TextureDimension::D2,
+            format: surface_config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // ######## Uniforms ########
         //
@@ -505,7 +527,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4,
                 mask: !0, // use all
                 alpha_to_coverage_enabled: false,
             },
@@ -591,7 +613,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -661,7 +683,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 4,
                 mask: !0, // use all
                 alpha_to_coverage_enabled: false,
             },
@@ -715,6 +737,10 @@ impl Graphics {
             surface,
             depth_texture,
             depth_view,
+
+            msaa_texture,
+            msaa_view,
+
             surface_config,
             lines_pipeline,
 
@@ -747,8 +773,8 @@ impl Graphics {
 
     /// Reconfigures [`Self::surface`] and [`Self::depth_texture`], updates & rewrites [`Self::uniforms`] to use the new provided size.
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        let width = new_size.width;
-        let height = new_size.height;
+        let width = new_size.width.max(1);
+        let height = new_size.height.max(1);
 
         if width > 0 && height > 0 {
             self.surface_config.width = width;
@@ -764,14 +790,35 @@ impl Graphics {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: 4,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+
+            self.depth_view = self
+                .depth_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            self.msaa_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("MSAA Texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.surface_config.format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            self.depth_view = self
-                .depth_texture
+
+            self.msaa_view = self
+                .msaa_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
             self.uniforms.resize(new_size);
@@ -932,7 +979,7 @@ impl Graphics {
         };
 
         // texture cannot be used directly, therefore we need to create a view into it
-        let view = surface_texture
+        let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -945,9 +992,9 @@ impl Graphics {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
+                view: &self.msaa_view,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: Some(&surface_view),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.01,
