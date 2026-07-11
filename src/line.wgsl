@@ -7,6 +7,7 @@
 
 struct Uniforms {
     projection: mat4x4<f32>,
+    light: vec4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
     view: u32,

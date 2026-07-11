@@ -11,6 +11,10 @@ pub struct Stock {
     voxel_counts: (usize, usize), // 1 base
     size: Point,
     pub total_count: usize,
+    // index of the first voxel that changed recently
+    pub cut_start_index: usize,
+    // index of the last voxel that changed on last cut call
+    pub cut_end_index: usize,
     voxel_edge: f32,
 }
 
@@ -51,6 +55,8 @@ impl Stock {
             voxel_counts: (count_x, count_y),
             size,
             total_count,
+            cut_start_index: 0,
+            cut_end_index: total_count - 1,
             voxel_edge: edge,
         }
     }
@@ -107,7 +113,12 @@ impl Stock {
             }
         };
 
-        let mut cut = false;
+        // between tool center and voxel center in xy plane
+        // consider a 2d voxel square, split the edge and its diagonal is the max
+        // possible distance
+        let max_dist = rad + (edge / 2.0) * SQRT_2;
+        let mut cut_start_index = None;
+        let mut cut_end_index = 0;
 
         for x_index in min_x_index..=max_x_index {
             for y_index in min_y_index..=max_y_index {
@@ -118,20 +129,21 @@ impl Stock {
                     .get_mut(index)
                     .expect("stock buffer layout invalid, logic error!");
 
-                // between tool center and voxel center in xy plane
-                // consider a 2d voxel square, split the edge and its diagonal is the max
-                // possible distance
-                let max_dist = rad + (edge / 2.0) * SQRT_2;
                 let dist = ((pos.x - target.center[0]).powi(2)
                     + (pos.y - target.center[1]).powi(2))
                 .sqrt();
 
-                if dist > max_dist || target.height < pos.z {
+                if dist > max_dist || target.height <= pos.z {
                     continue;
                 }
 
                 // the voxel is higher than the tool and will be shortened
-                cut = true;
+                if cut_start_index.is_none() {
+                    cut_start_index = Some(index);
+                    cut_end_index = index // if only a single voxel is cut
+                } else {
+                    cut_end_index = index
+                }
 
                 target.height = if pos.z <= 0.0 {
                     0.0 // the voxel is hidden now
@@ -141,13 +153,25 @@ impl Stock {
             }
         }
 
-        cut
+        match cut_start_index {
+            Some(cut_start_index) => {
+                self.cut_start_index = cut_start_index;
+                self.cut_end_index = cut_end_index;
+                true
+            }
+            None => false, // no voxel change
+        }
     }
 
-    // returns all the instances hidden and visible,
+    // returns a continuous slice of all the changed voxel from the last cut
     // shader will check which ones to show
-    pub fn instances(&self) -> &Vec<StockInstance> {
-        &self.instances
+    pub fn instances(&self) -> (usize, &[StockInstance]) {
+        debug_assert!(self.cut_start_index <= self.cut_end_index);
+
+        (
+            self.cut_start_index, // buffer offset
+            &self.instances[self.cut_start_index..=self.cut_end_index],
+        )
     }
 }
 
@@ -307,7 +331,7 @@ mod tests {
         }
 
         let res: Vec<StockInstance> = stock_tracker
-            .instances()
+            .instances
             .iter()
             .filter_map(|instance| {
                 if instance.height > 0.0 {

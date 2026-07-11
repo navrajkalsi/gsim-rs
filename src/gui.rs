@@ -727,7 +727,7 @@ impl Graphics {
         queue.write_buffer(
             &stock_instance_buffer,
             0,
-            bytemuck::cast_slice(stock.instances()),
+            bytemuck::cast_slice(stock.instances().1),
         );
         queue.submit([]);
 
@@ -889,12 +889,14 @@ impl Graphics {
                     },
                     pos,
                 ) {
-                    let stock = self.stock.instances();
-                    // is guarraunteed to be rendered
+                    let (index, instances) = self.stock.instances(); // is guarraunteed to be rendered
+                    //
+                    let offset = index * size_of::<StockInstance>();
+
                     self.queue.write_buffer(
                         &self.stock_instance_buffer,
-                        0,
-                        bytemuck::cast_slice(stock),
+                        offset as u64,
+                        bytemuck::cast_slice(instances),
                     );
                 }
             }
