@@ -425,7 +425,7 @@ impl Graphics {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 4,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -442,7 +442,7 @@ impl Graphics {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 4,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: surface_config.format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -527,7 +527,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: 1,
                 mask: !0, // use all
                 alpha_to_coverage_enabled: false,
             },
@@ -613,7 +613,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: 1,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -670,7 +670,7 @@ impl Graphics {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Front),
+                cull_mode: Some(wgpu::Face::Back),
                 unclipped_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
@@ -683,7 +683,7 @@ impl Graphics {
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 4,
+                count: 1,
                 mask: !0, // use all
                 alpha_to_coverage_enabled: false,
             },
@@ -790,7 +790,7 @@ impl Graphics {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: 4,
+                sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -810,7 +810,7 @@ impl Graphics {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: 4,
+                sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.surface_config.format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -943,6 +943,14 @@ impl Graphics {
         self.lines_count = 0;
         self.lines_offset = 0;
         self.lines_tracker.reset();
+        self.stock.reset();
+
+        // reupload the full stock
+        self.queue.write_buffer(
+            &self.stock_instance_buffer,
+            0,
+            bytemuck::cast_slice(self.stock.instances().1),
+        );
     }
 
     /// Renders a new frame to the [`Self::surface`], drawing the toolpath and tool
@@ -994,9 +1002,11 @@ impl Graphics {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.msaa_view,
+                // view: &self.msaa_view,
+                view: &surface_view,
                 depth_slice: None,
-                resolve_target: Some(&surface_view),
+                // resolve_target: Some(&surface_view),
+                resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.01,

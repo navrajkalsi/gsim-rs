@@ -8,7 +8,7 @@ const STOCK_RESOLUTION: f32 = 500.0;
 #[derive(Debug)]
 pub struct Stock {
     instances: Vec<StockInstance>,
-    voxel_counts: (usize, usize), // 1 base
+    voxel_counts: (usize, usize), // 1 start
     size: Point,
     pub total_count: usize,
     // index of the first voxel that changed recently
@@ -172,6 +172,15 @@ impl Stock {
             self.cut_start_index, // buffer offset
             &self.instances[self.cut_start_index..=self.cut_end_index],
         )
+    }
+
+    pub fn reset(&mut self) {
+        self.cut_start_index = 0;
+        self.cut_end_index = self.total_count - 1;
+
+        for instance in &mut self.instances {
+            instance.height = self.size.z;
+        }
     }
 }
 

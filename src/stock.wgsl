@@ -26,7 +26,7 @@ struct VertexOutput {
 
 fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
-    clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
+    clipped.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
     return clipped;
 }
 
