@@ -241,14 +241,16 @@ impl StockInstance {
         }
     }
 
-    pub fn indices() -> [u16; 36] {
+    pub fn indices() -> [u16; 18] {
         [
             2, 0, 1, 1, 3, 2, // front face
             3, 1, 5, 5, 7, 3, // right face
-            7, 5, 4, 4, 6, 7, // back face
-            6, 4, 0, 0, 2, 6, // left face
-            6, 2, 3, 3, 7, 6, // top face
-            0, 4, 5, 5, 1, 0, // bottom face
+            6, 2, 3, 3, 7,
+            6, // top face
+
+               // 0, 4, 5, 5, 1, 0, // bottom face
+               // 7, 5, 4, 4, 6, 7, // back face
+               // 6, 4, 0, 0, 2, 6, // left face
         ]
     }
 }

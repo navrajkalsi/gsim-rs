@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use crate::{View, config::Point};
 use winit::dpi::PhysicalSize;
 
-/// Additional padding applied to the stock in pixels.
-const STOCK_INSET: f32 = 10.0;
+/// Additional margin applied to the stock in percentage of the screen.
+const STOCK_INSET: f32 = 2.5;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
@@ -106,10 +106,12 @@ fn project_bounding_box(stock_size: &[f32]) -> [f32; 2] {
 ///
 /// The returned scale will prioritize fitting the dimension that is longer relative to that of the window.
 fn scale(window_size: [f32; 2], stock_view: [f32; 2]) -> f32 {
+    assert!(STOCK_INSET >= 0.0 && STOCK_INSET <= 25.0);
     // y / x
     // compensate for any inset
-    let usable_width = window_size[0] - STOCK_INSET;
-    let usable_height = window_size[1] - STOCK_INSET;
+    let usable_percentage = 1.0 - (STOCK_INSET * 2.0) / 100.0;
+    let usable_width = usable_percentage * window_size[0];
+    let usable_height = usable_percentage * window_size[1];
 
     let window_ratio = usable_height / usable_width;
     let stock_ratio = stock_view[1] / stock_view[0];
@@ -146,18 +148,22 @@ fn offset(stock_size: [f32; 4], stock_view: [f32; 2], scale: f32, view: View) ->
 /// scales the vertices & center the view volume using provided `offset`.
 fn projection_matrix(view: View, scale: f32, offset: [f32; 2]) -> [[f32; 4]; 4] {
     // the actual matrix would visually be the transpose of the return value, row first
+    let x = 500.0;
+    let y = 250.0;
+    let z = 250.0;
+    let ratio = (y / x) * 0.5; // target to put all the stock boundary in middle 0.5 depth
     match view {
         View::Isometric => [
-            [scale * COS30, -scale * SIN30, 0.0, 0.0],
-            [scale * COS30, scale * SIN30, 0.0, 0.0],
+            [scale * COS30, -scale * SIN30, -ratio / x, 0.0],
+            [scale * COS30, scale * SIN30, ratio / y, 0.0],
             [0.0, scale, 0.0, 0.0],
-            [offset[0], offset[1], 0.0, 1.0],
+            [offset[0], offset[1], ratio, 1.0],
         ],
         View::Top => [
             [scale, 0.0, 0.0, 0.0],
             [0.0, scale, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [offset[0], offset[1], 0.0, 1.0],
+            [0.0, 0.0, -0.5 / z, 0.0],
+            [offset[0], offset[1], 0.75, 1.0],
         ],
     }
 }

@@ -1037,7 +1037,7 @@ impl Graphics {
         render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
+        render_pass.draw_indexed(0..18, 0, 0..self.stock_count);
 
         // lines
         render_pass.set_pipeline(&self.lines_pipeline);

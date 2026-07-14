@@ -149,7 +149,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     position = uniforms.projection * position;
 
     var out: VertexOutput;
-    out.clip_position = vec4<f32>((position.xy / window_size * 2.0), 0.0, 1.0);
+    out.clip_position = vec4<f32>((position.xy / window_size * 2.0), position.z, 1.0);
     out.color = vec4<f32>(0.25, 0.25, 0.25, 1.0);
 
     return out;

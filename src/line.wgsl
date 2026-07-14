@@ -34,7 +34,6 @@ struct VertexOutput {
 };
 
 const stroke_width = 3.0;
-const depth = 0.5;
 const smoothing = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 // mark as a valid vertex shader
@@ -59,6 +58,7 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     let offset = normal * stroke_width * side;
     // use first two vertex invocations for start side
     let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
+    let depth = select(start.z, end.z, quad.vertex > 1);
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>(pos / uniforms.window_size * 2.0, depth, 1.0);
