@@ -10,12 +10,15 @@ struct Uniforms {
 var<uniform> uniforms: Uniforms;
 
 struct VertexInput {
-    @location(0) vertex: vec3<f32>,
+    @location(0) xy: vec2<f32>,
+    @location(1) z: u32,
+    @location(2) face: u32,
 };
 
 struct InstanceInput {
-    @location(1) center: vec2<f32>,
-    @location(2) height: f32,
+    @location(3) center: vec2<f32>,
+    @location(4) height: f32,
+    @location(5) faces: u32,
 }
 
 struct VertexOutput {
@@ -30,20 +33,21 @@ fn clipped() -> VertexOutput {
     return clipped;
 }
 
-const edge = 1.0;
-const smoothing = 1.75; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
-
 @vertex
-fn vs_main(cube: VertexInput, instance: InstanceInput) -> VertexOutput {
-    if instance.height <= 0.0 {
+fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
+    if voxel.height <= 0.0 {
+        return clipped();
+    }
+
+    if (voxel.faces & vertex.face) == 0u {
         return clipped();
     }
 
     let window_size = uniforms.window_size;
-    let center = vec2<f32>(instance.center + cube.vertex.xy);
-    let height = instance.height * cube.vertex.z;
+    let xy = voxel.center + vertex.xy;
+    let z = voxel.height * f32(vertex.z);
 
-    let world = uniforms.projection * vec4<f32>(center, height, 1.0);
+    let world = uniforms.projection * vec4<f32>(xy, z, 1.0);
 
     var out: VertexOutput;
 

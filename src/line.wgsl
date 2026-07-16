@@ -33,8 +33,8 @@ struct VertexOutput {
     @location(1) center: f32, // distance from center
 };
 
-const stroke_width = 3.0;
-const smoothing = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
+const STROKE_WIDTH = 3.0;
+const SMOOTHING = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 // mark as a valid vertex shader
 @vertex
@@ -55,7 +55,7 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     // halfs the normal vector and adds sign to it
     let side = select(0.5, -0.5, quad.vertex % 2 == 0);
 
-    let offset = normal * stroke_width * side;
+    let offset = normal * STROKE_WIDTH * side;
     // use first two vertex invocations for start side
     let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
     let depth = select(start.z, end.z, quad.vertex > 1);
@@ -69,10 +69,10 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let offset = abs(in.center) * stroke_width; // distance from center in pixels
-    let stroke = stroke_width * 0.5; // half the stroke width in pixels
+    let offset = abs(in.center) * STROKE_WIDTH; // distance from center in pixels
+    let stroke = STROKE_WIDTH * 0.5; // half the stroke width in pixels
 
-    let alpha = 1.0 - smoothstep(stroke - smoothing, stroke, offset);
+    let alpha = 1.0 - smoothstep(stroke - SMOOTHING, stroke, offset);
 
     return vec4<f32>(in.color, alpha);
 }

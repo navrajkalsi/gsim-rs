@@ -4,6 +4,13 @@ use std::f32::consts::SQRT_2;
 /// number of cubes on the longest axis
 const STOCK_RESOLUTION: f32 = 500.0;
 
+const TOP_FACE: u32 = 1;
+const FRONT_FACE: u32 = 2;
+const RIGHT_FACE: u32 = 1 << 3;
+const BOTTOM_FACE: u32 = 1 << 4;
+const BACK_FACE: u32 = 1 << 5;
+const LEFT_FACE: u32 = 1 << 6;
+
 // create a relation between distance travelled per frame and stock resolution
 #[derive(Debug)]
 pub struct Stock {
@@ -38,12 +45,24 @@ impl Stock {
 
         let mut instances = Vec::with_capacity(total_count);
 
-        for _ in 0..count_x {
-            for _ in 0..count_y {
+        for x in 0..count_x {
+            for y in 0..count_y {
+                let mut faces = TOP_FACE;
+
+                if y == 0 {
+                    faces = faces | FRONT_FACE
+                }
+
+                if x == count_x - 1 {
+                    faces = faces | RIGHT_FACE
+                }
+
                 instances.push(StockInstance {
                     center: [current_x, current_y],
                     height: size.z,
+                    faces,
                 });
+
                 current_y += edge;
             }
             current_y = start;
@@ -187,37 +206,179 @@ impl Stock {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct StockInstance {
-    pub center: [f32; 2],
-    pub height: f32,
+    center: [f32; 2],
+    height: f32,
+    faces: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct StockInstanceVertex {
+    /// xy of the vertex
+    xy: [f32; 2],
+    /// z enabling flag
+    z: u32,
+    /// target face
+    face: u32,
 }
 
 impl StockInstance {
     pub fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: size_of::<[f32; 3]>() as wgpu::BufferAddress,
+            array_stride: size_of::<StockInstanceVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[wgpu::VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: wgpu::VertexFormat::Float32x3,
-            }],
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (size_of::<[f32; 2]>() + size_of::<u32>()) as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+            ],
         }
     }
 
     // vertices of a voxel
     // one cube per instance
     // z of the voxel depends on its final height, which may be less than the stock height
-    pub fn vertices(stock: &Stock) -> [[f32; 3]; 8] {
+    pub fn vertices(stock: &Stock) -> [StockInstanceVertex; 24] {
         let half_edge = stock.voxel_edge / 2.0;
         [
-            [-half_edge, -half_edge, 0.0], // 0 left-near-bottom
-            [half_edge, -half_edge, 0.0],  // 1 rigth-near-bottom
-            [-half_edge, -half_edge, 1.0], // 2 left-near-top
-            [half_edge, -half_edge, 1.0],  // 3 rigth-near-top
-            [-half_edge, half_edge, 0.0],  // 4 left-far-bottom
-            [half_edge, half_edge, 0.0],   // 5 right-far-bottom
-            [-half_edge, half_edge, 1.0],  // 6 left-far-top
-            [half_edge, half_edge, 1.0],   // 7 right-far-top
+            // front
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 0 left-near
+                z: 0,                         // bottom
+                face: FRONT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 1 right-near
+                z: 0,                        // bottom
+                face: FRONT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 2 left-near
+                z: 1,                         // top
+                face: FRONT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 3 right-near
+                z: 1,                        // top
+                face: FRONT_FACE,
+            },
+            // right
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 4 right-near
+                z: 0,                        // bottom
+                face: RIGHT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 5 right-far
+                z: 0,                       // bottom
+                face: RIGHT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 6 right-near
+                z: 1,                        // top
+                face: RIGHT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 7 right-far
+                z: 1,                       // top
+                face: RIGHT_FACE,
+            },
+            // top
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 8 left-near
+                z: 1,                         // top
+                face: TOP_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 9 right-near
+                z: 1,                        // top
+                face: TOP_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 10 left-far
+                z: 1,                        // top
+                face: TOP_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 11 right-far
+                z: 1,                       // top
+                face: TOP_FACE,
+            },
+            // back
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 12 right-far
+                z: 0,                       // bottom
+                face: BACK_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 13 left-far
+                z: 0,                        // bottom
+                face: BACK_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 14 right-far
+                z: 1,                       // top
+                face: BACK_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 15 left-far
+                z: 1,                        // top
+                face: BACK_FACE,
+            },
+            // left
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 16 left-far
+                z: 0,                        // bottom
+                face: LEFT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 17 left-near
+                z: 0,                         // bottom
+                face: LEFT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 18 left-far
+                z: 1,                        // top
+                face: LEFT_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 19 left-near
+                z: 1,                         // top
+                face: LEFT_FACE,
+            },
+            // bottom
+            StockInstanceVertex {
+                xy: [half_edge, -half_edge], // 20 right-near
+                z: 0,                        // bottom
+                face: BOTTOM_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, -half_edge], // 21 left-near
+                z: 0,                         // bottom
+                face: BOTTOM_FACE,
+            },
+            StockInstanceVertex {
+                xy: [half_edge, half_edge], // 22 right-far
+                z: 0,                       // bottom
+                face: BOTTOM_FACE,
+            },
+            StockInstanceVertex {
+                xy: [-half_edge, half_edge], // 23 left-far
+                z: 0,                        // bottom
+                face: BOTTOM_FACE,
+            },
         ]
     }
 
@@ -229,28 +390,31 @@ impl StockInstance {
             attributes: &[
                 wgpu::VertexAttribute {
                     offset: 0,
-                    shader_location: 1,
+                    shader_location: 3,
                     format: wgpu::VertexFormat::Float32x2,
                 },
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
+                    shader_location: 4,
                     format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: (size_of::<[f32; 2]>() + size_of::<u32>()) as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Uint32,
                 },
             ],
         }
     }
 
-    pub fn indices() -> [u16; 18] {
+    pub fn indices() -> [u16; 36] {
         [
-            2, 0, 1, 1, 3, 2, // front face
-            3, 1, 5, 5, 7, 3, // right face
-            6, 2, 3, 3, 7,
-            6, // top face
-
-               // 0, 4, 5, 5, 1, 0, // bottom face
-               // 7, 5, 4, 4, 6, 7, // back face
-               // 6, 4, 0, 0, 2, 6, // left face
+            2, 0, 1, 1, 3, 2, // front
+            6, 4, 5, 5, 7, 6, // right
+            10, 8, 9, 9, 11, 10, // top
+            14, 12, 13, 13, 15, 14, // back
+            18, 16, 17, 17, 19, 18, // left
+            22, 20, 21, 21, 23, 22, // bottom
         ]
     }
 }
