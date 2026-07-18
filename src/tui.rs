@@ -45,6 +45,7 @@ use crate::{
     parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
+use crate::{STOCK, TOOLPATH};
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -105,6 +106,10 @@ pub struct Tui {
     single: bool,
     /// Tool visibility flag.
     tool: bool,
+    /// Toolpath visibility flag.
+    toolpath: bool,
+    /// Stock visibility flag.
+    stock: bool,
     /// Parsed source loaded [`Interpreter`], ready for iteration.
     interpreter: Interpreter,
     /// Index of current block being executed for preview.
@@ -155,6 +160,8 @@ impl Tui {
             view: View::default(),
             single: SINGLE,
             tool: TOOL,
+            toolpath: TOOLPATH,
+            stock: STOCK,
             interpreter: Interpreter::new(
                 Parser::new(Lexer::new(src)),
                 Machine::new(config.units, config.zero_pos, config.start_pos),
@@ -274,7 +281,7 @@ impl Tui {
                             self.proxy.send_event(Command::SetView(self.view)).unwrap();
                         }
 
-                        KeyCode::Char('s') => {
+                        KeyCode::Char('1') => {
                             self.single = !self.single;
                             self.proxy
                                 .send_event(Command::SetSingle(self.single))
@@ -283,7 +290,23 @@ impl Tui {
 
                         KeyCode::Char('t') => {
                             self.tool = !self.tool;
-                            self.proxy.send_event(Command::SetTool(self.tool)).unwrap()
+                            self.proxy
+                                .send_event(Command::SetToolVisibility(self.tool))
+                                .unwrap()
+                        }
+
+                        KeyCode::Char('p') => {
+                            self.toolpath = !self.toolpath;
+                            self.proxy
+                                .send_event(Command::SetToolpathVisibility(self.toolpath))
+                                .unwrap()
+                        }
+
+                        KeyCode::Char('s') => {
+                            self.stock = !self.stock;
+                            self.proxy
+                                .send_event(Command::SetStockVisibility(self.stock))
+                                .unwrap()
                         }
 
                         KeyCode::Char('n') if proceed && self.interrupt.is_none() => {
@@ -686,6 +709,24 @@ impl Tui {
                     THEME.inactive_mode
                 },
             ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "TOOLPATH",
+                if self.toolpath {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
+                "STOCK",
+                if self.stock {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
         ];
 
         Paragraph::new(Line::from(modes))
@@ -709,7 +750,7 @@ impl Tui {
             Span::styled(" Quit ", THEME.key_desc),
             Span::styled("  v  ", THEME.key),
             Span::styled(" Switch View ", THEME.key_desc),
-            Span::styled("  s  ", THEME.key),
+            Span::styled("  1  ", THEME.key),
             Span::styled(" Toggle Single ", THEME.key_desc),
         ];
 
@@ -721,6 +762,10 @@ impl Tui {
         let spans2 = vec![
             Span::styled("  t  ", THEME.key),
             Span::styled(" Toggle Tool ", THEME.key_desc),
+            Span::styled("  p  ", THEME.key),
+            Span::styled(" Toggle Toolpath ", THEME.key_desc),
+            Span::styled("  s  ", THEME.key),
+            Span::styled(" Toggle Stock ", THEME.key_desc),
         ];
 
         Paragraph::new(Text::from(vec![

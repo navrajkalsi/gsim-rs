@@ -7,7 +7,6 @@
 
 struct Uniforms {
     projection: mat4x4<f32>,
-    light: vec4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
     view: u32,
@@ -23,7 +22,7 @@ struct VertexInput {
 struct InstanceInput {
     @location(1) start: vec3<f32>,
     @location(2) end: vec3<f32>,
-    @location(3) color: vec3<f32>,
+    @location(3) move_type: u32,
 }
 
 struct VertexOutput {
@@ -33,6 +32,8 @@ struct VertexOutput {
     @location(1) center: f32, // distance from center
 };
 
+const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
+const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
 const STROKE_WIDTH = 3.0;
 const SMOOTHING = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
@@ -58,11 +59,12 @@ fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     let offset = normal * STROKE_WIDTH * side;
     // use first two vertex invocations for start side
     let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
-    let depth = select(start.z, end.z, quad.vertex > 1);
+    // make sure that the toolpath is a little above the stock
+    let depth = select(start.z, end.z, quad.vertex > 1) - 0.001;
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>(pos / uniforms.window_size * 2.0, depth, 1.0);
-    out.color = instance.color;
+    out.color = select(FEED_MOVE_COLOR, RAPID_MOVE_COLOR, instance.move_type == 0);
     out.center = side;
     return out;
 }

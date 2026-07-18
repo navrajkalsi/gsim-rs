@@ -16,8 +16,6 @@ pub struct Uniforms {
     /// View matrix to center the scale and scale it to [`Self::window_size`].
     /// Multiplication with this matrix results in **pixel** units.
     projection: [[f32; 4]; 4],
-    /// Position of the light.
-    light: [f32; 4],
     /// Size of the stock.
     /// The first three numbers correspond to X, Y, and Z axis travels respectively.
     /// The last value is used for alignment and is never used.
@@ -39,11 +37,9 @@ impl Uniforms {
         let stock_view = stock_view(stock_size.as_slice(), view);
         let scale = scale(window_size, stock_view);
         let offset = offset(stock_size, stock_view, scale, view);
-        let light = [2.0, 2.0, 2.0, 0.0];
 
         Self {
             projection: projection_matrix(view, scale, offset),
-            light,
             stock_size,
             window_size,
             view,

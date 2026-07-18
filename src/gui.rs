@@ -6,11 +6,11 @@
 //! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
 
 use crate::{
-    Command, Signal, View,
+    Command, STOCK, Signal, TOOL, TOOLPATH, View,
     config::{Config, Point},
     geometry::{
         line::{BufferAction, LineInstance, LineInstancesTracker},
-        stock::{Stock, StockInstance},
+        stock::{StockInstance, StockTracker},
         tools::ToolInstance,
         uniforms::Uniforms,
     },
@@ -262,8 +262,18 @@ impl ApplicationHandler<Command> for Gui {
                 self.single = *single;
             }
 
-            Command::SetTool(tool) => {
-                graphics.set_tool(*tool);
+            Command::SetToolVisibility(tool) => {
+                graphics.tool = *tool;
+                graphics.window.request_redraw();
+            }
+
+            Command::SetToolpathVisibility(toolpath) => {
+                graphics.toolpath = *toolpath;
+                graphics.window.request_redraw();
+            }
+
+            Command::SetStockVisibility(stock) => {
+                graphics.stock = *stock;
                 graphics.window.request_redraw();
             }
 
@@ -330,7 +340,7 @@ pub struct Graphics {
     /// fulfil the latest [`Command::Render`] from [`Tui`].
     lines_tracker: LineInstancesTracker,
 
-    stock: Stock,
+    stock_tracker: StockTracker,
 
     /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
     uniforms: Uniforms,
@@ -340,6 +350,11 @@ pub struct Graphics {
 
     /// Surface is configured on the first [`Graphics::resize`] call.
     configured: bool,
+
+    stock: bool,
+    toolpath: bool,
+    tool: bool,
+
     /// [`Arc`] keeps the [`Window`] valid for as long as [`Self::surface`] needs,
     /// and lets us use `'static` lifetime with the surface.
     window: Arc<Window>,
@@ -701,18 +716,18 @@ impl Graphics {
             cache: None,
         });
 
-        let stock = Stock::new(config.stock); // create new stock from config stock body
+        let stock_tracker = StockTracker::new(config.stock); // create new stock from config stock body
 
         // this vertex buffer is constant and can be mapped at creation
         let stock_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Stock Vertex Buffer"),
-            contents: bytemuck::cast_slice(&StockInstance::vertices(&stock)),
+            contents: bytemuck::cast_slice(&StockInstance::vertices(&stock_tracker)),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let stock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Stock Instance Buffer"),
-            size: stock.total_count as u64 * size_of::<StockInstance>() as u64, // will only need at max
+            size: stock_tracker.total_count as u64 * size_of::<StockInstance>() as u64, // will only need at max
             // full stock instances
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -727,7 +742,7 @@ impl Graphics {
         queue.write_buffer(
             &stock_instance_buffer,
             0,
-            bytemuck::cast_slice(stock.instances().1),
+            bytemuck::cast_slice(stock_tracker.instances().1),
         );
         queue.submit([]);
 
@@ -757,16 +772,21 @@ impl Graphics {
             stock_vertex_buffer,
             stock_instance_buffer,
             stock_index_buffer,
-            stock_count: stock.total_count as u32,
+            stock_count: stock_tracker.total_count as u32,
 
             lines_tracker: LineInstancesTracker::new(),
 
-            stock,
+            stock_tracker,
 
             uniforms,
             uniform_buffer,
             uniform_bind_group,
             configured: false,
+
+            stock: STOCK,
+            toolpath: TOOLPATH,
+            tool: TOOL,
+
             window,
         })
     }
@@ -881,7 +901,7 @@ impl Graphics {
                 );
 
                 // only reconsturct instances if there was a change
-                if self.stock.cut(
+                if self.stock_tracker.cut(
                     crate::config::ToolConfig {
                         number: 1,
                         diameter: 20.0,
@@ -889,7 +909,7 @@ impl Graphics {
                     },
                     pos,
                 ) {
-                    let (index, instances) = self.stock.instances(); // is guarraunteed to be rendered
+                    let (index, instances) = self.stock_tracker.instances(); // is guarraunteed to be rendered
                     //
                     let offset = index * size_of::<StockInstance>();
 
@@ -943,13 +963,13 @@ impl Graphics {
         self.lines_count = 0;
         self.lines_offset = 0;
         self.lines_tracker.reset();
-        self.stock.reset();
+        self.stock_tracker.reset();
 
         // reupload the full stock
         self.queue.write_buffer(
             &self.stock_instance_buffer,
             0,
-            bytemuck::cast_slice(self.stock.instances().1),
+            bytemuck::cast_slice(self.stock_tracker.instances().1),
         );
     }
 
@@ -1033,23 +1053,31 @@ impl Graphics {
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
         // stock
-        render_pass.set_pipeline(&self.stock_pipeline);
-        render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
-
-        // lines
-        render_pass.set_pipeline(&self.lines_pipeline);
-        render_pass.set_vertex_buffer(0, self.lines_vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.lines_instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.lines_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..6, 0, 0..self.lines_count);
+        if self.stock {
+            render_pass.set_pipeline(&self.stock_pipeline);
+            render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
+            render_pass
+                .set_index_buffer(self.stock_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..36, 0, 0..self.stock_count);
+        }
 
         // tool
-        render_pass.set_pipeline(&self.tool_pipeline);
-        render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
-        render_pass.draw(0..432, 0..1);
+        if self.tool {
+            render_pass.set_pipeline(&self.tool_pipeline);
+            render_pass.set_vertex_buffer(0, self.tool_buffer.slice(..));
+            render_pass.draw(0..432, 0..1);
+        }
+
+        // lines
+        if self.toolpath {
+            render_pass.set_pipeline(&self.lines_pipeline);
+            render_pass.set_vertex_buffer(0, self.lines_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.lines_instance_buffer.slice(..));
+            render_pass
+                .set_index_buffer(self.lines_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..6, 0, 0..self.lines_count);
+        }
 
         drop(render_pass);
 
@@ -1068,16 +1096,6 @@ impl Graphics {
             self.uniforms.set_view(view);
         }
 
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniforms]),
-        );
-    }
-
-    /// Sets the tool visibility in [`Self::uniforms`] and uploads the updated uniforms to
-    /// [`Self::uniform_buffer`].
-    fn set_tool(&mut self, tool: bool) {
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,

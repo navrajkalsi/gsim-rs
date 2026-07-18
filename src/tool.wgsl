@@ -11,7 +11,6 @@
 
 struct Uniforms {
     projection: mat4x4<f32>,
-    light: vec4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
     view: u32,
@@ -150,7 +149,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>((position.xy / window_size * 2.0), position.z, 1.0);
-    out.color = vec4<f32>(0.25, 0.25, 0.25, 1.0);
+    out.color = vec4<f32>(0.1, 0.1, 0.1, 1.0);
 
     return out;
 }

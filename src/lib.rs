@@ -24,6 +24,10 @@ const FLOAT_VARIANCE: f32 = 1e-5;
 
 /// Single block execution at program start.
 pub const SINGLE: bool = false;
+/// Stock visibility at program start.
+pub const STOCK: bool = true;
+/// Toolpath visibility at program start.
+pub const TOOLPATH: bool = true;
 /// Tool visibility at program start.
 pub const TOOL: bool = true;
 
@@ -59,7 +63,9 @@ pub enum Command {
     Render(MotionSummary),
     SetView(View),
     SetSingle(bool),
-    SetTool(bool),
+    SetToolVisibility(bool),
+    SetToolpathVisibility(bool),
+    SetStockVisibility(bool),
     Clear,
     Stop(Option<anyhow::Error>),
 }

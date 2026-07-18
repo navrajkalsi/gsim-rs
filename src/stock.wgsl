@@ -1,6 +1,5 @@
 struct Uniforms {
     projection: mat4x4<f32>,
-    light: vec4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
     view: u32,
@@ -27,6 +26,8 @@ struct VertexOutput {
     @location(0) @interpolate(flat) color: vec3<f32>,
 };
 
+const TOP = 1 << 1;
+
 fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
     clipped.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
@@ -44,26 +45,29 @@ fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
     }
 
     let window_size = uniforms.window_size;
+    let stock_height = uniforms.stock_size.z;
+
     let xy = voxel.center + vertex.xy;
     let z = voxel.height * f32(vertex.z);
 
     let world = uniforms.projection * vec4<f32>(xy, z, 1.0);
 
     var out: VertexOutput;
-    var color: vec3<f32>;
-
-    if (vertex.face & 1 << 1) != 0 {
-        color = vec3<f32>(0.5, 0.5, 0.5);
-    } else if (vertex.face & 1 << 2) != 0 {
-        color = vec3<f32>(0.9, 0.9, 0.9);
-    } else {
-        color = vec3<f32>(0.1, 0.1, 0.1);
-    }
 
     // convert to ndc
     // direction already match ndc
     out.clip_position = vec4<f32>((world.xy / window_size * 2.0), world.z, 1.0);
-    out.color = color;
+
+    if vertex.face == TOP {
+        // top face gets dimmer with depth
+        // useful for perceiving depth from top view
+        let rel_height = (voxel.height / stock_height) / 1.5;
+        let color_seg = 0.3 + rel_height;
+        out.color = vec3<f32>(color_seg, color_seg, color_seg);
+    } else {
+        // color all side faces darker
+        out.color = vec3<f32>(0.25, 0.25, 0.25);
+    }
 
     return out;
 };

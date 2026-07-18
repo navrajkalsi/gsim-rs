@@ -6,8 +6,8 @@ use crate::{
     parser::Plane,
 };
 
-const RAPID_MOVE_COLOR: [f32; 3] = [1.0, 0.05, 0.05];
-const FEED_MOVE_COLOR: [f32; 3] = [0.1, 1.0, 0.1];
+const RAPID_MOVE: u32 = 0;
+const FEED_MOVE: u32 = 1;
 
 /// Machine units travelled per frame.
 const SPEED: f32 = 5.0;
@@ -24,8 +24,8 @@ pub struct LineInstance {
     pub start: [f32; 3],
     /// 3D end point of the line.
     pub end: [f32; 3],
-    /// RGB color of the line.
-    pub color: [f32; 3],
+    /// Move type of the line, for coloring in the shader.
+    pub move_type: u32,
 }
 
 impl LineInstance {
@@ -66,7 +66,7 @@ impl LineInstance {
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 3,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Uint32,
                 },
             ],
         }
@@ -82,7 +82,7 @@ impl LineInstance {
         Self {
             start: [start.x, start.y, start.z],
             end: [end.x, end.y, end.z],
-            color: RAPID_MOVE_COLOR,
+            move_type: RAPID_MOVE,
         }
     }
 
@@ -92,7 +92,7 @@ impl LineInstance {
         Self {
             start: [start.x, start.y, start.z],
             end: [end.x, end.y, end.z],
-            color: FEED_MOVE_COLOR,
+            move_type: FEED_MOVE,
         }
     }
 }

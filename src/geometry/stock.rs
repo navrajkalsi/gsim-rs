@@ -13,7 +13,7 @@ const LEFT: u32 = 1 << 6;
 
 // create a relation between distance travelled per frame and stock resolution
 #[derive(Debug)]
-pub struct Stock {
+pub struct StockTracker {
     instances: Vec<StockInstance>,
     voxel_counts: (usize, usize), // 1 start
     size: Point,
@@ -27,7 +27,7 @@ pub struct Stock {
     voxel_edge: f32,
 }
 
-impl Stock {
+impl StockTracker {
     pub fn new(body: Body) -> Self {
         let size = match body {
             Body::Cuboid { x, y, z } => Point { x, y, z },
@@ -304,7 +304,7 @@ impl StockInstance {
     // vertices of a voxel
     // one cube per instance
     // z of the voxel depends on its final height, which may be less than the stock height
-    pub fn vertices(stock: &Stock) -> [StockInstanceVertex; 24] {
+    pub fn vertices(stock: &StockTracker) -> [StockInstanceVertex; 24] {
         let half_edge = stock.voxel_edge / 2.0;
         [
             // front
