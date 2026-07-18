@@ -4,12 +4,12 @@ use std::f32::consts::SQRT_2;
 /// number of cubes on the longest axis
 const STOCK_RESOLUTION: f32 = 500.0;
 
-const TOP_FACE: u32 = 1;
-const FRONT_FACE: u32 = 2;
-const RIGHT_FACE: u32 = 1 << 3;
-const BOTTOM_FACE: u32 = 1 << 4;
-const BACK_FACE: u32 = 1 << 5;
-const LEFT_FACE: u32 = 1 << 6;
+const TOP: u32 = 1 << 1;
+const FRONT: u32 = 1 << 2;
+const RIGHT: u32 = 1 << 3;
+const BOTTOM: u32 = 1 << 4;
+const BACK: u32 = 1 << 5;
+const LEFT: u32 = 1 << 6;
 
 // create a relation between distance travelled per frame and stock resolution
 #[derive(Debug)]
@@ -19,9 +19,11 @@ pub struct Stock {
     size: Point,
     pub total_count: usize,
     // index of the first voxel that changed recently
-    pub cut_start_index: usize,
+    // does not have to be the voxel that was cut,
+    // could be a voxel at the left of the first cut voxel
+    start_index: usize,
     // index of the last voxel that changed on last cut call
-    pub cut_end_index: usize,
+    end_index: usize,
     voxel_edge: f32,
 }
 
@@ -47,14 +49,14 @@ impl Stock {
 
         for x in 0..count_x {
             for y in 0..count_y {
-                let mut faces = TOP_FACE;
+                let mut faces = TOP;
 
                 if y == 0 {
-                    faces = faces | FRONT_FACE
+                    faces = faces | FRONT
                 }
 
                 if x == count_x - 1 {
-                    faces = faces | RIGHT_FACE
+                    faces = faces | RIGHT
                 }
 
                 instances.push(StockInstance {
@@ -74,8 +76,8 @@ impl Stock {
             voxel_counts: (count_x, count_y),
             size,
             total_count,
-            cut_start_index: 0,
-            cut_end_index: total_count - 1,
+            start_index: 0,
+            end_index: total_count - 1,
             voxel_edge: edge,
         }
     }
@@ -136,17 +138,15 @@ impl Stock {
         // consider a 2d voxel square, split the edge and its diagonal is the max
         // possible distance
         let max_dist = rad + (edge / 2.0) * SQRT_2;
-        let mut cut_start_index = None;
-        let mut cut_end_index = 0;
+        let count_y = self.voxel_counts.1;
+        let mut start_index = None;
+        let mut end_index = 0;
 
         for x_index in min_x_index..=max_x_index {
             for y_index in min_y_index..=max_y_index {
                 let index = self.voxel_counts.1 * x_index + y_index;
 
-                let target = self
-                    .instances
-                    .get_mut(index)
-                    .expect("stock buffer layout invalid, logic error!");
+                let target = &mut self.instances[index];
 
                 let dist = ((pos.x - target.center[0]).powi(2)
                     + (pos.y - target.center[1]).powi(2))
@@ -156,26 +156,40 @@ impl Stock {
                     continue;
                 }
 
-                // the voxel is higher than the tool and will be shortened
-                if cut_start_index.is_none() {
-                    cut_start_index = Some(index);
-                    cut_end_index = index // if only a single voxel is cut
-                } else {
-                    cut_end_index = index
-                }
-
+                // target voxel is higher than the tool and will be shortened
                 target.height = if pos.z <= 0.0 {
                     0.0 // the voxel is hidden now
                 } else {
                     pos.z
                 };
+
+                let neighbours = self.show_neighbours(index, pos.z); // checks for bounds
+
+                // voxel refresh indices depends on the neighbouring voxel too
+                if start_index.is_none() {
+                    start_index = if neighbours & LEFT != 0 {
+                        Some(index - count_y)
+                    } else if neighbours & FRONT != 0 {
+                        Some(index - 1)
+                    } else {
+                        Some(index)
+                    };
+                }
+
+                end_index = if neighbours & RIGHT != 0 {
+                    index + count_y
+                } else if neighbours & BACK != 0 {
+                    index + 1
+                } else {
+                    index
+                };
             }
         }
 
-        match cut_start_index {
-            Some(cut_start_index) => {
-                self.cut_start_index = cut_start_index;
-                self.cut_end_index = cut_end_index;
+        match start_index {
+            Some(start_index) => {
+                self.start_index = start_index;
+                self.end_index = end_index;
                 true
             }
             None => false, // no voxel change
@@ -185,21 +199,61 @@ impl Stock {
     // returns a continuous slice of all the changed voxel from the last cut
     // shader will check which ones to show
     pub fn instances(&self) -> (usize, &[StockInstance]) {
-        debug_assert!(self.cut_start_index <= self.cut_end_index);
+        debug_assert!(self.start_index <= self.end_index);
 
         (
-            self.cut_start_index, // buffer offset
-            &self.instances[self.cut_start_index..=self.cut_end_index],
+            self.start_index, // buffer offset
+            &self.instances[self.start_index..=self.end_index],
         )
     }
 
     pub fn reset(&mut self) {
-        self.cut_start_index = 0;
-        self.cut_end_index = self.total_count - 1;
+        self.start_index = 0;
+        self.end_index = self.total_count - 1;
 
         for instance in &mut self.instances {
             instance.height = self.size.z;
         }
+    }
+
+    // checks for bounds
+    fn show_neighbours(&mut self, index: usize, tool: f32) -> u32 {
+        let count_y = self.voxel_counts.1;
+
+        let mut sides = 0; // voxels changed on the relative side of current voxel
+        if index >= count_y {
+            let left = &mut self.instances[index - count_y]; // voxel on left side
+            if left.height > tool && (left.faces & RIGHT == 0) {
+                left.faces = left.faces | RIGHT;
+                sides = sides | LEFT;
+            }
+        }
+
+        if index < self.total_count - count_y {
+            let right = &mut self.instances[index + count_y]; // voxel on right side
+            if right.height > tool && (right.faces & LEFT == 0) {
+                right.faces = right.faces | LEFT;
+                sides = sides | RIGHT;
+            }
+        }
+
+        if index % count_y != 0 {
+            let front = &mut self.instances[index - 1]; // voxel in the front
+            if front.height > tool && (front.faces & BACK == 0) {
+                front.faces = front.faces | BACK;
+                sides = sides | FRONT;
+            }
+        }
+
+        if index % count_y != 1 {
+            let back = &mut self.instances[index + 1]; // voxel in the back
+            if back.height > tool && (back.faces & FRONT == 0) {
+                back.faces = back.faces | FRONT;
+                sides = sides | BACK;
+            }
+        }
+
+        sides
     }
 }
 
@@ -257,127 +311,127 @@ impl StockInstance {
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 0 left-near
                 z: 0,                         // bottom
-                face: FRONT_FACE,
+                face: FRONT,
             },
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 1 right-near
                 z: 0,                        // bottom
-                face: FRONT_FACE,
+                face: FRONT,
             },
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 2 left-near
                 z: 1,                         // top
-                face: FRONT_FACE,
+                face: FRONT,
             },
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 3 right-near
                 z: 1,                        // top
-                face: FRONT_FACE,
+                face: FRONT,
             },
             // right
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 4 right-near
                 z: 0,                        // bottom
-                face: RIGHT_FACE,
+                face: RIGHT,
             },
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 5 right-far
                 z: 0,                       // bottom
-                face: RIGHT_FACE,
+                face: RIGHT,
             },
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 6 right-near
                 z: 1,                        // top
-                face: RIGHT_FACE,
+                face: RIGHT,
             },
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 7 right-far
                 z: 1,                       // top
-                face: RIGHT_FACE,
+                face: RIGHT,
             },
             // top
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 8 left-near
                 z: 1,                         // top
-                face: TOP_FACE,
+                face: TOP,
             },
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 9 right-near
                 z: 1,                        // top
-                face: TOP_FACE,
+                face: TOP,
             },
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 10 left-far
                 z: 1,                        // top
-                face: TOP_FACE,
+                face: TOP,
             },
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 11 right-far
                 z: 1,                       // top
-                face: TOP_FACE,
+                face: TOP,
             },
             // back
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 12 right-far
                 z: 0,                       // bottom
-                face: BACK_FACE,
+                face: BACK,
             },
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 13 left-far
                 z: 0,                        // bottom
-                face: BACK_FACE,
+                face: BACK,
             },
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 14 right-far
                 z: 1,                       // top
-                face: BACK_FACE,
+                face: BACK,
             },
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 15 left-far
                 z: 1,                        // top
-                face: BACK_FACE,
+                face: BACK,
             },
             // left
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 16 left-far
                 z: 0,                        // bottom
-                face: LEFT_FACE,
+                face: LEFT,
             },
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 17 left-near
                 z: 0,                         // bottom
-                face: LEFT_FACE,
+                face: LEFT,
             },
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 18 left-far
                 z: 1,                        // top
-                face: LEFT_FACE,
+                face: LEFT,
             },
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 19 left-near
                 z: 1,                         // top
-                face: LEFT_FACE,
+                face: LEFT,
             },
             // bottom
             StockInstanceVertex {
                 xy: [half_edge, -half_edge], // 20 right-near
                 z: 0,                        // bottom
-                face: BOTTOM_FACE,
+                face: BOTTOM,
             },
             StockInstanceVertex {
                 xy: [-half_edge, -half_edge], // 21 left-near
                 z: 0,                         // bottom
-                face: BOTTOM_FACE,
+                face: BOTTOM,
             },
             StockInstanceVertex {
                 xy: [half_edge, half_edge], // 22 right-far
                 z: 0,                       // bottom
-                face: BOTTOM_FACE,
+                face: BOTTOM,
             },
             StockInstanceVertex {
                 xy: [-half_edge, half_edge], // 23 left-far
                 z: 0,                        // bottom
-                face: BOTTOM_FACE,
+                face: BOTTOM,
             },
         ]
     }

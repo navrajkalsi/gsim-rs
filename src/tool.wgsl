@@ -60,7 +60,7 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let angle = radians(f32(triangle % 36) * 10.0);
     let angle_next = radians(f32(triangle % 36) * 10.0 + 10.0);
 
-    let tool_size = 12.5;
+    let tool_size = 10.0;
     let tool_len = 125.0;
 
     var position = vec4<f32>(in.pos, 1.0);

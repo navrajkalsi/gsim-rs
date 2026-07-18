@@ -884,7 +884,7 @@ impl Graphics {
                 if self.stock.cut(
                     crate::config::ToolConfig {
                         number: 1,
-                        diameter: 25.0,
+                        diameter: 20.0,
                         length: 125.0,
                     },
                     pos,

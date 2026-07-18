@@ -50,11 +50,20 @@ fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
     let world = uniforms.projection * vec4<f32>(xy, z, 1.0);
 
     var out: VertexOutput;
+    var color: vec3<f32>;
+
+    if (vertex.face & 1 << 1) != 0 {
+        color = vec3<f32>(0.5, 0.5, 0.5);
+    } else if (vertex.face & 1 << 2) != 0 {
+        color = vec3<f32>(0.9, 0.9, 0.9);
+    } else {
+        color = vec3<f32>(0.1, 0.1, 0.1);
+    }
 
     // convert to ndc
     // direction already match ndc
     out.clip_position = vec4<f32>((world.xy / window_size * 2.0), world.z, 1.0);
-    out.color = vec3<f32>(0.5, 0.5, 0.5);
+    out.color = color;
 
     return out;
 };
