@@ -102,7 +102,10 @@ fn project_bounding_box(stock_size: &[f32]) -> [f32; 2] {
 ///
 /// The returned scale will prioritize fitting the dimension that is longer relative to that of the window.
 fn scale(window_size: [f32; 2], stock_view: [f32; 2]) -> f32 {
-    assert!(STOCK_INSET >= 0.0 && STOCK_INSET <= 25.0);
+    const {
+        assert!(STOCK_INSET >= 0.0 && STOCK_INSET <= 25.0);
+    }
+
     // y / x
     // compensate for any inset
     let usable_percentage = 1.0 - (STOCK_INSET * 2.0) / 100.0;

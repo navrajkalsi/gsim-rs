@@ -1,8 +1,8 @@
 use crate::config::{Body, Point, ToolConfig};
 use std::f32::consts::SQRT_2;
 
-/// number of cubes on the longest axis
-const STOCK_RESOLUTION: f32 = 500.0;
+/// number of voxels on the longest axis
+const STOCK_RESOLUTION: f32 = 1000.0;
 
 const TOP: u32 = 1 << 1;
 const FRONT: u32 = 1 << 2;
@@ -49,14 +49,22 @@ impl StockTracker {
 
         for x in 0..count_x {
             for y in 0..count_y {
-                let mut faces = TOP;
+                let mut faces = TOP | BOTTOM;
 
-                if y == 0 {
-                    faces = faces | FRONT
+                if x == 0 {
+                    faces |= LEFT
                 }
 
                 if x == count_x - 1 {
-                    faces = faces | RIGHT
+                    faces |= RIGHT
+                }
+
+                if y == 0 {
+                    faces |= FRONT
+                }
+
+                if y == count_y - 1 {
+                    faces |= BACK
                 }
 
                 instances.push(StockInstance {
@@ -224,32 +232,32 @@ impl StockTracker {
         if index >= count_y {
             let left = &mut self.instances[index - count_y]; // voxel on left side
             if left.height > tool && (left.faces & RIGHT == 0) {
-                left.faces = left.faces | RIGHT;
-                sides = sides | LEFT;
+                left.faces |= RIGHT;
+                sides |= LEFT;
             }
         }
 
         if index < self.total_count - count_y {
             let right = &mut self.instances[index + count_y]; // voxel on right side
             if right.height > tool && (right.faces & LEFT == 0) {
-                right.faces = right.faces | LEFT;
-                sides = sides | RIGHT;
+                right.faces |= LEFT;
+                sides |= RIGHT;
             }
         }
 
-        if index % count_y != 0 {
+        if !index.is_multiple_of(count_y) {
             let front = &mut self.instances[index - 1]; // voxel in the front
             if front.height > tool && (front.faces & BACK == 0) {
-                front.faces = front.faces | BACK;
-                sides = sides | FRONT;
+                front.faces |= BACK;
+                sides |= FRONT;
             }
         }
 
-        if index % count_y != 1 {
+        if !(index + 1).is_multiple_of(count_y) {
             let back = &mut self.instances[index + 1]; // voxel in the back
             if back.height > tool && (back.faces & FRONT == 0) {
-                back.faces = back.faces | FRONT;
-                sides = sides | BACK;
+                back.faces |= FRONT;
+                sides |= BACK;
             }
         }
 
@@ -477,6 +485,65 @@ impl StockInstance {
 mod tests {
     use super::*;
 
+    /// Returns a custom stock of low resolution for easier testing.
+    fn custom_stock() -> StockTracker {
+        StockTracker {
+            instances: vec![
+                StockInstance {
+                    center: [5.0, 5.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | LEFT | FRONT,
+                },
+                StockInstance {
+                    center: [5.0, 15.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | LEFT,
+                },
+                StockInstance {
+                    center: [5.0, 25.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | LEFT | BACK,
+                },
+                StockInstance {
+                    center: [15.0, 5.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | FRONT,
+                },
+                StockInstance {
+                    center: [15.0, 15.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM,
+                },
+                StockInstance {
+                    center: [15.0, 25.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | BACK,
+                },
+                StockInstance {
+                    center: [25.0, 5.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | RIGHT | FRONT,
+                },
+                StockInstance {
+                    center: [25.0, 15.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | RIGHT,
+                },
+                StockInstance {
+                    center: [25.0, 25.0],
+                    height: 30.0,
+                    faces: TOP | BOTTOM | RIGHT | BACK,
+                },
+            ],
+            voxel_counts: (3, 3),
+            size: Point::new(30.0, 30.0, 30.0),
+            total_count: 9,
+            start_index: 0,
+            end_index: 8,
+            voxel_edge: 10.0,
+        }
+    }
+
     #[test]
     fn stock() {
         let size = Point::new(500.0, 250.0, 250.0);
@@ -488,15 +555,35 @@ mod tests {
         let mut current_y = start;
         let count_x = (size.x / edge).ceil() as usize;
         let count_y = (size.y / edge).ceil() as usize;
+        let total_count = count_x * count_y;
 
-        let mut oracle = Vec::with_capacity(count_x * count_y);
+        let mut oracle = Vec::with_capacity(total_count);
 
         // slower version, but better reasoning
         while current_x < size.x {
             while current_y < size.y {
+                let mut faces = TOP | BOTTOM;
+
+                if current_x == start {
+                    faces |= LEFT
+                }
+
+                if current_x + edge > size.x {
+                    faces |= RIGHT
+                }
+
+                if current_y == start {
+                    faces |= FRONT
+                }
+
+                if current_y + edge > size.y {
+                    faces |= BACK
+                }
+
                 oracle.push(StockInstance {
                     center: [current_x, current_y],
                     height: size.z,
+                    faces,
                 });
                 current_y += edge;
             }
@@ -504,7 +591,7 @@ mod tests {
             current_x += edge;
         }
 
-        let stock_tracker = Stock::new(Body::Cuboid {
+        let stock_tracker = StockTracker::new(Body::Cuboid {
             x: size.x,
             y: size.y,
             z: size.z,
@@ -513,11 +600,71 @@ mod tests {
         assert_eq!(stock_tracker.instances, oracle);
         assert_eq!(stock_tracker.voxel_counts, (count_x, count_y));
         assert_eq!(stock_tracker.voxel_edge, edge);
+        assert_eq!(stock_tracker.start_index, 0);
+        assert_eq!(stock_tracker.end_index, total_count - 1);
+    }
+
+    #[test]
+    fn neighbours() {
+        let mut stock_tracker = custom_stock();
+
+        // remove the voxel at center
+        stock_tracker.show_neighbours(stock_tracker.total_count / 2, 0.0);
+
+        let oracle = vec![
+            StockInstance {
+                center: [5.0, 5.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | LEFT | FRONT, // stays the same
+            },
+            StockInstance {
+                center: [5.0, 15.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | LEFT | RIGHT, // right face must be exposed
+            },
+            StockInstance {
+                center: [5.0, 25.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | LEFT | BACK, // same
+            },
+            StockInstance {
+                center: [15.0, 5.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | FRONT | BACK, // back face must be exposed
+            },
+            StockInstance {
+                center: [15.0, 15.0],
+                height: 30.0, // not cut, this test focuses on faces
+                faces: TOP | BOTTOM,
+            },
+            StockInstance {
+                center: [15.0, 25.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | BACK | FRONT, // front face must be exposed
+            },
+            StockInstance {
+                center: [25.0, 5.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | RIGHT | FRONT, // same
+            },
+            StockInstance {
+                center: [25.0, 15.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | RIGHT | LEFT, // left face must be exposed
+            },
+            StockInstance {
+                center: [25.0, 25.0],
+                height: 30.0,
+                faces: TOP | BOTTOM | RIGHT | BACK, // same
+            },
+        ];
+
+        assert_eq!(stock_tracker.instances, oracle);
     }
 
     #[test]
     fn cut() {
-        let mut stock_tracker = Stock::new(Body::Cuboid {
+        let mut stock_tracker = StockTracker::new(Body::Cuboid {
             x: 500.0,
             y: 250.0,
             z: 250.0,
@@ -531,7 +678,7 @@ mod tests {
 
         let altered = stock_tracker.cut(tool, Point::new(250.0, 125.0, 0.0));
 
-        let mut instances = Vec::new();
+        let mut instances = Vec::with_capacity(stock_tracker.total_count);
 
         let start = stock_tracker.voxel_edge / 2.0;
         let max_dist = 25.0 + (stock_tracker.voxel_edge / 2.0) * SQRT_2;
@@ -546,32 +693,30 @@ mod tests {
                     && current_x <= 275.0
                     && ((250.0 - current_x).powi(2) + (125.0 - current_y).powi(2)).sqrt() < max_dist
                 {
-                    current_y += stock_tracker.voxel_edge;
-                    continue;
+                    instances.push(StockInstance {
+                        center: [current_x, current_y],
+                        height: 0.0,
+                        faces: 0, // does not test faces
+                    });
+                } else {
+                    instances.push(StockInstance {
+                        center: [current_x, current_y],
+                        height: stock_tracker.size.z,
+                        faces: 0, // does not test faces
+                    });
                 }
-                instances.push(StockInstance {
-                    center: [current_x, current_y],
-                    height: 250.0,
-                });
+
                 current_y += stock_tracker.voxel_edge;
             }
             current_y = start;
             current_x += stock_tracker.voxel_edge;
         }
 
-        let res: Vec<StockInstance> = stock_tracker
-            .instances
-            .iter()
-            .filter_map(|instance| {
-                if instance.height > 0.0 {
-                    Some(*instance)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
         assert!(altered);
-        assert_eq!(res, instances);
+        for i in 0..stock_tracker.total_count {
+            assert_eq!(stock_tracker.instances[i].center, instances[i].center);
+            assert_eq!(stock_tracker.instances[i].height, instances[i].height);
+            // again, not testing faces here
+        }
     }
 }

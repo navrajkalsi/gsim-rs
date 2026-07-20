@@ -9,6 +9,9 @@
 //! which receive [`Command`]s in response from the [`Tui`] thread,
 //! communicating user input and state changes.
 
+const TARGET_FPS: u64 = 30;
+const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS); // approximately
+
 use ratatui::{
     Frame, Terminal,
     crossterm::{
@@ -26,7 +29,7 @@ use std::{
     fmt::Display,
     io::Stdout,
     sync::mpsc::{Receiver, TryRecvError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use winit::event_loop::EventLoopProxy;
 
@@ -237,11 +240,16 @@ impl Tui {
     {
         // always wait for the gui to trigger
         let mut proceed = false;
+        let mut time_tracker = Instant::now() - TIME_BETWEEN_FRAMES;
 
         // the main idea of this loop is that the event loop from main thread,
         // drives this loop with every proceed signal
         loop {
-            terminal.draw(|frame| self.draw(frame))?;
+            if time_tracker.elapsed() > TIME_BETWEEN_FRAMES {
+                terminal.draw(|frame| self.draw(frame))?;
+                // time_tracker = Instant::now(); // not performant
+                time_tracker -= TIME_BETWEEN_FRAMES;
+            }
 
             self.last_signal = self.check_signal()?;
 

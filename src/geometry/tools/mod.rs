@@ -1,7 +1,5 @@
 use crate::{config::Point, geometry::line::LineInstance};
 
-const TOOL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
-
 /// Represents the current 3D position of the tool,
 /// that can be drawn to the screen with a vertex shader.
 #[repr(C)]
