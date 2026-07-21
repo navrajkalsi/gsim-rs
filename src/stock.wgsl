@@ -26,7 +26,7 @@ struct VertexOutput {
     @location(0) @interpolate(flat) color: vec3<f32>,
 };
 
-const TOP = 1 << 1;
+const TOP = 1 << 0;
 
 fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
