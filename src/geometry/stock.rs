@@ -1,7 +1,24 @@
+//! # Stock
+//!
+//! Creates and manages workpiece stock throughout program execution.
+//!
+//! Stock is represented as a [`StockTracker`],
+//! which exposes [`StockTracker::cut`] for simulating cutting operations on the stock.
+//!
+//! At a lower level, stock is made up of up to one million of tiny [`StockInstance`]s.
+//! Each [`StockInstance`] acts as a little vertical cell (voxel) *with dynamic height*.
+//! [`StockTracker`] manipulates this height on a per instance basis to
+//! shorten or hide the said instance.
+//!
+//! ### Terminology
+//! Although this module makes repeated use of the term *voxel*,
+//! a [`StockInstance`] is **not** an actual *voxel* in the traditional sense.
+//! It is **not** a cube but rather a bar placed in the Z direction, whose height can be changed.
+
 use crate::config::{Body, Point, ToolConfig};
 use std::f32::consts::SQRT_2;
 
-/// Number of voxels ([`StockInstance`]s) on the longest axis (X or Y).
+/// Number of voxels ([`StockInstance`]s) on the longer of X & Y axis.
 const STOCK_RESOLUTION: u32 = 1000;
 
 /// Directional bit masks.

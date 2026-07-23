@@ -207,10 +207,12 @@ impl ApplicationHandler<Command> for Gui {
                 match graphics.update(self.single) {
                     Ok((proceed, render)) => {
                         if proceed {
-                            let _ = self.signal.send(Signal::Proceed); // exhausted, request new render command
+                            let _ = self.signal.send(Signal::Proceed);
+                            // exhausted, request new render command
                             self.render_received = false;
                         } else {
-                            graphics.window.request_redraw(); // still more instances in the tracker
+                            graphics.window.request_redraw();
+                            // still more instances in the tracker
                         };
 
                         if !render && !self.single {
@@ -791,7 +793,8 @@ impl Graphics {
         })
     }
 
-    /// Reconfigures [`Self::surface`] and [`Self::depth_texture`], updates & rewrites [`Self::uniforms`] to use the new provided size.
+    /// Reconfigures [`Self::surface`] and [`Self::depth_texture`],
+    /// updates & rewrites [`Self::uniforms`] to use the new provided size.
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
         let width = new_size.width.max(1);
         let height = new_size.height.max(1);
