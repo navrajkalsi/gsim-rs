@@ -15,7 +15,7 @@ impl ToolInstance {
     /// The layout is set to use [`VertexStepMode::Instance`](wgpu::VertexStepMode::Instance),
     /// which allows the vertex shader to expand a single 3D point to a cylinderical tool,
     /// with its bottom center at the tool position.
-    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+    pub fn instance_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,

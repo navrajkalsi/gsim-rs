@@ -6,6 +6,7 @@ pub mod interpreter;
 pub mod lexer;
 pub mod machine;
 pub mod parser;
+mod renderer;
 pub mod source;
 mod tui;
 
