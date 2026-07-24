@@ -1,3 +1,7 @@
+// Stock
+//
+// Draws a cuboidal stock instance of specified color.
+
 struct Uniforms {
     projection: mat4x4<f32>,
     stock_size: vec4<f32>,

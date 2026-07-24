@@ -1,11 +1,22 @@
+//! # Tool
+//!
+//! Sets up the GPU resources for rendering [`ToolInstance`]s.
+
 use crate::geometry::tools::ToolInstance;
 
+/// Creates a pipeline for drawing [`ToolInstance`]s.
+///
+/// The pipeline expects the **instance buffer** at slot `0` in the render pass.
+///
+/// Returns a tuple consisting of:
+/// - Render pipeline.
+/// - Instance buffer, for uploading at most a **single** [`ToolInstance`] to the GPU.
 pub fn setup_pipeline(
     device: &wgpu::Device,
     uniform_bind_group_layout: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
 ) -> (wgpu::RenderPipeline, wgpu::Buffer) {
-    let shader = device.create_shader_module(wgpu::include_wgsl!("../tool.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/tool.wgsl"));
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Tool Pipeline Layout"),

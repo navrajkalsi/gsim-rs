@@ -1,3 +1,7 @@
+//! # Renderer
+//!
+//! Manages GPU resources and renders the simulation using the [`wgpu`] graphics API.
+
 mod line;
 mod stock;
 mod tool;
@@ -17,71 +21,84 @@ use std::sync::Arc;
 use wgpu::CurrentSurfaceTexture;
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
-/// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_buffer`].
+/// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_instance_buffer`].
 const MAX_INSTANCES: u64 = 1_000_000;
 
 /// GPU state for toothpath simulation.
 pub struct Graphics {
     /// Logical connection to a GPU.
     device: wgpu::Device,
-    /// Command queue for the `device`.
+    /// Command queue for [`Self::device`].
     queue: wgpu::Queue,
     /// Rendering surface created from a [`Window`].
     /// Since the surface holds a reference to the [`Window`] it was created from,
     /// the window is kept alive as long as the surface.
     surface: wgpu::Surface<'static>,
+    /// Description of [`Self::surface`].
+    surface_config: wgpu::SurfaceConfiguration,
+
     /// Depth texture configured to [`Self::surface`] size.
     depth_texture: wgpu::Texture,
     /// View for [`Self::depth_texture`] to be used in the render pass.
     depth_texture_view: wgpu::TextureView,
-
+    /// Multisample anti-aliasing texture configured to [`Self::surface`] size.
     msaa_texture: wgpu::Texture,
+    /// View for [`Self::msaa_texture`] to be used in the render pass.
     msaa_texture_view: wgpu::TextureView,
 
-    /// Description of a [`Surface`](wgpu::Surface).
-    surface_config: wgpu::SurfaceConfiguration,
-
-    /// Pipeline for rendering [`LineInstance`].
+    /// Pipeline for rendering [`LineInstance`]s.
     lines_pipeline: wgpu::RenderPipeline,
-
-    /// Vertex buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
+    /// GPU buffer for storing all vertices unique to a [`LineInstance`].
     lines_vertex_buffer: wgpu::Buffer,
+    /// GPU buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
     lines_instance_buffer: wgpu::Buffer,
+    /// GPU buffer for storing indices of [`Self::lines_vertex_buffer`],
+    /// allowing reuse of vertices without duplication.
     lines_index_buffer: wgpu::Buffer,
-
-    /// Total number of [`LineInstance`]s in [`Self::lines_buffer`].
+    /// Total number of active [`LineInstance`]s in [`Self::lines_instance_buffer`].
     lines_count: u32,
-    /// Memory offset to write next toolpath [`LineInstance`] to.
+    /// Memory offset to write next toolpath [`LineInstance`] to in [`Self::lines_instance_buffer`].
     lines_offset: u64,
 
     /// Pipeline for rendering the [`ToolInstance`].
     tool_pipeline: wgpu::RenderPipeline,
-    /// Vertex buffer configured to hold a single [`ToolInstance`].
+    /// GPU buffer configured to hold a **single** [`ToolInstance`].
     tool_instance_buffer: wgpu::Buffer,
 
+    /// Pipeline for rendering [`StockInstance`]s.
     stock_pipeline: wgpu::RenderPipeline,
+    /// GPU buffer for storing all vertices unique to a [`StockInstance`].
     stock_vertex_buffer: wgpu::Buffer,
+    /// GPU buffer for storing all unique [`StockInstance`]s.
     stock_instance_buffer: wgpu::Buffer,
+    /// GPU buffer for storing indices of [`Self::stock_vertex_buffer`],
+    /// allowing reuse of vertices without duplication.
     stock_index_buffer: wgpu::Buffer,
+    /// Total number of [`StockInstance`]s in [`Self::stock_instance_buffer`].
     stock_count: u32,
 
-    /// Tracks total [`LineInstance`]s drawn and left to be drawn to
-    /// fulfil the latest [`Command::Render`] from [`Tui`].
+    /// Tracks total [`LineInstance`]s drawn and left to be drawn from the latest simulation move.
     pub lines_tracker: LineInstancesTracker,
 
+    /// Tracks state changes of [`StockInstance`]s during cutting moves.
     stock_tracker: StockTracker,
 
-    /// Constant data shared across all the [`LineInstance`]s and [`ToolInstance`].
+    /// Constant data shared across all the pipelines.
     uniforms: Uniforms,
-    /// Read-only buffer containing [`Uniforms`].
+    /// Read-only buffer containing [`Self::uniforms`].
     uniform_buffer: wgpu::Buffer,
+    /// GPU bind group, with entry bound to [`Self::uniform_buffer`].
     uniform_bind_group: wgpu::BindGroup,
 
-    /// Surface is configured on the first [`Graphics::resize`] call.
+    /// Surface configured flag.
+    /// Configured on the first [`Graphics::resize`] call.
     configured: bool,
 
+    /// [`StockInstance`]s visibility flag.
     pub stock: bool,
+    /// [`LineInstance`]s visibility flag.
     pub toolpath: bool,
+    /// [`ToolInstance`] visibility flag.
     pub tool: bool,
 
     /// [`Arc`] keeps the [`Window`] valid for as long as [`Self::surface`] needs,
@@ -91,11 +108,12 @@ pub struct Graphics {
 
 impl Graphics {
     /// Constructs a new [`Graphics`] by initializing all GPU resources, including:
-    /// - [`Uniforms`] buffer and bind group, to pass constant data to the [`ToolInstance`] and all
-    ///   [`LineInstance`]s.
-    /// - [`LineInstance`] buffer and pipeline.
+    /// - [`Uniforms`] buffer and bind group, to pass constant data to the pipelines.
+    /// - [`LineInstance`] buffers and pipeline.
     /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
-    ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_buffer`].
+    ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_instance_buffer`].
+    /// - [`StockInstance`] buffers and pipeline. Creates a stock corresponding to
+    ///   [`Config::stock`], and writes it to [`Self::stock_instance_buffer`].
     ///
     /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     pub async fn build(
@@ -196,21 +214,20 @@ impl Graphics {
             device,
             queue,
             surface,
+            surface_config,
+
             depth_texture,
             depth_texture_view,
-
             msaa_texture,
             msaa_texture_view,
 
-            surface_config,
             lines_pipeline,
-
             lines_vertex_buffer,
             lines_instance_buffer,
             lines_index_buffer,
-
             lines_count: 0,
             lines_offset: 0,
+
             tool_pipeline,
             tool_instance_buffer,
 
@@ -227,6 +244,7 @@ impl Graphics {
             uniforms,
             uniform_buffer,
             uniform_bind_group,
+
             configured: false,
 
             stock: STOCK,
@@ -237,7 +255,7 @@ impl Graphics {
         })
     }
 
-    /// Reconfigures [`Self::surface`] and [`Self::depth_texture`],
+    /// Reconfigures [`Self::surface`], [`Self::depth_texture`] and [`Self::msaa_texture`],
     /// updates & rewrites [`Self::uniforms`] to use the new provided size.
     pub fn resize(&mut self, mut new_size: PhysicalSize<u32>) {
         new_size.width = new_size.width.max(1);
@@ -262,24 +280,23 @@ impl Graphics {
     }
 
     /// Uploads the next [`LineInstance`] from [`Self::lines_tracker`] to
-    /// [`Self::lines_buffer`], depending on the returned [`BufferAction`].
+    /// [`Self::lines_instance_buffer`], depending on the returned [`BufferAction`].
     ///
     /// - [`BufferAction::Overwrite`]:
     ///   Overwrites the new line instance over the last instance in the buffer, extending it.
     /// - [`BufferAction::Add`]: Appends the new line instance individually to the buffer.
     ///
     /// Also, depending on the `render` flags of [`BufferAction`],
-    /// updates the position of [`ToolInstance`] in [`Self::tool_buffer`]
+    /// updates the position of [`ToolInstance`] in [`Self::tool_instance_buffer`]
     /// to the new line instance end point.
     /// Although a `force_render_tool` flag can be provided to make sure the [`ToolInstance`] is
     /// updated to the new position.
     ///
     /// On success returns a tuple with two `bool`s:
-    /// - First `bool` is set to `true` on [`BufferAction::Exhausted`], indicating [`Gui`] to send
-    ///   [`Signal::Proceed`] to the [`Tui`] and receive a new [`Command`].
-    /// - Second `bool` is used to indicate [`Gui`] to call [`Graphics::render`].
+    /// - whether the simulation should proceed to next command.
+    /// - whether a redraw is required.
     ///
-    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_instance_buffer`] overflows on adding the new
     /// [`LineInstance`].
     pub fn update(&mut self, force_render_tool: bool) -> anyhow::Result<(bool, bool)> {
         let mut new_pos = None;
@@ -336,9 +353,9 @@ impl Graphics {
         Ok((proceed, render))
     }
 
-    /// Overwrites the provided [`LineInstance`] over the last instance inside [`Self::lines_buffer`].
+    /// Overwrites the provided [`LineInstance`] over the last instance inside [`Self::lines_instance_buffer`].
     ///
-    /// [`Self::lines_buffer`] cannot overflow on this call, because there is no instance addition
+    /// [`Self::lines_instance_buffer`] cannot overflow on this call, because there is no instance addition
     /// to the buffer.
     fn overwrite_instance(&mut self, instance: LineInstance) {
         self.queue.write_buffer(
@@ -348,9 +365,9 @@ impl Graphics {
         );
     }
 
-    /// Appends the provided [`LineInstance`] to [`Self::lines_buffer`].
+    /// Appends the provided [`LineInstance`] to [`Self::lines_instance_buffer`].
     ///
-    /// On failure, returns [`anyhow::Error`] if [`Self::lines_buffer`] overflows on adding the new
+    /// On failure, returns [`anyhow::Error`] if [`Self::lines_instance_buffer`] overflows on adding the new
     /// [`LineInstance`].
     fn add_instance(&mut self, instance: LineInstance) -> anyhow::Result<()> {
         self.queue.write_buffer(
@@ -360,7 +377,7 @@ impl Graphics {
         );
 
         if self.lines_count + 1 > MAX_INSTANCES as u32 {
-            anyhow::bail!("Lines vertex buffer overflow.");
+            anyhow::bail!("lines instance buffer overflow");
         }
 
         self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
@@ -369,7 +386,7 @@ impl Graphics {
         Ok(())
     }
 
-    /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_buffer`].
+    /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_instance_buffer`].
     pub fn clear(&mut self) {
         self.lines_count = 0;
         self.lines_offset = 0;
@@ -384,8 +401,11 @@ impl Graphics {
         );
     }
 
-    /// Renders a new frame to the [`Self::surface`], drawing the toolpath and tool
-    /// by rendering both [`Self::lines_buffer`] and [`Self::tool_buffer`].
+    /// Renders a new frame to the [`Self::surface`],
+    /// drawing the toolpath, tool and stock,
+    /// by rendering all [`Self::lines_instance_buffer`], [`Self::tool_instance_buffer`]
+    /// and [`Self::stock_instance_buffer`] after checking for [`Self::toolpath`],
+    /// [`Self::tool`] and [`Self::stock`] flags respectively.
     ///
     /// # Errors
     /// Returns [`anyhow::Error`] indicating that the surface is lost.

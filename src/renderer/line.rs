@@ -1,6 +1,21 @@
+//! # Line
+//!
+//! Sets up the GPU resources for rendering [`LineInstance`]s.
+
 use crate::geometry::line::LineInstance;
 use wgpu::util::DeviceExt;
 
+/// Creates a pipeline for drawing **anti-aliased** [`LineInstance`]s.
+///
+/// The pipeline expects the following buffers in the render pass:
+/// - **vertex buffer** at slot `0`.
+/// - **instance buffer** at slot `1`.
+///
+/// Returns a tuple consisting of:
+/// - Render pipeline.
+/// - Vertex buffer, used to expand a single instance into multiple unique vertices.
+/// - Instance buffer, for uploading [`LineInstance`] to the GPU.
+/// - Index buffer, used to reuse vertices from the vertex buffer without duplicating them.
 pub fn setup_pipeline(
     device: &wgpu::Device,
     uniform_bind_group_layout: &wgpu::BindGroupLayout,
@@ -11,7 +26,7 @@ pub fn setup_pipeline(
     wgpu::Buffer,
     wgpu::Buffer,
 ) {
-    let shader = device.create_shader_module(wgpu::include_wgsl!("../line.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/line.wgsl"));
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Lines Pipeline Layout"),
@@ -27,7 +42,7 @@ pub fn setup_pipeline(
             entry_point: Some("vs_main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             buffers: &[
-                // @location of buffers is decided here
+                // slot for the render pass is decided here
                 LineInstance::vertex_buffer_layout(),
                 LineInstance::instance_buffer_layout(),
             ],
@@ -50,7 +65,7 @@ pub fn setup_pipeline(
         }),
         multisample: wgpu::MultisampleState {
             count: 1,
-            mask: !0, // use all
+            mask: !0,
             alpha_to_coverage_enabled: false,
         },
         // enable anti aliasing with alpha for color

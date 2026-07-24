@@ -1,14 +1,18 @@
+//! # Uniforms
+//!
+//! Sets up GPU *uniforms* for use across shaders and render pipelines.
+
 use crate::{config::Point, geometry::uniforms::Uniforms};
 use wgpu::{BindGroupLayoutEntry, util::DeviceExt};
 use winit::dpi::PhysicalSize;
 
-const MAX_TRAVELS: Point = Point {
-    x: 500.0,
-    y: 250.0,
-    z: 250.0,
-};
-
-// static data to be passed to the shader, that is common to vertices
+/// Creates a [`Uniforms`] and prepares it for usage in the GPU shaders and pipelines.
+///
+/// Returns a tuple consisting of:
+/// - CPU [`Uniforms`] struct.
+/// - GPU uniform buffer, filled with the [`Uniforms`] struct.
+/// - Bind group layout, with a single *binding entry* of `0`.
+/// - Bind group, with `0` entry bound to the returned uniform buffer.
 pub fn setup_uniforms(
     window_size: PhysicalSize<u32>,
     device: &wgpu::Device,
@@ -18,6 +22,12 @@ pub fn setup_uniforms(
     wgpu::BindGroupLayout,
     wgpu::BindGroup,
 ) {
+    const MAX_TRAVELS: Point = Point {
+        x: 500.0,
+        y: 250.0,
+        z: 250.0,
+    };
+
     let uniforms = Uniforms::new(window_size, MAX_TRAVELS);
 
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -1,6 +1,6 @@
 // Line
 //
-// Draws a straight line of specified color.
+// Draws a straight **anti-aliased** line instance of specified color.
 //
 // Reference:
 // https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
@@ -26,18 +26,17 @@ struct InstanceInput {
 }
 
 struct VertexOutput {
-    // builtin position means that the value is to be used for clip_position
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) @interpolate(flat) color: vec3<f32>,// optimize so that each pixel gets the same width
+    @location(0) @interpolate(flat) color: vec3<f32>, // each pixel gets the same color
     @location(1) center: f32, // distance from center
 };
 
 const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
 const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
+
 const STROKE_WIDTH = 3.0;
 const SMOOTHING = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
-// mark as a valid vertex shader
 @vertex
 fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
     let window_size = uniforms.window_size;

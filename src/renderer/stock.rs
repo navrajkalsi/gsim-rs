@@ -1,6 +1,24 @@
+//! # Stock
+//!
+//! Sets up the GPU resources for rendering [`StockInstance`]s.
+
 use crate::geometry::stock::{StockInstance, StockTracker};
 use wgpu::util::DeviceExt;
 
+/// Creates a pipeline for drawing [`StockInstance`]s.
+///
+/// The pipeline expects the following buffers in the render pass:
+/// - **vertex buffer** at slot `0`.
+/// - **instance buffer** at slot `1`.
+///
+/// **Back-face culling** is enabled,
+/// which discards any triangles that are drawn in clockwise order.
+///
+/// Returns a tuple consisting of:
+/// - Render pipeline.
+/// - Vertex buffer, used to expand a single instance into multiple unique vertices.
+/// - Instance buffer, for uploading [`StockInstance`] to the GPU.
+/// - Index buffer, used to reuse vertices from the vertex buffer without duplicating them.
 pub fn setup_pipeline(
     device: &wgpu::Device,
     uniform_bind_group_layout: &wgpu::BindGroupLayout,
@@ -12,7 +30,7 @@ pub fn setup_pipeline(
     wgpu::Buffer,
     wgpu::Buffer,
 ) {
-    let shader = device.create_shader_module(wgpu::include_wgsl!("../stock.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/stock.wgsl"));
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Stock Pipeline Layout"),
@@ -28,7 +46,7 @@ pub fn setup_pipeline(
             entry_point: Some("vs_main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             buffers: &[
-                // @location of buffers is decided here
+                // slot for the render pass is decided here
                 StockInstance::vertex_buffer_layout(),
                 StockInstance::instance_buffer_layout(),
             ],
