@@ -1172,6 +1172,10 @@ impl Parser {
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.0.get_line(index)
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Iterator for Parser {
@@ -1194,7 +1198,7 @@ impl Iterator for Parser {
 }
 
 /// Possible errors that can happen during parsing.
-#[derive(PartialEq, Debug, thiserror::Error)]
+#[derive(Clone, Copy, PartialEq, Debug, thiserror::Error)]
 pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
     #[error("wrong suffix type found after prefix: '{}'", *.0 as char)]

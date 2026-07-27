@@ -182,6 +182,10 @@ impl Lexer {
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.0.get(index)
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Iterator for Lexer {
@@ -200,7 +204,7 @@ impl Iterator for Lexer {
 }
 
 /// Possible errors that can happen during tokenization.
-#[derive(PartialEq, Debug, thiserror::Error)]
+#[derive(Clone, Copy, PartialEq, Debug, thiserror::Error)]
 pub enum LexerError {
     /// A non-ASCII char is detected.
     #[error("non-ASCII character found in source")]

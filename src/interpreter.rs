@@ -3,6 +3,8 @@
 //! Executes [`CodeBlock`]s (represented as [`Parser`])
 //! on a [`Machine`], by accessing its public API.
 
+use std::sync::Arc;
+
 #[allow(unused_imports)]
 use crate::{
     config::{Point, Unit},
@@ -32,22 +34,41 @@ pub struct BlockSummary {
 pub struct Interpreter {
     parser: Parser,
     machine: Machine,
+    // storing arcs to cheaply share the block summaries between threads
+    summaries: Vec<Arc<BlockSummary>>,
+    // index of next summary to return on execute
+    // zero based index
+    current: usize,
 }
 
 impl Interpreter {
     /// Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
     /// ready to execute the code on the machine on demand.
     pub fn new(parser: Parser, machine: Machine) -> Self {
-        Self { parser, machine }
+        let len = parser.len();
+        Self {
+            parser,
+            machine,
+            summaries: Vec::with_capacity(len),
+            current: 0,
+        }
     }
 
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
+    ///
+    // TODO Stores the new block summary and returns a reference to it.
     ///
     /// Returns the summary of changes during execution as [`BlockSummary`],
     /// or [`None`] on exhaustion of [`CodeBlock`]s.
     ///
     /// Returns [`InterpreterError`] on failure.
-    pub fn execute(&mut self) -> Result<Option<BlockSummary>, InterpreterError> {
+    pub fn execute(&mut self) -> Result<Option<Arc<BlockSummary>>, InterpreterError> {
+        if self.current < self.summaries.len() {
+            let summary = self.summaries[self.current].clone();
+            self.current += 1;
+            return Ok(Some(summary));
+        }
+
         let parser = &mut self.parser;
         let machine = &mut self.machine;
         let mut motion = None;
@@ -233,21 +254,30 @@ impl Interpreter {
             }
         }
 
-        Ok(Some(BlockSummary {
+        self.summaries.push(Arc::new(BlockSummary {
             gcodes,
             mcode,
             codes,
             motion,
-        }))
+        }));
+        self.current += 1;
+
+        Ok(Some(
+            self.summaries
+                .last()
+                .expect("just pushed new summary")
+                .clone(),
+        ))
     }
 
     /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
     pub fn reload(&mut self) {
         self.parser.reload();
         self.machine.reset();
+        self.current = 0;
     }
 
-    /// **Optionally** returns the next line.
+    /// **Optionally** returns the line at provided index
     /// as a string slice from the [`Source`](crate::source::Source).
     pub fn get_line(&self, index: usize) -> Option<&str> {
         self.parser.get_line(index)
@@ -260,7 +290,7 @@ impl Interpreter {
 }
 
 /// Possible errors that can happen during executing the code.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
 pub enum InterpreterError {
     /// Changing [`Machine`] state failed.
     #[error("machine rejected the last block")]

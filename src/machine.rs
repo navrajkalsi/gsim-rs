@@ -316,7 +316,7 @@ pub enum MotionSummary {
 /// Possible ways to interpret axis interpolation commands.
 ///
 /// Represents **Group 3** G-codes.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 pub enum Positioning {
     #[default]
     Absolute,
@@ -336,7 +336,7 @@ pub enum FeedMode {
 /// Represents an offset `address` with a `direction`.
 ///
 /// Used in representing **Group 7** & **Group 8** G-codes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Offset {
     address: u32,
     dir: Direction,
@@ -345,7 +345,7 @@ pub struct Offset {
 /// Possible directions for [`Offset`]s.
 ///
 /// Used in representing **Group 7** & **Group 8** G-codes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum Direction {
     Left,
     Right,
@@ -406,7 +406,7 @@ impl Offset {
 }
 
 /// Represents the current state of a [`Machine`](crate::machine).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Machine {
     /// Interpret state values in the selected [`Unit`].
     /// This is determined at startup with [`Config`](crate::config).
@@ -637,8 +637,6 @@ impl Machine {
     /// - **Plane** -- XY
     /// - **Coolant** -- Off
     /// - **Feed Mode** -- Feed Per Minute
-    ///
-    /// Also moves the machine to [`HOME_POS`].
     pub fn reset(&mut self) {
         self.spindle_off();
         self.set_plane(Plane::default());
@@ -1003,7 +1001,7 @@ impl Add for PlanarPoint {
 }
 
 /// Possible errors that can happen during machine construction and interpolation.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
 pub enum MachineError {
     /// Spindle On was commanded, but no spindle speed was provided.
     #[error("spindle on commanded without 'S' command throughout the program")]

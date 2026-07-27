@@ -5,8 +5,8 @@
 //! The render loop receives render job [`Command`]s from the [`Tui`] thread,
 //! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
 
-use crate::{Command, Signal, config::Config, renderer::Graphics};
-use std::sync::{Arc, mpsc::Sender};
+use crate::{Command, Signal, config::Config, interpreter::Interpreter, renderer::Graphics};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use winit::{
     application::ApplicationHandler,
     error::EventLoopError,
@@ -17,8 +17,6 @@ use winit::{
 
 /// Represents the current state of the [`Gui`](crate::gui), owned by the **main thread**.
 pub struct Gui {
-    /// Sender half of the channel for [`Signal`] to [`Tui`].
-    signal: Sender<Signal>,
     /// [`Config`] for tool start position and stock dimensions.
     config: Config,
     /// Currently processing [`Command`] received from [`Tui`].
@@ -30,6 +28,9 @@ pub struct Gui {
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<Command>>,
+
+    signal: Arc<Mutex<Signal>>,
+    interpreter: Interpreter,
     /// Flag to make sure that the first redraw request is always fulfilled.
     first: bool,
     /// Flag to check if the [`Gui`] already sent a [`Signal::Proceed`] to the [`Tui`],
@@ -47,24 +48,24 @@ impl Gui {
     /// initializing the [`EventLoop`] ready to receive [`Command`]s and send [`Signal`]s.
     ///
     /// The event loop is configured to block and wait until a new (user or OS) event arrives.
-    ///
-    /// # Errors
-    /// Returns [`EventLoopError`] on failure to build the event loop.
-    pub fn build(signal: Sender<Signal>, config: Config) -> Result<Self, EventLoopError> {
-        let event_loop = EventLoop::<Command>::with_user_event().build()?;
+    pub fn new(config: Config, signal: Arc<Mutex<Signal>>, interpreter: Interpreter) -> Self {
+        let event_loop = EventLoop::<Command>::with_user_event()
+            .build()
+            .expect("constructing on the main thread");
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-        Ok(Self {
-            signal,
+        Self {
             config,
             current_command: None,
             graphics: None,
             error: None,
+            signal,
+            interpreter,
             event_loop: Some(event_loop),
             first: true,
             render_received: false,
             single: false,
-        })
+        }
     }
 
     /// Returns an [`EventLoopProxy`] for sending [`Command`]s to the [`Gui`] from other threads.

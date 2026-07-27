@@ -15,7 +15,7 @@ const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS);
 use ratatui::{
     Frame, Terminal,
     crossterm::{
-        event::{self, Event, KeyCode, poll},
+        event::{self, Event, KeyCode, KeyEvent, poll},
         execute, terminal,
     },
     layout::{Constraint, Direction, Layout, Rect},
@@ -26,16 +26,15 @@ use ratatui::{
 };
 use std::{
     error::Error,
-    fmt::Display,
     io::Stdout,
-    sync::mpsc::{Receiver, TryRecvError},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
 use crate::{
-    Command, SINGLE, Signal, TOOL, View,
+    Command, SINGLE, TOOL, View,
     cli::Cli,
     config::{Config, Unit},
     gui::Gui,
@@ -48,7 +47,7 @@ use crate::{
     parser::{CodeBlock, MCode, Parser},
     source::Source,
 };
-use crate::{STOCK, TOOLPATH};
+use crate::{Interrupt, STOCK, Signal, TOOLPATH};
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -71,36 +70,8 @@ const THEME: Theme = Theme {
     alarm: Style::new().fg(Color::Black).bg(Color::Rgb(200, 200, 200)),
 };
 
-/// Represents the types of program cycle interruptions.
-/// These interruptions need user input to be removed and resume cycle.
-enum Interrupt {
-    /// Confirm program start or restart.
-    Start,
-    /// M00 program stop detected.
-    Stop,
-    /// M01 optional program stop detected.
-    OptionalStop,
-    /// M30 program end detected.
-    End,
-}
-
-impl Display for Interrupt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let string = match self {
-            Interrupt::Start => "START INTERRUPT",
-            Interrupt::Stop => "STOP INTERRUPT",
-            Interrupt::OptionalStop => "OPTIONAL STOP INTERRUPT",
-            Interrupt::End => "END INTERRUPT",
-        };
-
-        write!(f, "{string}")
-    }
-}
-
 /// Represents the current state of the [`Tui`](crate::tui).
 pub struct Tui {
-    /// Receiver end of the channel for [`Signal`] from [`Gui`].
-    signal: Receiver<Signal>,
     /// Event proxy for sending [`Command`]s to [`Gui`].
     proxy: EventLoopProxy<Command>,
     /// Current selected [`View`].
@@ -113,24 +84,9 @@ pub struct Tui {
     toolpath: bool,
     /// Stock visibility flag.
     stock: bool,
-    /// Parsed source loaded [`Interpreter`], ready for iteration.
-    interpreter: Interpreter,
-    /// Index of current block being executed for preview.
-    current: usize,
-    /// Total number of summaries stored till [`MCode::Stop`] block.
-    /// This is only set to [`Some`] once all the blocks have been interpreted once.
-    total: Option<usize>,
-    /// [`None`] if the program is running.
-    interrupt: Option<Interrupt>,
-    /// Summaries for all executed blocks.
-    /// These stay in memory for the whole life of the program,
-    /// making looping for the second times more efficient.
-    summaries: Vec<BlockSummary>,
-    /// Previously received [`Signal`] from [`Gui`].
-    last_signal: Option<Signal>,
-    /// Error that is a direct result of [`executing`](Interpreter::execute) a [`CodeBlock`].
-    /// This is stored for rendering error to the Tui before exiting to the shell.
-    error: Option<InterpreterError>,
+    ///
+    source: Source,
+    signal: Arc<Mutex<Signal>>,
 }
 
 impl Tui {
@@ -139,43 +95,17 @@ impl Tui {
     /// The [`Tui::view`] is set to [`View::default`],
     /// [`Tui::single`] block execution is set to `false`,
     /// and [`Tui::interrupt`] to [`Interrupt::Start`].
-    ///
-    /// # Errors
-    /// Returns [`Error`](anyhow::Error) on failure to read [`Source`] file or build the [`Machine`].
-    pub fn build(
-        signal: Receiver<Signal>,
-        cli: Cli,
-        config: Config,
-        proxy: EventLoopProxy<Command>,
-    ) -> anyhow::Result<Self> {
-        let src = match &cli.source {
-            Some(path) => Source::from_file(path),
-            None => Source::from_stdin(),
-        }?;
-
-        // this may be larger than the total number of summaries at the end,
-        // as summaries are only stored till the first M30 detect.
-        let len = src.len(); // for preallocation
-
-        Ok(Self {
-            signal,
+    pub fn new(proxy: EventLoopProxy<Command>, source: Source, signal: Arc<Mutex<Signal>>) -> Self {
+        Self {
             proxy,
             view: View::default(),
             single: SINGLE,
             tool: TOOL,
             toolpath: TOOLPATH,
             stock: STOCK,
-            interpreter: Interpreter::new(
-                Parser::new(Lexer::new(src)),
-                Machine::new(config.units, config.zero_pos, config.start_pos),
-            ),
-            current: 0,
-            total: None,
-            interrupt: Some(Interrupt::Start),
-            summaries: Vec::with_capacity(len),
-            last_signal: None,
-            error: None,
-        })
+            source,
+            signal,
+        }
     }
 
     /// Starts [`Tui`] execution by executing each G-Code line and managing the terminal state.
@@ -201,12 +131,13 @@ impl Tui {
             res = Err(e)
         };
 
-        match self.last_signal {
-            Some(Signal::Stop) => {} // main thread already signalled to stop
+        match self.refresh_signal() {
+            Signal::Stop => {} // main thread already signalled to stop
             _ => self.proxy.send_event(Command::Stop(res.err())).unwrap(),
         }
     }
 
+    // gets new display state, if updated by gui thread
     /// Checks for any updates from the [`Gui`] thread by trying to receive any [`Signal`]
     /// **without blocking** current thread.
     ///
@@ -214,22 +145,13 @@ impl Tui {
     ///
     /// # Errors
     /// Returns [`TryRecvError::Disconnected`] if the main thread had already terminated.
-    fn check_signal(&mut self) -> Result<Option<Signal>, TryRecvError> {
-        match self.signal.try_recv() {
-            Ok(signal) => Ok(Some(signal)),
-            Err(err) => match err {
-                TryRecvError::Empty => Ok(None),
-                TryRecvError::Disconnected => Err(err),
-            },
-        }
+    fn refresh_signal(&mut self) -> Signal {
+        self.signal.lock().unwrap().clone()
     }
 
     /// Reloads internals of [`Tui`] to begin rendering again from the first block.
     /// Also sends [`Command::Clear`] to clear any toolpath from [`Gui`] screen.
     fn reload(&mut self) {
-        self.current = 0;
-        self.interrupt = Some(Interrupt::Start);
-        self.interpreter.reload();
         self.proxy.send_event(Command::Clear).unwrap();
     }
 
@@ -238,101 +160,104 @@ impl Tui {
     where
         anyhow::Error: From<B::Error>,
     {
-        // always wait for the gui to trigger
-        let mut proceed = false;
         let mut time_tracker = Instant::now() - TIME_BETWEEN_FRAMES;
+        let mut signal = self.refresh_signal();
 
-        // the main idea of this loop is that the event loop from main thread,
+        // TODO the main idea of this loop is that the event loop from main thread,
         // drives this loop with every proceed signal
         loop {
             if time_tracker.elapsed() > TIME_BETWEEN_FRAMES {
-                terminal.draw(|frame| self.draw(frame))?;
+                signal = self.refresh_signal();
+                terminal.draw(|frame| self.draw(frame, &signal))?;
                 // time_tracker = Instant::now(); // not performant
                 time_tracker -= TIME_BETWEEN_FRAMES;
             }
 
-            self.last_signal = self.check_signal()?;
+            match &signal {
+                Signal::Run { .. } => {
+                    if let Some(key) = poll_key_release()? {
+                        match key.code {
+                            KeyCode::Char('Q') => return Ok(()),
 
-            match self.last_signal {
-                Some(Signal::Proceed) => proceed = true,
-                Some(Signal::Stop) => return Ok(()),
-                None => (),
-            };
+                            KeyCode::Char('v') => {
+                                match self.view {
+                                    View::Isometric => self.view = View::Top,
+                                    View::Top => self.view = View::Isometric,
+                                };
+                                self.proxy.send_event(Command::SetView(self.view)).unwrap();
+                            }
 
-            #[allow(clippy::collapsible_if)]
-            if proceed && !self.single && self.interrupt.is_none() && self.error.is_none() {
-                proceed = self.execute();
-            } else if self.error.is_some() {
-                // poll for enter event or continue and check if the main thread is still running
-                if poll(Duration::from_millis(100))? {
-                    if let Event::Key(key) = event::read()?
-                        && key.kind != event::KeyEventKind::Release
+                            KeyCode::Char('1') => {
+                                self.single = !self.single;
+                                self.proxy
+                                    .send_event(Command::SetSingle(self.single))
+                                    .unwrap()
+                            }
+
+                            KeyCode::Char('t') => {
+                                self.tool = !self.tool;
+                                self.proxy
+                                    .send_event(Command::SetToolVisibility(self.tool))
+                                    .unwrap()
+                            }
+
+                            KeyCode::Char('p') => {
+                                self.toolpath = !self.toolpath;
+                                self.proxy
+                                    .send_event(Command::SetToolpathVisibility(self.toolpath))
+                                    .unwrap()
+                            }
+
+                            KeyCode::Char('s') => {
+                                self.stock = !self.stock;
+                                self.proxy
+                                    .send_event(Command::SetStockVisibility(self.stock))
+                                    .unwrap()
+                            }
+
+                            KeyCode::Char('n') => {
+                                // send event to gui
+                                todo!()
+                            }
+
+                            _ => (),
+                        }
+                    }
+                }
+
+                Signal::Interrupt { interrupt, .. } => {
+                    if let Some(key) = poll_key_release()?
+                        && key.code == KeyCode::Enter
+                    {
+                        match interrupt {
+                            Interrupt::Start => {
+                                // send event to gui
+                                todo!()
+                            }
+                            Interrupt::Stop | Interrupt::OptionalStop => {
+                                // send proceed event to gui
+                                todo!()
+                            }
+                            Interrupt::End => {
+                                // send reload event
+                                self.reload();
+                                todo!()
+                            }
+                        }
+                    }
+                }
+
+                Signal::Error { error, .. } => {
+                    if let Some(key) = poll_key_release()?
                         && (key.code == KeyCode::Enter
                             || key.code == KeyCode::Char('Q')
                             || key.code == KeyCode::Esc)
                     {
-                        return Err(self.error.take().unwrap().into());
+                        return Err(error.clone().into());
                     }
                 }
-            } else if poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()?
-                    && key.kind != event::KeyEventKind::Release
-                {
-                    match key.code {
-                        KeyCode::Char('Q') => return Ok(()),
 
-                        KeyCode::Char('v') => {
-                            match self.view {
-                                View::Isometric => self.view = View::Top,
-                                View::Top => self.view = View::Isometric,
-                            };
-                            self.proxy.send_event(Command::SetView(self.view)).unwrap();
-                        }
-
-                        KeyCode::Char('1') => {
-                            self.single = !self.single;
-                            self.proxy
-                                .send_event(Command::SetSingle(self.single))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('t') => {
-                            self.tool = !self.tool;
-                            self.proxy
-                                .send_event(Command::SetToolVisibility(self.tool))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('p') => {
-                            self.toolpath = !self.toolpath;
-                            self.proxy
-                                .send_event(Command::SetToolpathVisibility(self.toolpath))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('s') => {
-                            self.stock = !self.stock;
-                            self.proxy
-                                .send_event(Command::SetStockVisibility(self.stock))
-                                .unwrap()
-                        }
-
-                        KeyCode::Char('n') if proceed && self.interrupt.is_none() => {
-                            proceed = self.execute();
-                        }
-
-                        KeyCode::Enter => match self.interrupt {
-                            Some(Interrupt::End) => self.reload(),
-                            Some(Interrupt::Start) => {
-                                self.interrupt = None;
-                                proceed = self.execute();
-                            }
-                            Some(_) => self.interrupt = None,
-                            None => {}
-                        },
-                        _ => {}
-                    }
-                }
+                Signal::Stop => return Ok(()),
             }
         }
     }
@@ -421,7 +346,7 @@ impl Tui {
 
     /// Prepares individual sections of the terminal screen,
     /// and draws the current state of [`Tui`] in the said sections.
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&self, frame: &mut Frame, signal: &Signal) {
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -443,16 +368,16 @@ impl Tui {
             .split(top_chunks[0]);
 
         frame.render_widget(self.title_text(), left_chunks[0]);
-        frame.render_widget(self.summary_widget(), left_chunks[1]);
-        frame.render_widget(self.preview_widget(), top_chunks[1]);
-        frame.render_widget(self.machine_widget(), main_chunks[1]);
+        frame.render_widget(self.summary_widget(signal), left_chunks[1]);
+        frame.render_widget(self.preview_widget(signal), top_chunks[1]);
+        frame.render_widget(self.machine_widget(signal), main_chunks[1]);
         frame.render_widget(self.modes_widget(), main_chunks[2]);
-        frame.render_widget(self.keys_widget(), main_chunks[3]);
+        frame.render_widget(self.keys_widget(signal), main_chunks[3]);
 
         // present error, if any
-        if let Some(e) = &self.error {
-            let mut error_lines = vec![e.to_string(), "\n".to_string()];
-            let mut source = e.source();
+        if let Signal::Error { error, .. } = signal {
+            let mut error_lines = vec![error.to_string(), "\n".to_string()];
+            let mut source = error.source();
 
             while let Some(cause) = source {
                 error_lines.push(format!("caused by:\n{cause}"));
@@ -484,9 +409,55 @@ impl Tui {
     }
 
     /// Generates a styled [`Paragraph`] using the [`BlockSummary`] for current block.
-    fn summary_widget(&self) -> Paragraph<'_> {
-        let lines = if let Some(interrupt) = &self.interrupt {
-            vec![
+    fn summary_widget(&self, signal: &Signal) -> Paragraph<'_> {
+        let lines = match signal {
+            Signal::Run { summary, .. } => {
+                let gcodes_len = summary.gcodes.len();
+                let mcode_some = summary.mcode.is_some();
+                let codes_len = summary.codes.len();
+
+                // preallocate based on lengths
+                let mut lines = Vec::with_capacity(
+                    if gcodes_len > 0 { gcodes_len + 2 } else { 0 }
+                        + if mcode_some { 3 } else { 0 }
+                        + if codes_len > 0 { codes_len + 1 } else { 0 },
+                );
+
+                if gcodes_len > 0 {
+                    lines.push(Line::styled(
+                        if gcodes_len > 1 { "GCODES:" } else { "GCODE:" },
+                        THEME.summary,
+                    ));
+                    for gcode in &summary.gcodes {
+                        lines.push(Line::styled(gcode.to_string(), THEME.root));
+                    }
+                    lines.push(Line::default());
+                };
+
+                if let Some(mcode) = summary.mcode {
+                    lines.push(Line::styled("MCODE:", THEME.summary));
+                    lines.push(Line::styled(mcode.to_string(), THEME.root));
+                    lines.push(Line::default());
+                }
+
+                if codes_len > 0 {
+                    lines.push(Line::styled(
+                        if codes_len > 1 {
+                            "Other CODES:"
+                        } else {
+                            "Other CODE:"
+                        },
+                        THEME.summary,
+                    ));
+                    for code in &summary.codes {
+                        lines.push(Line::styled(code.to_string(), THEME.root));
+                    }
+                };
+
+                lines
+            }
+
+            Signal::Interrupt { interrupt, .. } => vec![
                 Line::from(vec![
                     Span::styled(interrupt.to_string(), THEME.interrupt),
                     Span::styled(" detected.", THEME.root),
@@ -497,56 +468,9 @@ impl Tui {
                     Span::styled("Enter", THEME.interrupt),
                     Span::styled(" to remove the interrupt.", THEME.root),
                 ]),
-            ]
-        } else {
-            let summary = self
-                .summaries
-                .get(self.current.saturating_sub(1))
-                .expect("App module has pushed the text descriptions for the current block.");
+            ],
 
-            let gcodes_len = summary.gcodes.len();
-            let mcode_some = summary.mcode.is_some();
-            let codes_len = summary.codes.len();
-
-            // preallocate based on lengths
-            let mut lines = Vec::with_capacity(
-                if gcodes_len > 0 { gcodes_len + 2 } else { 0 }
-                    + if mcode_some { 3 } else { 0 }
-                    + if codes_len > 0 { codes_len + 1 } else { 0 },
-            );
-
-            if gcodes_len > 0 {
-                lines.push(Line::styled(
-                    if gcodes_len > 1 { "GCODES:" } else { "GCODE:" },
-                    THEME.summary,
-                ));
-                for gcode in &summary.gcodes {
-                    lines.push(Line::styled(gcode.to_string(), THEME.root));
-                }
-                lines.push(Line::default());
-            };
-
-            if let Some(mcode) = summary.mcode {
-                lines.push(Line::styled("MCODE:", THEME.summary));
-                lines.push(Line::styled(mcode.to_string(), THEME.root));
-                lines.push(Line::default());
-            }
-
-            if codes_len > 0 {
-                lines.push(Line::styled(
-                    if codes_len > 1 {
-                        "Other CODES:"
-                    } else {
-                        "Other CODE:"
-                    },
-                    THEME.summary,
-                ));
-                for code in &summary.codes {
-                    lines.push(Line::styled(code.to_string(), THEME.root));
-                }
-            };
-
-            lines
+            Signal::Error { .. } | Signal::Stop => vec![],
         };
 
         Paragraph::new(lines)
@@ -562,29 +486,53 @@ impl Tui {
 
     /// Generates a styled [`Paragraph`] with loaded [`Source`].
     /// One line of context is also provided in the preview.
-    fn preview_widget(&self) -> Paragraph<'_> {
-        // preallocate for max look ahead plus current and context line.
-        let mut lines = Vec::with_capacity(MAX_PREVIEW_AHEAD + 2);
+    /// does not highlight first line if the start interrupt is detected
+    fn preview_widget(&self, signal: &Signal) -> Paragraph<'_> {
+        let mut start_interrupt = false;
 
-        // although we are subtracting 2 this will only start
-        let mut current = self.current.saturating_sub(2);
-
-        while let Some(line) = self.interpreter.get_line(current)
-            && current < self.current + MAX_PREVIEW_AHEAD
-        {
-            // do not highlight current line if Interrupt::Start is detected
-            if current == self.current.saturating_sub(1)
-                && !matches!(self.interrupt, Some(Interrupt::Start))
-            {
-                lines.push(Line::styled(
-                    line,
-                    Style::default().bg(Color::White).fg(Color::Black),
-                ))
-            } else {
-                lines.push(Line::from(line))
+        let current = match signal {
+            Signal::Interrupt {
+                interrupt: Interrupt::Start,
+                current,
+                ..
+            } => {
+                start_interrupt = true;
+                *current
             }
 
-            current += 1;
+            Signal::Run { current, .. }
+            | Signal::Error { current, .. }
+            | Signal::Interrupt { current, .. } => *current,
+
+            Signal::Stop => return Paragraph::default(),
+        };
+
+        const CONTEXT_COUNT: usize = 1; // num of lines to show before current line
+        // max num of lines in total. one context, one current and rest look ahead
+        const COUNT: usize = MAX_PREVIEW_AHEAD + CONTEXT_COUNT + 1;
+
+        // preallocate for max num of lines
+        let mut lines = Vec::with_capacity(COUNT);
+
+        for i in 0..COUNT {
+            match self.source.get(if current < CONTEXT_COUNT {
+                i
+            } else {
+                i - CONTEXT_COUNT
+            }) {
+                Some(line) => {
+                    // do not highlight current line if Interrupt::Start is detected
+                    if i == current && !start_interrupt {
+                        lines.push(Line::styled(
+                            line,
+                            Style::default().bg(Color::White).fg(Color::Black),
+                        ))
+                    } else {
+                        lines.push(Line::from(line))
+                    }
+                }
+                None => break,
+            }
         }
 
         Paragraph::new(lines).block(
@@ -597,8 +545,15 @@ impl Tui {
     }
 
     /// Generates a styled [`Paragraph`] showing the state of [`Machine`].
-    fn machine_widget(&self) -> Paragraph<'_> {
-        let machine = self.interpreter.machine();
+    fn machine_widget(&self, signal: &Signal) -> Paragraph<'_> {
+        let machine = match signal {
+            Signal::Run { machine, .. }
+            | Signal::Interrupt { machine, .. }
+            | Signal::Error { machine, .. } => machine,
+
+            Signal::Stop => return Paragraph::default(),
+        };
+
         let pos = machine.pos();
         let unit = Span::styled(
             match machine.units() {
@@ -752,7 +707,7 @@ impl Tui {
     ///
     /// ## Reference
     /// [Github](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
-    fn keys_widget(&self) -> Paragraph<'_> {
+    fn keys_widget(&self, signal: &Signal) -> Paragraph<'_> {
         let mut spans1 = vec![
             Span::styled("  Q  ", THEME.key),
             Span::styled(" Quit ", THEME.key_desc),
@@ -762,9 +717,16 @@ impl Tui {
             Span::styled(" Toggle Single ", THEME.key_desc),
         ];
 
-        if self.single && self.interrupt.is_none() {
-            spans1.push(Span::styled("  n  ", THEME.key));
-            spans1.push(Span::styled(" Next Block ", THEME.key_desc));
+        // only add "n" key if no interrupt and single block is on
+        match signal {
+            Signal::Interrupt { .. } => (),
+
+            _ if self.single => {
+                spans1.push(Span::styled("  n  ", THEME.key));
+                spans1.push(Span::styled(" Next Block ", THEME.key_desc));
+            }
+
+            _ => (),
         }
 
         let spans2 = vec![
@@ -859,4 +821,16 @@ struct Theme {
     key: Style,
     key_desc: Style,
     alarm: Style,
+}
+
+// polls for a key release event
+fn poll_key_release() -> Result<Option<KeyEvent>, std::io::Error> {
+    if !poll(Duration::from_millis(100))? {
+        return Ok(None);
+    };
+
+    match event::read()? {
+        Event::Key(key) if key.is_release() => Ok(Some(key)),
+        _ => Ok(None),
+    }
 }

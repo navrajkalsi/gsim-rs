@@ -10,7 +10,7 @@ const RAPID_MOVE: u32 = 0;
 const FEED_MOVE: u32 = 1;
 
 /// Machine units travelled per frame.
-const SPEED: f32 = 5.0;
+const SPEED: f32 = 50.0;
 
 /// Represents a straight line between two points,
 /// that can be drawn to the screen with a vertex shader.

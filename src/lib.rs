@@ -14,11 +14,18 @@ use crate::{
     cli::Cli,
     config::{Body, Config, Setup},
     gui::Gui,
-    machine::MotionSummary,
+    interpreter::{BlockSummary, Interpreter, InterpreterError},
+    lexer::Lexer,
+    machine::{Machine, MotionSummary},
+    parser::Parser,
+    source::Source,
     tui::Tui,
 };
-use clap::Parser;
-use std::fmt::Display;
+use clap::Parser as _;
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex},
+};
 
 /// Allowed variance when comparing floating points.
 const FLOAT_VARIANCE: f32 = 1e-5;
@@ -57,6 +64,33 @@ impl Display for View {
     }
 }
 
+/// Represents the types of program cycle interruptions.
+/// These interruptions need user input to be removed and resume cycle.
+#[derive(Debug, Clone, Copy)]
+pub enum Interrupt {
+    /// Confirm program start or restart.
+    Start,
+    /// M00 program stop detected.
+    Stop,
+    /// M01 optional program stop detected.
+    OptionalStop,
+    /// M30 program end detected.
+    End,
+}
+
+impl Display for Interrupt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Interrupt::Start => "START INTERRUPT",
+            Interrupt::Stop => "STOP INTERRUPT",
+            Interrupt::OptionalStop => "OPTIONAL STOP INTERRUPT",
+            Interrupt::End => "END INTERRUPT",
+        };
+
+        write!(f, "{string}")
+    }
+}
+
 /// Communicates changes from the [`Ratatui`](ratatui) loop,
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
@@ -71,11 +105,23 @@ pub enum Command {
     Stop(Option<anyhow::Error>),
 }
 
-/// Communicates when the [`Winit`](winit) event loop is ready to process
-/// another [`Command`] from [`Ratatui`](ratatui) loop.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Signal {
-    Proceed,
+    Run {
+        summary: Arc<BlockSummary>,
+        machine: Machine,
+        current: usize,
+    },
+    Interrupt {
+        interrupt: Interrupt,
+        machine: Machine,
+        current: usize,
+    },
+    Error {
+        error: InterpreterError,
+        machine: Machine,
+        current: usize,
+    },
     Stop,
 }
 
@@ -100,9 +146,19 @@ fn display_banner() {
 pub fn run() -> anyhow::Result<()> {
     display_banner();
 
-    let (sender, receiver) = std::sync::mpsc::channel();
     let cli = Cli::parse();
     let config = Config::from_file(cli.config.as_str())?;
+    let source = match &cli.source {
+        Some(path) => Source::from_file(path),
+        None => Source::from_stdin(),
+    }?;
+    let machine = Machine::new(config.units, config.zero_pos, config.start_pos);
+    let interpreter = Interpreter::new(Parser::new(Lexer::new(source.clone())), machine.clone());
+    let signal = Arc::new(Mutex::new(Signal::Interrupt {
+        interrupt: Interrupt::Start,
+        machine,
+        current: 0,
+    }));
 
     assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
     assert!(
@@ -110,17 +166,17 @@ pub fn run() -> anyhow::Result<()> {
         "cylindrical stock is not implemented yet"
     );
 
-    let gui = Gui::build(sender, config.clone())?;
-    let tui = Tui::build(receiver, cli, config, gui.create_proxy())?;
+    let gui = Gui::new(config.clone(), signal.clone(), interpreter);
+    let tui = Tui::new(gui.create_proxy(), source, signal.clone());
 
-    let tui = std::thread::Builder::new()
+    let child = std::thread::Builder::new()
         .name("TUI".to_string())
         .spawn(move || tui.run())?;
 
     // any errors from the tui thread will be returned through this call
     let res = gui.run();
 
-    tui.join().unwrap();
+    child.join().unwrap();
 
     res
 }
