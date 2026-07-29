@@ -16,8 +16,8 @@ use crate::{
     gui::Gui,
     interpreter::{BlockSummary, Interpreter, InterpreterError},
     lexer::Lexer,
-    machine::{Machine, MotionSummary},
-    parser::Parser,
+    machine::Machine,
+    parser::{MCode, Parser},
     source::Source,
     tui::Tui,
 };
@@ -78,6 +78,17 @@ pub enum Interrupt {
     End,
 }
 
+impl From<MCode> for Option<Interrupt> {
+    fn from(mcode: MCode) -> Self {
+        match mcode {
+            MCode::Stop => Some(Interrupt::Stop),
+            MCode::OptionalStop => Some(Interrupt::OptionalStop),
+            MCode::End => Some(Interrupt::End),
+            _ => None,
+        }
+    }
+}
+
 impl Display for Interrupt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self {
@@ -95,13 +106,13 @@ impl Display for Interrupt {
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
-    Render(MotionSummary),
     SetView(View),
     SetSingle(bool),
     SetToolVisibility(bool),
     SetToolpathVisibility(bool),
     SetStockVisibility(bool),
-    Clear,
+    ClearInterrupt,
+    Next,
     Stop(Option<anyhow::Error>),
 }
 
@@ -112,7 +123,7 @@ pub enum Signal {
         machine: Machine,
         current: usize,
     },
-    Interrupt {
+    Pause {
         interrupt: Interrupt,
         machine: Machine,
         current: usize,
@@ -154,7 +165,7 @@ pub fn run() -> anyhow::Result<()> {
     }?;
     let machine = Machine::new(config.units, config.zero_pos, config.start_pos);
     let interpreter = Interpreter::new(Parser::new(Lexer::new(source.clone())), machine.clone());
-    let signal = Arc::new(Mutex::new(Signal::Interrupt {
+    let signal = Arc::new(Mutex::new(Signal::Pause {
         interrupt: Interrupt::Start,
         machine,
         current: 0,

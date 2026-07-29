@@ -173,18 +173,8 @@ impl Lexer {
         Self(src)
     }
 
-    /// Reloads the [`Lexer`] to start from beginning of the [`Source`].
-    pub fn reload(&mut self) {
-        self.0.reload();
-    }
-
-    /// **Optionally** returns the line at `index` as a string slice from the [`Source`].
-    pub fn get_line(&self, index: usize) -> Option<&str> {
-        self.0.get(index)
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn source(&mut self) -> &mut Source {
+        &mut self.0
     }
 }
 

@@ -17,6 +17,7 @@ use crate::{
     FLOAT_VARIANCE,
     config::Point,
     lexer::{Block, *},
+    source::Source,
 };
 use std::{
     cmp::PartialEq,
@@ -1163,18 +1164,8 @@ impl Parser {
         Self(lexer)
     }
 
-    /// Reloads the [`Parser`] to start from beginning of the [`Lexer`].
-    pub fn reload(&mut self) {
-        self.0.reload();
-    }
-
-    /// **Optionally** returns the next line as a string slice from the [`Source`](crate::source::Source).
-    pub fn get_line(&self, index: usize) -> Option<&str> {
-        self.0.get_line(index)
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn source(&mut self) -> &mut Source {
+        self.0.source()
     }
 }
 

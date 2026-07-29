@@ -90,6 +90,10 @@ impl Source {
         self.index = 0
     }
 
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
     /// **Optionally** returns the reference to contents of a line at `index`,
     /// as a `string slice`.
     pub fn get(&self, index: usize) -> Option<&str> {

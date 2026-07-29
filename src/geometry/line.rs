@@ -10,7 +10,7 @@ const RAPID_MOVE: u32 = 0;
 const FEED_MOVE: u32 = 1;
 
 /// Machine units travelled per frame.
-const SPEED: f32 = 50.0;
+const SPEED: f32 = 5.0;
 
 /// Represents a straight line between two points,
 /// that can be drawn to the screen with a vertex shader.
@@ -344,18 +344,15 @@ impl LineInstancesTracker {
     ///
     /// # Panics
     /// Panics if called when [`Self::instances`] is [`None`].
+    // TODO
     pub fn next(&mut self) -> BufferAction {
-        let instances = self
-            .instances
-            .as_mut()
-            .expect("Next instance requested without before adding new instances.");
-
-        let res = match instances {
-            LineInstances::Linear(lines) => lines.next(),
-            LineInstances::Arc(lines) => lines.next(),
+        let instances = match self.instances.as_mut() {
+            Some(LineInstances::Linear(lines)) => lines.next(),
+            Some(LineInstances::Arc(lines)) => lines.next(),
+            None => return BufferAction::Exhausted,
         };
 
-        let instance = match res {
+        let instance = match instances {
             Some(line) => line,
             None if self.first => {
                 unreachable!("At least one point is guarranteed, which would be the end point.")
@@ -377,7 +374,7 @@ impl LineInstancesTracker {
             self.len = 0.0;
         }
 
-        let ret = match instances {
+        let ret = match self.instances.as_ref().unwrap() {
             LineInstances::Linear(_) if self.first => BufferAction::Add { instance, render },
             LineInstances::Linear(_) => BufferAction::Overwrite { instance, render },
             LineInstances::Arc(_) => BufferAction::Add { instance, render },

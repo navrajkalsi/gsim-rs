@@ -32,26 +32,15 @@ pub struct BlockSummary {
 
 /// Represents an instance of [`Interpreter`](crate::interpreter).
 pub struct Interpreter {
-    parser: Parser,
+    pub parser: Parser,
     machine: Machine,
-    // storing arcs to cheaply share the block summaries between threads
-    summaries: Vec<Arc<BlockSummary>>,
-    // index of next summary to return on execute
-    // zero based index
-    current: usize,
 }
 
 impl Interpreter {
     /// Constructs an [`Interpreter`] from a provided [`Parser`] and [`Machine`],
     /// ready to execute the code on the machine on demand.
     pub fn new(parser: Parser, machine: Machine) -> Self {
-        let len = parser.len();
-        Self {
-            parser,
-            machine,
-            summaries: Vec::with_capacity(len),
-            current: 0,
-        }
+        Self { parser, machine }
     }
 
     /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
@@ -63,12 +52,6 @@ impl Interpreter {
     ///
     /// Returns [`InterpreterError`] on failure.
     pub fn execute(&mut self) -> Result<Option<Arc<BlockSummary>>, InterpreterError> {
-        if self.current < self.summaries.len() {
-            let summary = self.summaries[self.current].clone();
-            self.current += 1;
-            return Ok(Some(summary));
-        }
-
         let parser = &mut self.parser;
         let machine = &mut self.machine;
         let mut motion = None;
@@ -254,33 +237,18 @@ impl Interpreter {
             }
         }
 
-        self.summaries.push(Arc::new(BlockSummary {
+        Ok(Some(Arc::new(BlockSummary {
             gcodes,
             mcode,
             codes,
             motion,
-        }));
-        self.current += 1;
-
-        Ok(Some(
-            self.summaries
-                .last()
-                .expect("just pushed new summary")
-                .clone(),
-        ))
+        })))
     }
 
     /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
     pub fn reload(&mut self) {
-        self.parser.reload();
+        self.parser.source().reload();
         self.machine.reset();
-        self.current = 0;
-    }
-
-    /// **Optionally** returns the line at provided index
-    /// as a string slice from the [`Source`](crate::source::Source).
-    pub fn get_line(&self, index: usize) -> Option<&str> {
-        self.parser.get_line(index)
     }
 
     /// Returns a reference to the [`Machine`] owned by the [`Interpreter`].
