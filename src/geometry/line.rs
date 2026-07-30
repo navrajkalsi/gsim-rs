@@ -9,9 +9,6 @@ use crate::{
 const RAPID_MOVE: u32 = 0;
 const FEED_MOVE: u32 = 1;
 
-/// Machine units travelled per frame.
-const SPEED: f32 = 5.0;
-
 /// Represents a straight line between two points,
 /// that can be drawn to the screen with a vertex shader.
 ///
@@ -112,11 +109,17 @@ enum LineInstances {
 
 impl LineInstances {
     /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] variant.
-    fn new(summary: MotionSummary) -> Self {
+    // TODO uses the parent tracker to get a valid resolution
+    // add to child methods also
+    fn new(summary: MotionSummary, tracker: &LineInstancesTracker) -> Self {
         match summary {
-            MotionSummary::Rapid(line) => Self::linear_points(line, LineInstance::rapid_move),
-            MotionSummary::Feed(line) => Self::linear_points(line, LineInstance::feed_move),
-            MotionSummary::Arc(arc) => Self::arc_points(arc),
+            MotionSummary::Rapid(line) => {
+                Self::linear_points(line, tracker, LineInstance::rapid_move)
+            }
+            MotionSummary::Feed(line) => {
+                Self::linear_points(line, tracker, LineInstance::feed_move)
+            }
+            MotionSummary::Arc(arc) => Self::arc_points(arc, tracker),
         }
     }
 
@@ -127,7 +130,11 @@ impl LineInstances {
     ///
     /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
     /// if the length of [`Line`] is shorter than [`SPEED`].
-    fn linear_points(line: Line, get_instance: fn(Point, Point) -> LineInstance) -> Self {
+    fn linear_points(
+        line: Line,
+        tracker: &LineInstancesTracker,
+        get_instance: fn(Point, Point) -> LineInstance,
+    ) -> Self {
         let start = line.start;
         let end = line.end;
 
@@ -136,12 +143,12 @@ impl LineInstances {
         // distance between start and end points
         let dist = (dir.x.powi(2) + dir.y.powi(2) + dir.z.powi(2)).sqrt();
 
-        if dist <= SPEED {
+        if dist <= tracker.resolution {
             return Self::Linear(Box::new([get_instance(start, end)].into_iter()));
         }
 
         // amount to move each axis by to get next point
-        let delta = dir.mul_float(SPEED).div_float(dist);
+        let delta = dir.mul_float(tracker.resolution).div_float(dist);
 
         let mut current = start;
 
@@ -174,7 +181,7 @@ impl LineInstances {
     ///
     /// ## Reference
     /// [FreeMathHelp](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
-    fn arc_points(arc: Arc) -> Self {
+    fn arc_points(arc: Arc, tracker: &LineInstancesTracker) -> Self {
         let plane = arc.center.plane();
         let start = PlanarPoint::from_point(arc.start, plane);
 
@@ -184,8 +191,8 @@ impl LineInstances {
 
         // angular speed
         let step_angular = match arc.dir {
-            CircularDirection::Clockwise => 0.0 - SPEED / radius / 2.0,
-            CircularDirection::CounterClockwise => SPEED / radius / 2.0,
+            CircularDirection::Clockwise => 0.0 - tracker.resolution / radius / PI,
+            CircularDirection::CounterClockwise => tracker.resolution / radius / PI,
         };
         let steps_count = (sweep / step_angular).ceil().abs();
         let step_linear = match plane {
@@ -302,16 +309,20 @@ pub struct LineInstancesTracker {
     /// Sum of lenghts of each [`LineInstance`] from [`Self::instances`] since the last render.
     /// These are the instances that are added to the vertex buffer but not drawn to the surface yet.
     len: f32,
+
+    resolution: f32,
+
     /// Flag to check first call to [`Self::next`] after every [`Self::add`] call.
     first: bool,
 }
 
 impl LineInstancesTracker {
     /// Construct a new [`LineInstancesTracker`].
-    pub fn new() -> Self {
+    pub fn new(voxel_edge: f32) -> Self {
         Self {
             instances: None,
             len: 0.0,
+            resolution: voxel_edge * 2.0, // won't notice this of a difference
             first: true,
         }
     }
@@ -323,10 +334,10 @@ impl LineInstancesTracker {
     /// Panics if previous `instances` have not been drained yet.
     pub fn add(&mut self, summary: MotionSummary) {
         if self.instances.is_some() {
-            unreachable!("Previous instances not exhausted.");
+            unreachable!("previous instances not exhausted");
         }
 
-        self.instances = Some(LineInstances::new(summary));
+        self.instances = Some(LineInstances::new(summary, &self));
         self.first = true;
     }
 
@@ -369,7 +380,7 @@ impl LineInstancesTracker {
         .sqrt();
 
         // render if the len is now more than acceptable difference between two frames
-        let render = self.len >= SPEED;
+        let render = self.len >= self.resolution;
         if render {
             self.len = 0.0;
         }

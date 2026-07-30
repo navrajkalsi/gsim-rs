@@ -319,6 +319,8 @@ impl ApplicationHandler<Command> for Gui {
 
             Command::SetStockVisibility(stock) => graphics.stock = *stock,
 
+            Command::SetSpeed(speed) => graphics.speed = *speed,
+
             Command::ClearInterrupt => match self.interrupt {
                 Some(Interrupt::End) => self.reload(),
                 _ => self.interrupt = None,

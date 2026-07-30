@@ -8,7 +8,7 @@ mod tool;
 mod uniforms;
 
 use crate::{
-    STOCK, TOOL, TOOLPATH, View,
+    STOCK, Speed, TOOL, TOOLPATH, View,
     config::{Config, Point},
     geometry::{
         line::{BufferAction, LineInstance, LineInstancesTracker},
@@ -100,6 +100,10 @@ pub struct Graphics {
     pub toolpath: bool,
     /// [`ToolInstance`] visibility flag.
     pub tool: bool,
+
+    pub speed: Speed,
+    // speed just batches up frames
+    skipped_frames: u8,
 
     /// [`Arc`] keeps the [`Window`] valid for as long as [`Self::surface`] needs,
     /// and lets us use `'static` lifetime with the surface.
@@ -237,7 +241,7 @@ impl Graphics {
             stock_index_buffer,
             stock_count: stock_tracker.total_count as u32,
 
-            lines_tracker: LineInstancesTracker::new(),
+            lines_tracker: LineInstancesTracker::new(stock_tracker.voxel_edge),
 
             stock_tracker,
 
@@ -250,6 +254,9 @@ impl Graphics {
             stock: STOCK,
             toolpath: TOOLPATH,
             tool: TOOL,
+
+            speed: Speed::default(),
+            skipped_frames: 0,
 
             window,
         })
@@ -350,7 +357,17 @@ impl Graphics {
             }
         }
 
-        Ok((proceed, render))
+        if render {
+            if self.skipped_frames >= self.speed.numeric() {
+                self.skipped_frames = 0;
+                Ok((proceed, true))
+            } else {
+                self.skipped_frames += 1;
+                Ok((proceed, false))
+            }
+        } else {
+            Ok((proceed, render))
+        }
     }
 
     /// Overwrites the provided [`LineInstance`] over the last instance inside [`Self::lines_instance_buffer`].

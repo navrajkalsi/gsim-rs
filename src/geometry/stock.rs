@@ -299,7 +299,7 @@ pub struct StockTracker {
     end_index: usize,
     /// Extent of each voxel instance in X & Y.
     /// Calculated once at generation. Depends on [`Self::size`] and [`STOCK_RESOLUTION`].
-    voxel_edge: f32,
+    pub voxel_edge: f32,
 }
 
 impl StockTracker {

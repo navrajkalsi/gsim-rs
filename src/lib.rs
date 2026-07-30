@@ -39,6 +39,55 @@ pub const TOOLPATH: bool = true;
 /// Tool visibility at program start.
 pub const TOOL: bool = true;
 
+const MAX_SPEED: u8 = 10;
+const MIN_SPEED: u8 = 1;
+const SPEED: u8 = (MAX_SPEED + MIN_SPEED) / 2;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Speed(u8);
+
+impl Default for Speed {
+    fn default() -> Self {
+        Self(SPEED)
+    }
+}
+
+impl Display for Speed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self.0 {
+            MAX_SPEED => String::from("MAX"),
+            MIN_SPEED => String::from("MIN"),
+            num => num.to_string(),
+        };
+
+        write!(f, "{string}")
+    }
+}
+
+impl Speed {
+    pub fn numeric(&self) -> u8 {
+        self.0
+    }
+
+    pub fn inc(&mut self) -> bool {
+        if self.0 + 1 <= MAX_SPEED {
+            self.0 += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn dec(&mut self) -> bool {
+        if self.0 - 1 >= MIN_SPEED {
+            self.0 -= 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Represents the possible views that can be used in the [`Gui`] and controlled using [`Tui`].
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, bytemuck::Zeroable)]
@@ -111,6 +160,7 @@ pub enum Command {
     SetToolVisibility(bool),
     SetToolpathVisibility(bool),
     SetStockVisibility(bool),
+    SetSpeed(Speed),
     ClearInterrupt,
     Next,
     Stop(Option<anyhow::Error>),

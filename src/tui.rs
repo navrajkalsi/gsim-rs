@@ -13,7 +13,7 @@ const TARGET_FPS: u64 = 30;
 const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS); // approximately
 
 use crate::{
-    Command, Interrupt, SINGLE, STOCK, Signal, TOOL, TOOLPATH, View,
+    Command, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
     config::Unit,
     machine::{CircularDirection, FeedMode, Motion, Positioning},
     parser::Plane,
@@ -76,6 +76,7 @@ pub struct Tui {
     stock: bool,
     ///
     source: Source,
+    speed: Speed,
     signal: Arc<Mutex<Signal>>,
 }
 
@@ -94,6 +95,7 @@ impl Tui {
             toolpath: TOOLPATH,
             stock: STOCK,
             source,
+            speed: Speed::default(),
             signal,
         }
     }
@@ -201,6 +203,16 @@ impl Tui {
 
                             KeyCode::Char('n') => self.proxy.send_event(Command::Next).unwrap(),
 
+                            KeyCode::Char('+') if self.speed.inc() => self
+                                .proxy
+                                .send_event(Command::SetSpeed(self.speed))
+                                .unwrap(),
+
+                            KeyCode::Char('-') if self.speed.dec() => self
+                                .proxy
+                                .send_event(Command::SetSpeed(self.speed))
+                                .unwrap(),
+
                             _ => (),
                         }
                     }
@@ -250,6 +262,16 @@ impl Tui {
                                     .send_event(Command::SetStockVisibility(self.stock))
                                     .unwrap()
                             }
+
+                            KeyCode::Char('+') if self.speed.inc() => self
+                                .proxy
+                                .send_event(Command::SetSpeed(self.speed))
+                                .unwrap(),
+
+                            KeyCode::Char('-') if self.speed.dec() => self
+                                .proxy
+                                .send_event(Command::SetSpeed(self.speed))
+                                .unwrap(),
 
                             _ => (),
                         }
@@ -512,6 +534,7 @@ impl Tui {
             Span::styled(": ", THEME.root),
             Span::styled(machine.tool().to_string(), THEME.root.bold()),
         ];
+
         // append feed if available
         if let Some(feed) = *machine.feed() {
             line1.extend(vec![
@@ -572,7 +595,7 @@ impl Tui {
                 Block::default()
                     .padding(Padding::symmetric(3, 1))
                     .borders(Borders::TOP)
-                    .title(Line::styled("Machine State", THEME.block_title).centered())
+                    .title(Line::styled("Machine", THEME.block_title).centered())
                     .style(THEME.root),
             )
             .centered()
@@ -621,12 +644,18 @@ impl Tui {
             ),
         ];
 
-        Paragraph::new(Line::from(modes))
+        let speed = vec![
+            Span::styled("SPEED", THEME.active_mode),
+            Span::styled(": ", THEME.root),
+            Span::styled(self.speed.to_string(), THEME.root),
+        ];
+
+        Paragraph::new(Text::from(vec![Line::from(modes), Line::from(speed)]))
             .block(
                 Block::default()
                     .padding(Padding::symmetric(3, 1))
                     .borders(Borders::TOP)
-                    .title(Line::styled("Active Modes", THEME.block_title).centered())
+                    .title(Line::styled("Modes", THEME.block_title).centered())
                     .style(THEME.root),
             )
             .centered()
@@ -642,8 +671,10 @@ impl Tui {
             Span::styled(" Quit ", THEME.key_desc),
             Span::styled("  v  ", THEME.key),
             Span::styled(" Switch View ", THEME.key_desc),
-            Span::styled("  1  ", THEME.key),
-            Span::styled(" Toggle Single ", THEME.key_desc),
+            Span::styled("  +  ", THEME.key),
+            Span::styled(" Speed Up ", THEME.key_desc),
+            Span::styled("  -  ", THEME.key),
+            Span::styled(" Slow Down ", THEME.key_desc),
         ];
 
         // only add "n" key if no interrupt and single block is on
@@ -659,6 +690,8 @@ impl Tui {
         }
 
         let spans2 = vec![
+            Span::styled("  1  ", THEME.key),
+            Span::styled(" Toggle Single ", THEME.key_desc),
             Span::styled("  t  ", THEME.key),
             Span::styled(" Toggle Tool ", THEME.key_desc),
             Span::styled("  p  ", THEME.key),

@@ -34,8 +34,8 @@ struct VertexOutput {
 const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
 const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
 
-const STROKE_WIDTH = 3.0;
-const SMOOTHING = 1.5; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
+const STROKE_WIDTH = 2.0;
+const SMOOTHING = 1.0; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
 fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
