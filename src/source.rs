@@ -52,6 +52,7 @@ impl Source {
     /// Constructs a new [`Source`], from a provided *string slice*.
     ///
     /// See [`from_lines`](Self::from_lines) for sanitization details.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(data: &str) -> Self {
         Self::from_lines(data.lines())
     }
@@ -101,12 +102,14 @@ impl Source {
     }
 
     /// Returns the total number of blocks in the [`Source`].
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.lines.len()
     }
 
     /// **Optionally** returns a the next line as a string slice.
     /// **Does not** remove the returned line to support reloading the [`Source`].
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&str> {
         let line = self.lines.get(self.index)?;
         self.index += 1;

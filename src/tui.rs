@@ -5,15 +5,16 @@
 //!
 //! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
 //!
-//! The render loop is driven by [`Signal`]s from the [`Gui`] thread,
-//! which receive [`Command`]s in response from the [`Tui`] thread,
-//! communicating user input and state changes.
+//! The render loop draws endlessly to achieve the [`TARGET_FPS`],
+//! and only terminates on reading [`Signal::Error`] or [`Signal::Stop`] from the [`Gui`].
+//! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`] from [`Gui`].
+//!
+//! Listens for user input,
+//! and sends [`Command`]s to the [`Gui`] thread on receiving corresponding user input.
 
-const TARGET_FPS: u64 = 30;
-const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS); // approximately
-
+#[allow(unused_imports)]
 use crate::{
-    Command, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
+    Command, Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
     config::Unit,
     machine::{CircularDirection, FeedMode, Motion, Positioning},
     parser::Plane,
@@ -38,6 +39,12 @@ use std::{
     time::{Duration, Instant},
 };
 use winit::event_loop::EventLoopProxy;
+
+/// Frames to draw per second. This also decides how often [`Tui::signal`] should be refreshed.
+pub const TARGET_FPS: u64 = 30;
+
+// approx, due to int division truncation
+const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS);
 
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
@@ -66,6 +73,8 @@ pub struct Tui {
     proxy: EventLoopProxy<Command>,
     /// Current selected [`View`].
     view: View,
+    /// Copy of source for previewing.
+    source: Source,
     /// Single step through code blocks.
     single: bool,
     /// Tool visibility flag.
@@ -74,33 +83,33 @@ pub struct Tui {
     toolpath: bool,
     /// Stock visibility flag.
     stock: bool,
-    ///
-    source: Source,
+    /// Simulation speed.
     speed: Speed,
+    /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`] to send [`Signal`]s.
     signal: Arc<Mutex<Signal>>,
 }
 
 impl Tui {
-    /// Constructs a new [`Tui`] and loads the [`Source`] either from file at input path or `stdin`.
+    /// Constructs a new [`Tui`] and sets up all the flags to their predefined constants.
     ///
-    /// The [`Tui::view`] is set to [`View::default`],
-    /// [`Tui::single`] block execution is set to `false`,
-    /// and [`Tui::interrupt`] to [`Interrupt::Start`].
+    /// The [`Self::view`] is set to [`View::default`],
+    /// and [`Self::speed`] to [`Speed::default`].
     pub fn new(proxy: EventLoopProxy<Command>, source: Source, signal: Arc<Mutex<Signal>>) -> Self {
         Self {
             proxy,
             view: View::default(),
+            source,
             single: SINGLE,
             tool: TOOL,
             toolpath: TOOLPATH,
             stock: STOCK,
-            source,
             speed: Speed::default(),
             signal,
         }
     }
 
-    /// Starts [`Tui`] execution by executing each G-Code line and managing the terminal state.
+    /// Starts up the [`Tui`] by drawing frames at [`TARGET_FPS`] and communicates any user input to
+    /// the [`Gui`].
     ///
     /// The [`Tui`] thread cannot terminate the program now, just by returning an `Error`.
     /// A [`Command::Stop`], with an optional [`Error`](anyhow::Error),
@@ -129,151 +138,54 @@ impl Tui {
         }
     }
 
-    // gets new display state, if updated by gui thread
-    /// Checks for any updates from the [`Gui`] thread by trying to receive any [`Signal`]
-    /// **without blocking** current thread.
+    /// Starts the [`Tui`] by drawing to the `terminal` at [`TARGET_FPS`] in a loop and waits for user input.
     ///
-    /// On success, optionally returns a [`Signal`], if received, else returns [`None`].
-    ///
-    /// # Errors
-    /// Returns [`TryRecvError::Disconnected`] if the main thread had already terminated.
-    fn refresh_signal(&mut self) -> Signal {
-        self.signal.lock().unwrap().clone()
-    }
-
-    /// Starts the [`Tui`] by drawing to the `terminal` in a loop and waits for user input.
+    /// Before drawing each new frame, [`Self::signal`] is refreshed to get potential new
+    /// [`Signal`] from [`Gui`].
     fn start_loop<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()>
     where
         anyhow::Error: From<B::Error>,
     {
-        let mut time_tracker = Instant::now() - TIME_BETWEEN_FRAMES;
+        let mut time_tracker = Instant::now();
         let mut signal = self.refresh_signal();
 
-        // TODO the main idea of this loop is that the event loop from main thread,
-        // drives this loop with every proceed signal
         loop {
             if time_tracker.elapsed() > TIME_BETWEEN_FRAMES {
                 signal = self.refresh_signal();
                 terminal.draw(|frame| self.draw(frame, &signal))?;
-                // time_tracker = Instant::now(); // not performant
                 time_tracker -= TIME_BETWEEN_FRAMES;
+                // time_tracker = Instant::now(); // not performant
             }
 
             match &signal {
                 Signal::Run { .. } => {
                     if let Some(key) = poll_key_press()? {
-                        match key.code {
-                            KeyCode::Char('Q') => return Ok(()),
+                        if !self.handle_common_keys(key) {
+                            match key.code {
+                                KeyCode::Char('Q') => return Ok(()),
 
-                            KeyCode::Char('v') => {
-                                match self.view {
-                                    View::Isometric => self.view = View::Top,
-                                    View::Top => self.view = View::Isometric,
-                                };
-                                self.proxy.send_event(Command::SetView(self.view)).unwrap();
+                                KeyCode::Char('n') if self.single => {
+                                    self.proxy.send_event(Command::Next).unwrap()
+                                }
+
+                                _ => (),
                             }
-
-                            KeyCode::Char('1') => {
-                                self.single = !self.single;
-                                self.proxy
-                                    .send_event(Command::SetSingle(self.single))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('t') => {
-                                self.tool = !self.tool;
-                                self.proxy
-                                    .send_event(Command::SetToolVisibility(self.tool))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('p') => {
-                                self.toolpath = !self.toolpath;
-                                self.proxy
-                                    .send_event(Command::SetToolpathVisibility(self.toolpath))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('s') => {
-                                self.stock = !self.stock;
-                                self.proxy
-                                    .send_event(Command::SetStockVisibility(self.stock))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('n') => self.proxy.send_event(Command::Next).unwrap(),
-
-                            KeyCode::Char('+') if self.speed.inc() => self
-                                .proxy
-                                .send_event(Command::SetSpeed(self.speed))
-                                .unwrap(),
-
-                            KeyCode::Char('-') if self.speed.dec() => self
-                                .proxy
-                                .send_event(Command::SetSpeed(self.speed))
-                                .unwrap(),
-
-                            _ => (),
                         }
                     }
                 }
 
                 Signal::Pause { .. } => {
                     if let Some(key) = poll_key_press()? {
-                        match key.code {
-                            KeyCode::Enter => {
-                                self.proxy.send_event(Command::ClearInterrupt).unwrap()
+                        if !self.handle_common_keys(key) {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    self.proxy.send_event(Command::ClearInterrupt).unwrap()
+                                }
+
+                                KeyCode::Char('Q') => return Ok(()),
+
+                                _ => (),
                             }
-
-                            KeyCode::Char('Q') => return Ok(()),
-
-                            KeyCode::Char('v') => {
-                                match self.view {
-                                    View::Isometric => self.view = View::Top,
-                                    View::Top => self.view = View::Isometric,
-                                };
-                                self.proxy.send_event(Command::SetView(self.view)).unwrap();
-                            }
-
-                            KeyCode::Char('1') => {
-                                self.single = !self.single;
-                                self.proxy
-                                    .send_event(Command::SetSingle(self.single))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('t') => {
-                                self.tool = !self.tool;
-                                self.proxy
-                                    .send_event(Command::SetToolVisibility(self.tool))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('p') => {
-                                self.toolpath = !self.toolpath;
-                                self.proxy
-                                    .send_event(Command::SetToolpathVisibility(self.toolpath))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('s') => {
-                                self.stock = !self.stock;
-                                self.proxy
-                                    .send_event(Command::SetStockVisibility(self.stock))
-                                    .unwrap()
-                            }
-
-                            KeyCode::Char('+') if self.speed.inc() => self
-                                .proxy
-                                .send_event(Command::SetSpeed(self.speed))
-                                .unwrap(),
-
-                            KeyCode::Char('-') if self.speed.dec() => self
-                                .proxy
-                                .send_event(Command::SetSpeed(self.speed))
-                                .unwrap(),
-
-                            _ => (),
                         }
                     }
                 }
@@ -284,13 +196,75 @@ impl Tui {
                             || key.code == KeyCode::Char('Q')
                             || key.code == KeyCode::Esc)
                     {
-                        return Err(error.clone().into());
+                        return Err((*error).into());
                     }
                 }
 
                 Signal::Stop => return Ok(()),
             }
         }
+    }
+
+    /// Obtains the lock for [`Self::signal`], copies the [`Signal`] and returns it.
+    ///
+    /// This [`Signal`] may or may not be different from the one used for previous frame.
+    fn refresh_signal(&mut self) -> Signal {
+        self.signal.lock().unwrap().clone()
+    }
+
+    /// Handles common key inputs. Returns `true` if the event was handled.
+    fn handle_common_keys(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('v') => {
+                match self.view {
+                    View::Isometric => self.view = View::Top,
+                    View::Top => self.view = View::Isometric,
+                };
+                self.proxy.send_event(Command::SetView(self.view)).unwrap();
+            }
+
+            KeyCode::Char('1') => {
+                self.single = !self.single;
+                self.proxy
+                    .send_event(Command::SetSingle(self.single))
+                    .unwrap()
+            }
+
+            KeyCode::Char('t') => {
+                self.tool = !self.tool;
+                self.proxy
+                    .send_event(Command::SetToolVisibility(self.tool))
+                    .unwrap()
+            }
+
+            KeyCode::Char('p') => {
+                self.toolpath = !self.toolpath;
+                self.proxy
+                    .send_event(Command::SetToolpathVisibility(self.toolpath))
+                    .unwrap()
+            }
+
+            KeyCode::Char('s') => {
+                self.stock = !self.stock;
+                self.proxy
+                    .send_event(Command::SetStockVisibility(self.stock))
+                    .unwrap()
+            }
+
+            KeyCode::Char('+') if self.speed.inc() => self
+                .proxy
+                .send_event(Command::SetSpeed(self.speed))
+                .unwrap(),
+
+            KeyCode::Char('-') if self.speed.dec() => self
+                .proxy
+                .send_event(Command::SetSpeed(self.speed))
+                .unwrap(),
+
+            _ => return false,
+        };
+
+        true
     }
 
     /// Prepares individual sections of the terminal screen,
@@ -349,7 +323,7 @@ impl Tui {
         }
     }
 
-    /// Generates a styled [`Paragraph`] with **program title**.
+    /// Returns program title for display at top.
     fn title_text(&self) -> Paragraph<'_> {
         Paragraph::new("GSim-rs")
             .style(THEME.title)
@@ -357,7 +331,7 @@ impl Tui {
             .centered()
     }
 
-    /// Generates a styled [`Paragraph`] using the [`BlockSummary`] for current block.
+    /// Returns the user-facing summary of the provided `signal`.
     fn summary_widget(&self, signal: &Signal) -> Paragraph<'_> {
         let lines = match signal {
             Signal::Run { summary, .. } => {
@@ -433,9 +407,10 @@ impl Tui {
             .centered()
     }
 
-    /// Generates a styled [`Paragraph`] with loaded [`Source`].
+    /// Returns a preview of [`Self::source`] based on the current block of execution.
+    ///
     /// One line of context is also provided in the preview.
-    /// does not highlight first line if the start interrupt is detected
+    /// Does not highlight first line if the start interrupt is detected.
     fn preview_widget(&self, signal: &Signal) -> Paragraph<'_> {
         let mut start_interrupt = false;
 
@@ -495,7 +470,8 @@ impl Tui {
         )
     }
 
-    /// Generates a styled [`Paragraph`] showing the state of [`Machine`].
+    /// Returns a widget for showing the state of [`Machine`](crate::machine) from
+    /// the provided `signal`.
     fn machine_widget(&self, signal: &Signal) -> Paragraph<'_> {
         let machine = match signal {
             Signal::Run { machine, .. }
@@ -601,7 +577,9 @@ impl Tui {
             .centered()
     }
 
-    /// Generates a styled [`Paragraph`] showing the active state of [`Tui`] & [`Gui`].
+    /// Returns the active simulation modes.
+    ///
+    /// Also shows [`Self::speed`].
     fn modes_widget(&self) -> Paragraph<'_> {
         // preallocate for a few modes
         let modes = vec![
@@ -661,7 +639,7 @@ impl Tui {
             .centered()
     }
 
-    /// Generates a styled [`Paragraph`] with **possible keys inputs**.
+    /// Returns every **possible key input** based on the current state.
     ///
     /// ## Reference
     /// [Github](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
@@ -749,7 +727,7 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> anyhow:
     Ok(())
 }
 
-/// Creates a centered [`Rect`] using up a supplied percentages in X and Y.
+/// Creates a centered [`Rect`] using up supplied percentages in X and Y.
 fn get_centered(x: u16, y: u16, rect: Rect) -> Rect {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -770,6 +748,18 @@ fn get_centered(x: u16, y: u16, rect: Rect) -> Rect {
         .split(chunks[1])[1] // return the middle chunk
 }
 
+/// Polls for an [`Event::Key`] of [`KeyEventKind::Press`](KeyEventKind::Press).
+fn poll_key_press() -> Result<Option<KeyEvent>, std::io::Error> {
+    if !poll(Duration::from_millis(100))? {
+        return Ok(None);
+    };
+
+    match event::read()? {
+        Event::Key(key) if key.is_press() => Ok(Some(key)),
+        _ => Ok(None),
+    }
+}
+
 /// Represents styling for each section of the [`Tui`].
 struct Theme {
     root: Style,
@@ -783,16 +773,4 @@ struct Theme {
     key: Style,
     key_desc: Style,
     alarm: Style,
-}
-
-// polls for a key press event
-fn poll_key_press() -> Result<Option<KeyEvent>, std::io::Error> {
-    if !poll(Duration::from_millis(100))? {
-        return Ok(None);
-    };
-
-    match event::read()? {
-        Event::Key(key) if key.is_press() => Ok(Some(key)),
-        _ => Ok(None),
-    }
 }

@@ -773,7 +773,7 @@ impl Machine {
     ///
     /// Returns [`MotionSummary::Rapid`].
     pub fn move_machine_pos(&mut self, mut pos: PartialPoint) -> MotionSummary {
-        self.to_machine_units(&mut pos);
+        self.point_to_machine_units(&mut pos);
         let org_pos = *self.pos();
 
         let new_pos = Point::new(
@@ -854,7 +854,7 @@ impl Machine {
                 // convert `method` units
                 let method = match method {
                     CircleMethod::RelativePoint(mut rel_center) => {
-                        self.to_machine_units(&mut rel_center);
+                        self.point_to_machine_units(&mut rel_center);
                         CircleMethod::RelativePoint(rel_center)
                     }
                     CircleMethod::FixedRadius(mut rad) => {
@@ -892,7 +892,7 @@ impl Machine {
     ///
     /// Returns a new [`Point`] with each axis filled.
     fn new_pos(&self, mut pos: PartialPoint) -> Point {
-        self.to_machine_units(&mut pos);
+        self.point_to_machine_units(&mut pos);
 
         match self.positioning {
             Positioning::Absolute => Point::new(
@@ -916,7 +916,7 @@ impl Machine {
     /// Accepts a *mutable reference to [`Point`]* in `code_units`.
     /// Converts the units of all `Some` variant fields to Machine units.
     /// `None` variants are not changed.
-    fn to_machine_units(&self, point: &mut PartialPoint) {
+    fn point_to_machine_units(&self, point: &mut PartialPoint) {
         if self.units == Unit::Imperial && self.code_units == Unit::Metric {
             point.to_imperial()
         } else if self.units == Unit::Metric && self.code_units == Unit::Imperial {

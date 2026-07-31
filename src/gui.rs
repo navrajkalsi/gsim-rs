@@ -133,7 +133,7 @@ impl Gui {
         let (motion, signal) = match self.interpreter.execute()? {
             Some(block) => {
                 // check for interrupt with mcode
-                self.interrupt = block.mcode.map(|mcode| mcode.into()).flatten();
+                self.interrupt = block.mcode.and_then(|mcode| mcode.into());
 
                 (
                     block.motion,

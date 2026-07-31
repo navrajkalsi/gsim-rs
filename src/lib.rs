@@ -70,7 +70,7 @@ impl Speed {
     }
 
     pub fn inc(&mut self) -> bool {
-        if self.0 + 1 <= MAX_SPEED {
+        if self.0 < MAX_SPEED {
             self.0 += 1;
             true
         } else {
@@ -79,7 +79,7 @@ impl Speed {
     }
 
     pub fn dec(&mut self) -> bool {
-        if self.0 - 1 >= MIN_SPEED {
+        if self.0 > MIN_SPEED {
             self.0 -= 1;
             true
         } else {
@@ -214,7 +214,7 @@ pub fn run() -> anyhow::Result<()> {
         None => Source::from_stdin(),
     }?;
     let machine = Machine::new(config.units, config.zero_pos, config.start_pos);
-    let interpreter = Interpreter::new(Parser::new(Lexer::new(source.clone())), machine.clone());
+    let interpreter = Interpreter::new(Parser::new(Lexer::new(source.clone())), machine);
     let signal = Arc::new(Mutex::new(Signal::Pause {
         interrupt: Interrupt::Start,
         machine,

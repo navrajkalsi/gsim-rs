@@ -58,6 +58,8 @@
 //! - Every stock dimension **must** be positive and non-zero.
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
+use std::str::FromStr;
+
 use crate::FLOAT_VARIANCE;
 use serde::Deserialize;
 
@@ -169,6 +171,10 @@ impl Config {
                 .as_str(),
         )
     }
+}
+
+impl FromStr for Config {
+    type Err = ConfigError;
 
     /// Constructs a config by attempting to parse a provided string slice.
     ///
@@ -177,8 +183,8 @@ impl Config {
     /// - [`ConfigError::StockNonPositive`] -- At least one of the stock dimension was zero or negative.
     /// - [`ConfigError::ToolNonPositive`] -- At least one of the tools has zero or negative
     ///   diameter or length.
-    pub fn from_str(json: &str) -> Result<Self, ConfigError> {
-        let ret: Self = serde_json::from_str(json)?;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let ret: Self = serde_json::from_str(s)?;
 
         // make sure stock size and tool diameter and length are positive and non zero
         match &ret.stock {

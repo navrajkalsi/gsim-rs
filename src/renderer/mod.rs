@@ -311,49 +311,49 @@ impl Graphics {
         // if None, signal has already been sent to retrieve a command from previous block exhaustion
         let (proceed, render) = match self.lines_tracker.next() {
             // update tool if we are going to request redraw
-            BufferAction::Overwrite { instance, render } => {
+            Some(BufferAction::Overwrite { instance, render }) => {
                 new_pos = Some(instance.end);
                 self.overwrite_instance(instance);
                 (false, render)
             }
-            BufferAction::Add { instance, render } => {
+            Some(BufferAction::Add { instance, render }) => {
                 new_pos = Some(instance.end);
                 self.add_instance(instance)?;
                 (false, render)
             }
-            BufferAction::Exhausted => (true, false),
+            None => (true, false),
         };
 
         // if new instance is available, update tool and stock
         // skip if not going to call graphics render
-        if let Some(pos) = new_pos {
-            if render || force_render_tool {
-                let pos = Point::from_array(pos);
+        if let Some(pos) = new_pos
+            && (render || force_render_tool)
+        {
+            let pos = Point::from_array(pos);
+            self.queue.write_buffer(
+                &self.tool_instance_buffer,
+                0,
+                bytemuck::cast_slice(&[ToolInstance::at_point(pos)]),
+            );
+
+            // only reconsturct instances if there was a change
+            if self.stock_tracker.cut(
+                crate::config::ToolConfig {
+                    number: 1,
+                    diameter: 20.0,
+                    length: 125.0,
+                },
+                pos,
+            ) {
+                let (index, instances) = self.stock_tracker.instances(); // is guarraunteed to be rendered
+                //
+                let offset = index * size_of::<StockInstance>();
+
                 self.queue.write_buffer(
-                    &self.tool_instance_buffer,
-                    0,
-                    bytemuck::cast_slice(&[ToolInstance::at_point(pos)]),
+                    &self.stock_instance_buffer,
+                    offset as u64,
+                    bytemuck::cast_slice(instances),
                 );
-
-                // only reconsturct instances if there was a change
-                if self.stock_tracker.cut(
-                    crate::config::ToolConfig {
-                        number: 1,
-                        diameter: 20.0,
-                        length: 125.0,
-                    },
-                    pos,
-                ) {
-                    let (index, instances) = self.stock_tracker.instances(); // is guarraunteed to be rendered
-                    //
-                    let offset = index * size_of::<StockInstance>();
-
-                    self.queue.write_buffer(
-                        &self.stock_instance_buffer,
-                        offset as u64,
-                        bytemuck::cast_slice(instances),
-                    );
-                }
             }
         }
 

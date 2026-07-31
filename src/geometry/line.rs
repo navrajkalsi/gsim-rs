@@ -1,10 +1,9 @@
-use std::f32::consts::PI;
-
 use crate::{
     config::Point,
     machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
     parser::Plane,
 };
+use std::f32::consts::PI;
 
 const RAPID_MOVE: u32 = 0;
 const FEED_MOVE: u32 = 1;
@@ -292,9 +291,6 @@ pub enum BufferAction {
         instance: LineInstance,
         render: bool,
     },
-    /// No new instance available.
-    /// Use [`LineInstancesTracker::add`] to add new [`MotionSummary`].
-    Exhausted,
 }
 
 /// Tracks the total length of individual [`LineInstance`]s left to be rendered since last frame render,
@@ -337,9 +333,22 @@ impl LineInstancesTracker {
             unreachable!("previous instances not exhausted");
         }
 
-        self.instances = Some(LineInstances::new(summary, &self));
+        self.instances = Some(LineInstances::new(summary, self));
         self.first = true;
     }
+
+    /// Resets the internal state of `self`.
+    ///
+    /// Any previous `instances` and sum of instance lengths is lost.
+    pub fn reset(&mut self) {
+        self.instances = None;
+        self.len = 0.0;
+        self.first = true;
+    }
+}
+
+impl Iterator for LineInstancesTracker {
+    type Item = BufferAction;
 
     /// Iterates [`Self::instances`] and returns a [`BufferAction`] depending on state of `self`.
     ///
@@ -356,23 +365,11 @@ impl LineInstancesTracker {
     /// # Panics
     /// Panics if called when [`Self::instances`] is [`None`].
     // TODO
-    pub fn next(&mut self) -> BufferAction {
-        let instances = match self.instances.as_mut() {
-            Some(LineInstances::Linear(lines)) => lines.next(),
-            Some(LineInstances::Arc(lines)) => lines.next(),
-            None => return BufferAction::Exhausted,
-        };
-
-        let instance = match instances {
-            Some(line) => line,
-            None if self.first => {
-                unreachable!("At least one point is guarranteed, which would be the end point.")
-            }
-            None => {
-                self.instances = None;
-                return BufferAction::Exhausted;
-            }
-        };
+    fn next(&mut self) -> Option<Self::Item> {
+        let instance = match self.instances.as_mut()? {
+            LineInstances::Linear(lines) => lines.next(),
+            LineInstances::Arc(lines) => lines.next(),
+        }?;
 
         self.len += ((instance.end[0] - instance.start[0]).powi(2)
             + (instance.end[1] - instance.start[1]).powi(2)
@@ -393,15 +390,6 @@ impl LineInstancesTracker {
 
         self.first = false;
 
-        ret
-    }
-
-    /// Resets the internal state of `self`.
-    ///
-    /// Any previous `instances` and sum of instance lengths is lost.
-    pub fn reset(&mut self) {
-        self.instances = None;
-        self.len = 0.0;
-        self.first = true;
+        Some(ret)
     }
 }
