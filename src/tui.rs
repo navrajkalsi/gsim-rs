@@ -12,12 +12,11 @@
 //! Listens for user input,
 //! and sends [`Command`]s to the [`Gui`] thread on receiving corresponding user input.
 
-use crate::machine::Plane;
 #[allow(unused_imports)]
 use crate::{
     Command, Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
     config::Unit,
-    machine::{CircularDirection, FeedMode, Motion, Positioning},
+    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning},
     source::Source,
 };
 use ratatui::{
@@ -120,27 +119,30 @@ impl Tui {
     /// the [`Gui`].
     ///
     /// The [`Tui`] thread cannot terminate the program now, just by returning an `Error`.
-    /// A [`Command::Stop`], with an optional [`Error`](anyhow::Error),
-    /// must be sent to the main thread running the [`Gui`],
+    /// A [`Command::Stop`] must be sent to the main thread running the [`Gui`],
     /// to tell it to exit the program.
     ///
-    /// Therefore, to report any error from this function,
-    /// it must be sent to the main [`Gui`] thread.
-    pub fn run(mut self) {
-        // on failure to prepare terminal, tell main thread to stop and stop current thread
+    /// Always sends a [`Command::Stop`] to the [`Gui`] while exiting, even in case of an error.
+    pub fn run(mut self) -> anyhow::Result<()> {
+        // on failure to prepare terminal, tell main thread to stop and return the error
         let mut terminal = match prepare_terminal() {
             Ok(t) => t,
-            Err(e) => return self.proxy.send_event(Command::Stop(Some(e))).unwrap(),
+            Err(e) => {
+                self.proxy.send_event(Command::Stop).unwrap();
+                return Err(e);
+            }
         };
 
         let mut res = self.start_loop(&mut terminal);
 
-        // prioritize terminal error
+        // prioritize terminal-restore error
         if let Err(e) = restore_terminal(terminal) {
             res = Err(e)
         };
 
-        self.proxy.send_event(Command::Stop(res.err())); // may be err if main thread exited first
+        let _ = self.proxy.send_event(Command::Stop); // may be err if main thread exited first
+
+        res
     }
 
     /// Starts the [`Tui`] by drawing to the `terminal` at [`TARGET_FPS`] in a loop and waits for user input.

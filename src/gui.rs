@@ -100,29 +100,12 @@ impl Gui {
 
     /// Starts the [`Gui`] by running the [`EventLoop`].
     ///
-    /// While exiting,
-    /// checks if the [`Tui`](crate::tui) is still running using [`Self::command`],
-    /// and sends [`Signal::Stop`] to signal a stop, else checks for any error in [`Command::Stop`].
-    ///
-    /// # Errors
-    /// Returns any error in [`Self::command`] from the [`Tui`](crate::tui) or
-    /// stored [`Self::error`], prioritizing the [`Tui`](crate::tui) error.
+    /// Always sends a [`Signal::Stop`] to the [`Tui`](crate::tui) while exiting.
     pub fn run(mut self) -> anyhow::Result<()> {
         let event_loop = self.event_loop.take().unwrap();
         let res = event_loop.run_app(&mut self);
 
-        // prioritize tui thread error
-        // check if the tui thread is still running, if so, tell it to stop
-        match self.command {
-            // the tui thread signalled main thread to stop because of an error on tui thread
-            Some(Command::Stop(Some(e))) => self.error = Some(e),
-
-            // quit event from the user
-            Some(Command::Stop(None)) => (),
-
-            // tui thread still running, stop it
-            _ => self.send_signal(Signal::Stop),
-        };
+        self.send_signal(Signal::Stop);
 
         if let Some(e) = self.error {
             Err(e)
@@ -419,7 +402,7 @@ impl ApplicationHandler<Command> for Gui {
 
             Command::Next => (), // just redraw
 
-            Command::Stop(_) => event_loop.exit(),
+            Command::Stop => event_loop.exit(),
         }
 
         self.command = Some(event);

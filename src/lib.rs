@@ -154,7 +154,7 @@ pub enum Command {
     SetSpeed(Speed),
     ClearInterrupt,
     Next,
-    Stop(Option<anyhow::Error>),
+    Stop,
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +194,7 @@ fn display_banner() {
 ///
 /// Sets up [`Gui`] in the **main thread**, and [`Tui`] in a **new thread**.
 /// Sets up bidirectional communication between both the threads,
-/// using a [`Channel`](std::sync::mpsc::channel) and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
+/// using an [`Arc<Mutex<Signal>>`] and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
     display_banner();
 
@@ -212,17 +212,16 @@ pub fn run() -> anyhow::Result<()> {
         current: 0,
     }));
 
-    let gui = Gui::new(config.clone(), signal.clone(), interpreter);
+    let gui = Gui::new(config, signal.clone(), interpreter);
     let tui = Tui::new(gui.create_proxy(), source, signal.clone());
 
     let child = std::thread::Builder::new()
         .name("TUI".to_string())
         .spawn(move || tui.run())?;
 
-    // any errors from the tui thread will be returned through this call
-    let res = gui.run();
+    let gui_res = gui.run();
+    let tui_res = child.join().unwrap();
 
-    child.join().unwrap();
-
-    res
+    // prioritize tui error
+    tui_res.and(gui_res)
 }
