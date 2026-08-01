@@ -12,12 +12,12 @@
 //! Listens for user input,
 //! and sends [`Command`]s to the [`Gui`] thread on receiving corresponding user input.
 
+use crate::machine::Plane;
 #[allow(unused_imports)]
 use crate::{
     Command, Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
     config::Unit,
     machine::{CircularDirection, FeedMode, Motion, Positioning},
-    parser::Plane,
     source::Source,
 };
 use ratatui::{
@@ -67,24 +67,32 @@ const THEME: Theme = Theme {
     alarm: Style::new().fg(Color::Black).bg(Color::Rgb(200, 200, 200)),
 };
 
-/// Represents the current state of the [`Tui`](crate::tui).
+/// Current state of the [`Tui`](crate::tui).
 pub struct Tui {
     /// Event proxy for sending [`Command`]s to [`Gui`].
     proxy: EventLoopProxy<Command>,
+
     /// Current selected [`View`].
     view: View,
+
     /// Copy of source for previewing.
     source: Source,
+
     /// Single step through code blocks.
     single: bool,
+
     /// Tool visibility flag.
     tool: bool,
+
     /// Toolpath visibility flag.
     toolpath: bool,
+
     /// Stock visibility flag.
     stock: bool,
+
     /// Simulation speed.
     speed: Speed,
+
     /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`] to send [`Signal`]s.
     signal: Arc<Mutex<Signal>>,
 }
@@ -133,8 +141,10 @@ impl Tui {
         };
 
         match self.refresh_signal() {
-            Signal::Stop => {} // main thread already signalled to stop
-            _ => self.proxy.send_event(Command::Stop(res.err())).unwrap(),
+            Signal::Stop => (), // main thread already signalled to stop
+            _ => {
+                let _ = self.proxy.send_event(Command::Stop(res.err()));
+            }
         }
     }
 
@@ -760,7 +770,7 @@ fn poll_key_press() -> Result<Option<KeyEvent>, std::io::Error> {
     }
 }
 
-/// Represents styling for each section of the [`Tui`].
+/// Styling for each section of the [`Tui`].
 struct Theme {
     root: Style,
     title: Style,

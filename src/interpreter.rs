@@ -3,36 +3,43 @@
 //! Executes [`CodeBlock`]s (represented as [`Parser`])
 //! on a [`Machine`], by accessing its public API.
 
-use std::sync::Arc;
-
-#[allow(unused_imports)]
+#![allow(unused_imports)]
 use crate::{
-    config::{Point, Unit},
+    config::Unit,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
-        Positioning, ReturnLevel,
+        Plane, Positioning, ReturnLevel,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError, Plane},
+    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError},
+    source::Source,
 };
+use std::sync::Arc;
 
-/// Represents a summary consumed [`CodeBlock`].
+/// A summary of consumed [`CodeBlock`].
+///
 /// Contains all the information required by the [`Tui`](crate::tui::Tui)
 /// to render the new [`Machine`] state.
 #[derive(Debug, Clone)]
 pub struct BlockSummary {
     /// Parsed [`GCode`]s from the block.
     pub gcodes: Vec<GCode>,
+
     /// Parsed [`MCode`] from the block.
     pub mcode: Option<MCode>,
+
     /// Parsed [`Code`]s from the block.
     pub codes: Vec<Code>,
+
     /// Captures any [`Motion`] and position changes.
     pub motion: Option<MotionSummary>,
 }
 
-/// Represents an instance of [`Interpreter`](crate::interpreter).
+/// An instance of [`Interpreter`](crate::interpreter).
 pub struct Interpreter {
-    pub parser: Parser,
+    /// [`Parser`] for parsing source lines on demand.
+    parser: Parser,
+
+    /// [`Machine`] to execute the parsed code on.
     machine: Machine,
 }
 
@@ -43,22 +50,27 @@ impl Interpreter {
         Self { parser, machine }
     }
 
-    /// Executes the [`Parser::next`] [`CodeBlock`] of the [`Parser`] on the [`Machine`].
+    /// Executes the [`Parser::next`] [`CodeBlock`] from the [`Parser`] on the [`Machine`].
     ///
-    // TODO Stores the new block summary and returns a reference to it.
-    ///
-    /// Returns the summary of changes during execution as [`BlockSummary`],
-    /// or [`None`] on exhaustion of [`CodeBlock`]s.
+    /// On success, returns a tuple of:
+    /// - **Index** of the latest execute block.
+    /// - Copy of **machine** with the updated state as a result of executing the parsed code.
+    /// - A summary of changes during execution as [`BlockSummary`],
+    ///   or [`None`] on exhaustion of [`CodeBlock`]s.
     ///
     /// Returns [`InterpreterError`] on failure.
-    pub fn execute(&mut self) -> Result<Option<Arc<BlockSummary>>, InterpreterError> {
+    pub fn execute(
+        &mut self,
+    ) -> Result<(usize, Machine, Option<Arc<BlockSummary>>), InterpreterError> {
         let parser = &mut self.parser;
         let machine = &mut self.machine;
         let mut motion = None;
 
+        let current = parser.source().index(); // index of the block that will now be parsed
+
         let mut block = match parser.next() {
             Some(res) => res?,
-            None => return Ok(None),
+            None => return Ok((current, self.machine, None)),
         };
 
         let mcode = block.mcode();
@@ -237,15 +249,19 @@ impl Interpreter {
             }
         }
 
-        Ok(Some(Arc::new(BlockSummary {
-            gcodes,
-            mcode,
-            codes,
-            motion,
-        })))
+        Ok((
+            current,
+            self.machine,
+            Some(Arc::new(BlockSummary {
+                gcodes,
+                mcode,
+                codes,
+                motion,
+            })),
+        ))
     }
 
-    /// Reloads the [`Interpreter`] to start from beginning of the [`Parser`].
+    /// Resets the [`Interpreter`] to start from beginning of the [`Parser`].
     pub fn reload(&mut self) {
         self.parser.source().reload();
         self.machine.reset();
@@ -255,6 +271,11 @@ impl Interpreter {
     pub fn machine(&self) -> &Machine {
         &self.machine
     }
+
+    /// Returns a mutable reference to the underlying [`Source`] for direct access to raw source lines.
+    pub fn source(&mut self) -> &mut Source {
+        self.parser.source()
+    }
 }
 
 /// Possible errors that can happen during executing the code.
@@ -263,9 +284,11 @@ pub enum InterpreterError {
     /// Changing [`Machine`] state failed.
     #[error("machine rejected the last block")]
     Machine(#[from] MachineError),
+
     /// Parsing the next [`CodeBlock`] failed.
     #[error("parsing block failed")]
     Parser(#[from] ParserError),
+
     /// At least one code from a code block exists that was not consumed.
     #[error("unconsumed prefix: '{}'", *.0 as char)]
     ExcessCode(u8),

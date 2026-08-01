@@ -15,153 +15,14 @@
 
 use crate::{
     FLOAT_VARIANCE,
-    config::Point,
     lexer::{Block, *},
+    points::PartialPoint,
     source::Source,
 };
 use std::{
     cmp::PartialEq,
     fmt::{Debug, Display},
-    ops::{Add, Sub},
 };
-
-/// Possible planes for a 3-axis machine.
-#[derive(Copy, Clone, Default, Debug, PartialEq)]
-pub enum Plane {
-    #[default]
-    XY,
-    XZ,
-    YZ,
-}
-
-impl Point {
-    /// Constructor for a [`Point`] from X,Y, and Z axis values.
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::new(0.0, 0.0, 0.0)
-    }
-
-    pub fn from_array(array: [f32; 3]) -> Self {
-        Self::new(array[0], array[1], array[2])
-    }
-
-    /// Treats all the axes values in **metric** system, and converts them to **imperial** system.
-    pub fn to_imperial(&mut self) {
-        self.x /= 25.4;
-        self.y /= 25.4;
-        self.z /= 25.4;
-    }
-
-    /// Treats all the axes values in **imperial** system, and converts them to **metric** system.
-    pub fn to_metric(&mut self) {
-        self.x *= 25.4;
-        self.y *= 25.4;
-        self.z *= 25.4;
-    }
-
-    /// Calculates distance between `self` and another [`Point`] on a certain plane.
-    pub fn dist(&self, other: &Self, plane: Plane) -> f32 {
-        match plane {
-            Plane::XY => ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt(),
-            Plane::XZ => ((self.x - other.x).powi(2) + (self.z - other.z).powi(2)).sqrt(),
-            Plane::YZ => ((self.y - other.y).powi(2) + (self.z - other.z).powi(2)).sqrt(),
-        }
-    }
-
-    /// Multiplies the provided `factor` to each axis value and returns a new [`Point`] with these
-    /// new values.
-    pub fn mul_float(&self, factor: f32) -> Self {
-        Self::new(self.x * factor, self.y * factor, self.z * factor)
-    }
-
-    /// Divides each axis value with the provided `divisor` and returns a new [`Point`] with these
-    /// new values.
-    pub fn div_float(&self, divisor: f32) -> Self {
-        Self::new(self.x / divisor, self.y / divisor, self.z / divisor)
-    }
-}
-
-impl Sub for Point {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
-    }
-}
-
-impl Add for Point {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
-    }
-}
-
-/// Same as [`Point`] but the fields are [`Option`]al.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PartialPoint {
-    pub x: Option<f32>,
-    pub y: Option<f32>,
-    pub z: Option<f32>,
-}
-
-impl PartialPoint {
-    /// Constructs a [`PartialPoint`] using [`Option<f32>`] for each axis.
-    pub fn new(x: Option<f32>, y: Option<f32>, z: Option<f32>) -> Self {
-        PartialPoint { x, y, z }
-    }
-
-    /// Check if all the axis are `None` variants.
-    pub fn are_none(&self) -> bool {
-        self.x.is_none() && self.y.is_none() && self.z.is_none()
-    }
-
-    /// Check if all the axis are `Some` variants.
-    pub fn are_some(&self) -> bool {
-        self.x.is_some() && self.y.is_some() && self.z.is_some()
-    }
-
-    /// Treats all the axes values in **metric** system, and converts them to **imperial** system.
-    pub fn to_imperial(&mut self) {
-        self.x = self.x.map(|x| x / 25.4);
-        self.y = self.y.map(|y| y / 25.4);
-        self.z = self.z.map(|z| z / 25.4);
-    }
-
-    /// Treats all the axes values in **imperial** system, and converts them to **metric** system.
-    pub fn to_metric(&mut self) {
-        self.x = self.x.map(|x| x * 25.4);
-        self.y = self.y.map(|y| y * 25.4);
-        self.z = self.z.map(|z| z * 25.4);
-    }
-}
-
-impl Display for PartialPoint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut axes = vec![];
-
-        if let Some(x) = self.x {
-            axes.push(format!("X: {x}"));
-        }
-
-        if let Some(y) = self.y {
-            axes.push(format!("Y: {y}"));
-        }
-
-        if let Some(z) = self.z {
-            axes.push(format!("Z: {z}"));
-        }
-
-        if axes.is_empty() {
-            return Ok(());
-        }
-
-        write!(f, "({})", axes.join(", "))
-    }
-}
 
 /// Circular Interpolation helper.
 ///
@@ -170,6 +31,7 @@ impl Display for PartialPoint {
 pub enum CircleMethod {
     /// Relative coordinate of circle center with **I, J & K** from current position.
     RelativePoint(PartialPoint),
+
     /// Explicit radius specified with **R**.
     FixedRadius(f32),
 }
@@ -203,7 +65,7 @@ fn try_float(token: &Token) -> Result<f32, ParserError> {
         .ok_or(ParserError::WrongSuffixType(token.prefix))
 }
 
-/// Represents a parsed & validated [`Token`].
+/// A parsed & validated [`Token`].
 ///
 /// This type ensures that each prefix is valid and is grouped with a valid [`Suffix`] type.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -304,7 +166,7 @@ impl Display for Code {
     }
 }
 
-/// Represents a collection of **unique** [`Code`]s **without 'G' or 'M'** prefixes.
+/// A collection of **unique** [`Code`]s **without 'G' or 'M'** prefixes.
 ///
 /// This type ensures that each prefix is only present once in a [`CodeBlock`].
 #[derive(Debug, Default)]
@@ -485,7 +347,7 @@ impl Iterator for Codes {
     }
 }
 
-/// Represents a *G-code*.
+/// A *G-code*.
 ///
 /// A G-code is used in toolpaths to move axes of a machine in a controlled way.
 /// Each variant contains all the other variable values it needs to be valid.
@@ -888,7 +750,7 @@ impl Display for GCode {
     }
 }
 
-/// Represents a collection of **unique** [`GCode`]s, belonging to unique groups.
+/// A collection of **unique** [`GCode`]s, belonging to unique groups.
 ///
 /// This type ensures that:
 /// -- Each GCode is not present more than once.
@@ -896,8 +758,10 @@ impl Display for GCode {
 #[derive(Debug, Default)]
 pub struct GCodes {
     codes: Vec<GCode>,
+
     /// Suffixes already present in the `codes` vector.
     suffixes: Vec<u32>,
+
     /// Groups already present in the `codes` vector.
     groups: Vec<u8>,
 }
@@ -946,7 +810,7 @@ impl Iterator for GCodes {
     }
 }
 
-/// Represents a *M-code*.
+/// A *M-code*.
 ///
 /// A M-code is used to control machine specific features, mostly as an on-off switch.
 /// Each variant contains all the other variable values it needs to be a valid.
@@ -1078,13 +942,15 @@ impl Display for MCode {
     }
 }
 
-/// Represents a **parsed** [`Block`].
+/// A **parsed** [`Block`].
 #[derive(Debug)]
 pub struct CodeBlock {
     /// Sequence of unique GCodes, with unique Groups.
     gcodes: GCodes,
+
     /// At most one parsed MCode per block.
     mcode: Option<MCode>,
+
     /// Collection of unique Codes, suffixed by the appropriate type.
     codes: Codes,
 }
@@ -1164,6 +1030,7 @@ impl Parser {
         Self(lexer)
     }
 
+    /// Returns a mutable reference to the underlying [`Source`] for direct access to raw source lines.
     pub fn source(&mut self) -> &mut Source {
         self.0.source()
     }
@@ -1194,44 +1061,57 @@ pub enum ParserError {
     /// This prefix does not support the type of suffix provided.
     #[error("wrong suffix type found after prefix: '{}'", *.0 as char)]
     WrongSuffixType(u8),
+
     /// The code prefix provided is invalid/unimplemented
     #[error("unsupported prefix: '{}'", *.0 as char)]
     UnknownPrefix(u8),
+
     /// Same G-code found atleast twice.
     #[error("duplicate GCode found: 'G{0}'")]
     DuplicateGCode(u32),
+
     /// Prefix and suffix make an invalid G-code.
     #[error("unsupported GCode: 'G{0}'")]
     InvalidGCode(u32),
+
     /// G-codes detected from the same group.
     #[error("duplicate GCode found from group: '{0}'")]
     DuplicateGCodeGroup(u8),
+
     /// Multiple codes of same prefix in the same line.
     /// Only multiple G-codes are allowed in one line.
     #[error("duplicate prefix: '{}'", *.0 as char)]
     DuplicatePrefix(u8),
+
     /// The tokens passed along with a 'G' prefix token
     /// do not meet the requirements of the said GCode variant.
     #[error("requirements for 'G{0}' not met")]
     InvalidParamForGCode(u32),
+
     /// Missing token required for a GCode variant.
     #[error("could not find required prefix '{}' for parsing GCode", *.0 as char)]
     MissingCodeForGCode(u8),
+
     /// The code block contains codes for both variants of circle methods.
     #[error("codes from both arc methods detected")]
     AmbiguousCircleMethod,
+
     /// Conditions for a particular circle method were not met, or the end coords are missing.
     #[error("{}", invalid_circle_msg(.0))]
     InvalidCircle(Option<CircleMethod>),
+
     /// Prefix and suffix make an invalid M-code.
     #[error("unsupported MCode: 'M{0}'")]
     InvalidMCode(u32),
+
     /// Missing token required for a MCode variant.
     #[error("could not find required prefix '{}' for parsing MCode", *.0 as char)]
     MissingCodeForMCode(u8),
+
     /// Prefix was found after parsing G & M Codes, but cannot be parsed on its own.
     #[error("unconsumed prefix: '{}'", *.0 as char)]
     UnexpectedPrefix(u8),
+
     #[error("tokenization failed")]
     Lexer(#[from] LexerError),
 }

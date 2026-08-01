@@ -299,7 +299,7 @@ pub enum BufferAction {
 /// This is **extremely** useful for *adaptive* toolpaths,
 /// that generate hundreds of really small line segments and without total length tracking,
 /// rendering a new frame for each of those line segments makes the simulation feel slow and stuttery.
-pub struct LineInstancesTracker {
+pub struct LinesTracker {
     /// Iterator for [`LineInstance`]s.
     instances: Option<LineInstances>,
     /// Sum of lenghts of each [`LineInstance`] from [`Self::instances`] since the last render.
@@ -324,15 +324,9 @@ impl LineInstancesTracker {
     }
 
     /// Loads a new [`LineInstances`] into [`Self::instances`] and sets [`Self::first`].
-    /// Expects the previous `instances` to be [`None`].
     ///
-    /// # Panics
-    /// Panics if previous `instances` have not been drained yet.
+    /// The user must be responsible for draining the previous `instances`.
     pub fn add(&mut self, summary: MotionSummary) {
-        if self.instances.is_some() {
-            unreachable!("previous instances not exhausted");
-        }
-
         self.instances = Some(LineInstances::new(summary, self));
         self.first = true;
     }

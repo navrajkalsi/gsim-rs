@@ -7,13 +7,11 @@
 
 use crate::{
     FLOAT_VARIANCE,
-    config::{Point, Unit},
-    parser::{Plane, *},
+    config::Unit,
+    parser::*,
+    points::{PartialPoint, PlanarPoint, Point},
 };
-use std::{
-    f32::consts::PI,
-    ops::{Add, Neg, Sub},
-};
+use std::{f32::consts::PI, ops::Neg};
 
 /// Possible motion types to move the machine with.
 ///
@@ -33,14 +31,14 @@ pub enum ArcType {
     Minor,
 }
 
-/// Represents a straight line between two [`Point`]s.
+/// A straight line between two [`Point`]s.
 #[derive(Debug, Clone, Copy)]
 pub struct Line {
     pub start: Point,
     pub end: Point,
 }
 
-/// Represents an arc between two [`Point`]s on a single [`Plane`], with a specific [`CircularDirection`].
+/// An arc between two [`Point`]s on a single [`Plane`], with a specific [`CircularDirection`].
 #[derive(Debug, Clone, Copy)]
 pub struct Arc {
     pub start: Point,
@@ -48,15 +46,15 @@ pub struct Arc {
     pub dir: CircularDirection,
     pub center: PlanarPoint,
     pub radius: f32,
-    /// signed angle made by arc in radians, positive being counterclockwise
-    pub sweep: f32,
     pub arc_type: ArcType,
+
+    /// Signed angle made by the arc in **radians**.
+    /// Positive is used for **counter-clockwise** sweep, and negative for **clockwise**.
+    pub sweep: f32,
 }
 
-// method values must be converted to machine units before passing it into this function
 impl Arc {
-    /// Accepts:
-    /// Tires to construct an [`Arc`] using:
+    /// Tries to construct an [`Arc`] using:
     /// - Start & end [`Point`]s.
     /// - [`CircleMethod`]: Used to calculate the center and radius of the arc.
     /// - [`Plane`]: All calculations will be done in the said plane.
@@ -140,8 +138,8 @@ impl Arc {
                 // direction towards end pos from center
                 let to_end = end_planar - center;
 
-                let cross = to_start.first() * to_end.second() - to_start.second() * to_end.first();
-                let dot = to_start.first() * to_end.first() + to_start.second() * to_end.second();
+                let cross = to_start.first * to_end.second - to_start.second * to_end.first;
+                let dot = to_start.first * to_end.first + to_start.second * to_end.second;
 
                 let cw_major = cross > 0.0 || (cross == 0.0 && dot < 0.0);
                 let ccw_minor = cw_major;
@@ -185,7 +183,7 @@ impl Arc {
             CircleMethod::FixedRadius(radius) => {
                 assert!(
                     radius.abs() > FLOAT_VARIANCE,
-                    "Zero radius passed parser validation. Logic Error!."
+                    "zero radius passed parser validation. logic error!"
                 );
 
                 // if radius is negative, make it positive and make the function choose the major arc
@@ -195,7 +193,7 @@ impl Arc {
                 } else if radius.signum() == -1.0 {
                     (radius.neg(), ArcType::Major)
                 } else {
-                    panic!("Provided number is Not a Number (NaN).");
+                    panic!("provided number is Not a Number (NaN)");
                 };
 
                 let start_planar = PlanarPoint::from_point(start, plane);
@@ -209,16 +207,16 @@ impl Arc {
 
                 let midpoint = PlanarPoint::new(
                     plane,
-                    start_planar.first().midpoint(end_planar.first()),
-                    start_planar.second().midpoint(end_planar.second()),
+                    start_planar.first.midpoint(end_planar.first),
+                    start_planar.second.midpoint(end_planar.second),
                 );
 
                 // how much is the midpoint off from the current position.
                 // plane is irrelevant in this var.
                 let delta = PlanarPoint::new(
                     plane,
-                    midpoint.first() - start_planar.first(),
-                    midpoint.second() - start_planar.second(),
+                    midpoint.first - start_planar.first,
+                    midpoint.second - start_planar.second,
                 );
 
                 let dist = dist / 2.0; // make dist as distance to midpoint only
@@ -235,16 +233,16 @@ impl Arc {
                         | (ArcType::Major, CircularDirection::CounterClockwise) => {
                             PlanarPoint::new(
                                 plane,
-                                midpoint.first() + (bisector * delta.second()) / dist,
-                                midpoint.second() - (bisector * delta.first()) / dist,
+                                midpoint.first + (bisector * delta.second) / dist,
+                                midpoint.second - (bisector * delta.first) / dist,
                             )
                         }
 
                         (ArcType::Minor, CircularDirection::CounterClockwise)
                         | (ArcType::Major, CircularDirection::Clockwise) => PlanarPoint::new(
                             plane,
-                            midpoint.first() - (bisector * delta.second()) / dist,
-                            midpoint.second() + (bisector * delta.first()) / dist,
+                            midpoint.first - (bisector * delta.second) / dist,
+                            midpoint.second + (bisector * delta.first) / dist,
                         ),
                     }
                 };
@@ -285,10 +283,9 @@ impl Arc {
         dir: CircularDirection,
         radius: f32,
     ) -> f32 {
-        assert_eq!(to_start.plane(), to_end.plane());
+        assert_eq!(to_start.plane, to_end.plane);
 
-        let minor_sweep = ((to_start.first() * to_end.first()
-            + to_start.second() * to_end.second())
+        let minor_sweep = ((to_start.first * to_end.first + to_start.second * to_end.second)
             / radius.powi(2))
         .clamp(-1.0, 1.0)
         .acos(); // in radians
@@ -303,7 +300,7 @@ impl Arc {
     }
 }
 
-/// Represents a summary of movement based on [`Motion`] type.
+/// A summary of movement based on [`Motion`] type.
 #[derive(Debug, Clone, Copy)]
 pub enum MotionSummary {
     Rapid(Line),
@@ -311,7 +308,16 @@ pub enum MotionSummary {
     Arc(Arc),
 }
 
-// [`Plane`] represents **Group 2** G-codes.
+/// Possible planes for a 3-axis machine.
+///
+/// Represents **Group 2** G-codes.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub enum Plane {
+    #[default]
+    XY,
+    XZ,
+    YZ,
+}
 
 /// Possible ways to interpret axis interpolation commands.
 ///
@@ -333,7 +339,7 @@ pub enum FeedMode {
     PerRev,
 }
 
-/// Represents an offset `address` with a `direction`.
+/// An offset `address` with a `direction`.
 ///
 /// Used in representing **Group 7** & **Group 8** G-codes.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -405,7 +411,7 @@ impl Offset {
     }
 }
 
-/// Represents the current state of a [`Machine`](crate::machine).
+/// The current state of a [`Machine`](crate::machine).
 #[derive(Debug, Clone, Copy)]
 pub struct Machine {
     /// Interpret state values in the selected [`Unit`].
@@ -430,7 +436,7 @@ pub struct Machine {
     /// The starting position of the machine will be
     /// [`Config::start_pos`](crate::config::Config::start_pos).
     ///
-    /// Check [`Stock`](crate::config::Stock) for details on reference point.
+    /// Check [`Stock`](crate::config::Body) for details on reference point.
     pos: Point,
 
     /// Current tool in the spindle.
@@ -925,105 +931,37 @@ impl Machine {
     }
 }
 
-/// Represents a **2D Point** on a specific **Plane**.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PlanarPoint(Plane, f32, f32);
-
-impl PlanarPoint {
-    /// Constructor for a [`PlanarPoint`].
-    ///
-    /// For a given [`Plane`], *first* represents the value for first axis letter and *second*
-    /// represents the second axis letter.
-    /// For example:
-    /// ```ignore
-    /// PlanarPoint::new(Plane::XY, 1.0, 2.0); // Constructs point with X = 1.0 & Y = 2.0.
-    /// PlanarPoint::new(Plane::XZ, 3.0, 4.0); // Constructs point with X = 3.0 & Z = 4.0.
-    /// PlanarPoint::new(Plane::YZ, 5.0, 6.0); // Constructs point with Y = 5.0 & Z = 6.0.
-    /// ```
-    pub fn new(plane: Plane, first: f32, second: f32) -> Self {
-        Self(plane, first, second)
-    }
-
-    /// Constructs a new [`PlanarPoint`] from a [`Point`] and [`Plane`].
-    /// Discards the coordinates for the axis that is not part of the provided [`Plane`].
-    pub fn from_point(point: Point, plane: Plane) -> Self {
-        match plane {
-            Plane::XY => Self::new(plane, point.x, point.y),
-            Plane::XZ => Self::new(plane, point.x, point.z),
-            Plane::YZ => Self::new(plane, point.y, point.z),
-        }
-    }
-
-    /// Returns selected plane for the point.
-    pub fn plane(&self) -> Plane {
-        self.0
-    }
-
-    /// Returns the first axis value for the selected plane.
-    pub fn first(&self) -> f32 {
-        self.1
-    }
-
-    /// Returns the second axis value for the selected plane.
-    pub fn second(&self) -> f32 {
-        self.2
-    }
-
-    /// Calculates distance between two [`PlanarPoint`]s that **MUST** be on the same [`Plane`].
-    ///
-    /// # Panics
-    /// Panics if the `other` [`PlanarPoint`] is on a different [`Plane`].
-    pub fn dist(&self, other: &Self) -> f32 {
-        assert_eq!(
-            self.plane(),
-            other.plane(),
-            "Points must be on the same plane"
-        );
-
-        ((self.first() - other.first()).powi(2) + (self.second() - other.second()).powi(2)).sqrt()
-    }
-}
-
-impl Sub for PlanarPoint {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self::new(self.0, self.1 - rhs.1, self.2 - rhs.2)
-    }
-}
-
-impl Add for PlanarPoint {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.0, self.1 + rhs.1, self.2 + rhs.2)
-    }
-}
-
 /// Possible errors that can happen during machine construction and interpolation.
 #[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
 pub enum MachineError {
     /// Spindle On was commanded, but no spindle speed was provided.
     #[error("spindle on commanded without 'S' command throughout the program")]
     NoSpindleSpeed,
+
     /// Tool change was commanded, but no tool number was provided.
     #[error("tool change requested without 'T' command or tool preload")]
     NoTool,
+
     /// Feed move was commanded, but no feed was provided.
     #[error("feed move commanded without 'F' command throughout the program")]
     NoFeed,
+
     /// Both provided circle points are the same.
     #[error("start and end points of the arc are same")]
     PointsIntersect,
+
     /// Circle not possible due to method specific method requirements.
     #[error("{}", invalid_circle_msg(.0))]
     InvalidCircle(CircleMethod),
+
     /// No circle method provided for arc move.
     #[error("last move has no information about an arc while the machine is in arc mode")]
     NoCircleMethod,
+
     /// Provided center point does not lie on the selected plane.
     #[error("relative arc center does not lie on the active plane")]
     CenterOffPlane,
+
     /// Provided direction does not match with offset type.
     #[error("invalid offset direction: {0:?}")]
     OffsetDirection(Direction),
@@ -1193,23 +1131,23 @@ mod tests {
         let arc = Arc::build(start, end, method, Plane::XY, CircularDirection::Clockwise).unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 0.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 0.0);
 
         let method = CircleMethod::RelativePoint(PartialPoint::new(Some(3.0), Some(4.0), None));
         let arc = Arc::build(start, end, method, Plane::XY, CircularDirection::Clockwise).unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 8.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 8.0);
 
         // positive radius should get minor arc
         let method = CircleMethod::FixedRadius(5.0);
         let arc = Arc::build(start, end, method, Plane::XY, CircularDirection::Clockwise).unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 0.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 0.0);
         assert_eq!(arc.arc_type, ArcType::Minor);
 
         let arc = Arc::build(
@@ -1222,8 +1160,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 8.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 8.0);
         assert_eq!(arc.arc_type, ArcType::Minor);
 
         // negative radius should get major arc
@@ -1231,8 +1169,8 @@ mod tests {
         let arc = Arc::build(start, end, method, Plane::XY, CircularDirection::Clockwise).unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 8.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 8.0);
         assert_eq!(arc.arc_type, ArcType::Major);
 
         let arc = Arc::build(
@@ -1245,8 +1183,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(arc.radius, 5.0);
-        assert_eq!(arc.center.first(), 0.0);
-        assert_eq!(arc.center.second(), 0.0);
+        assert_eq!(arc.center.first, 0.0);
+        assert_eq!(arc.center.second, 0.0);
         assert_eq!(arc.arc_type, ArcType::Major);
     }
 

@@ -11,10 +11,17 @@ use std::{
 /// Stores the data from the source file.
 /// The data is sanitized, ready to be tokenized.
 ///
-/// Also keeps track of the index to return for [`Source::next`] call.
+/// Also keeps track of the line to return for [`Source::next`] call.
 #[derive(Clone, Debug)]
 pub struct Source {
+    /// Raw sanitized lines.
     lines: Vec<String>,
+
+    /// Index of the line to return from [`Self::lines`] on [`Self::next`] call.
+    ///
+    /// [`Self::next`] increments it and [`Self::reload`] resets it back to `0`.
+    /// At some point, this may become out of bounds of [`Self::lines`] which would mean
+    /// that the `source` has been exhausted and needs to be `reload`ed.
     index: usize,
 }
 
@@ -24,7 +31,7 @@ impl Source {
     /// See [`from_lines`](Self::from_lines) for sanitization details.
     ///
     /// # Errors
-    /// Returns a [`SourceError`] on failure to *read the raw file*.
+    /// Returns [`SourceError::IO`] on failure to *read the raw file*.
     pub fn from_file(path: &str) -> Result<Self, SourceError> {
         let data = std::fs::read_to_string(path)?;
 
@@ -37,7 +44,7 @@ impl Source {
     /// See [`from_lines`](Self::from_lines) for sanitization details.
     ///
     /// # Errors
-    /// Returns a [`SourceError`] on failure to *read stdin*.
+    /// Returns [`SourceError::StdinNotReadable`] on failure to *read stdin*.
     pub fn from_stdin() -> Result<Self, SourceError> {
         if !is_readable_stdin() {
             return Err(SourceError::StdinNotReadable);
@@ -73,7 +80,7 @@ impl Source {
             .map(|line| {
                 line.split(['(', ';'])
                     .next()
-                    .expect("At least one element must exist after splitting.")
+                    .expect("at least one element exists after splitting")
                     .trim() // remove everything from '(' or ';' to end
             })
             .filter(|line| !line.is_empty() && !line.starts_with('/') && !line.starts_with('%')); // delete blocks and control character
@@ -84,30 +91,34 @@ impl Source {
         }
     }
 
-    /// Reloads the [`Source`].
+    /// Resets internal pointer to point to the beginning of the source,
+    /// so that subsequent calls to [`Self::next`] return lines from the beginning.
     ///
     /// **Does not** read the source file again.
     pub fn reload(&mut self) {
         self.index = 0
     }
 
-    pub fn index(&self) -> usize {
-        self.index
-    }
-
-    /// **Optionally** returns the reference to contents of a line at `index`,
-    /// as a `string slice`.
+    /// **Optionally** returns the reference to contents of a line at provided `index`, as a `string slice`.
     pub fn get(&self, index: usize) -> Option<&str> {
         self.lines.get(index).map(|line| line.as_str())
     }
 
-    /// Returns the total number of blocks in the [`Source`].
+    /// Returns the total number of lines in the [`Source`].
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.lines.len()
     }
 
-    /// **Optionally** returns a the next line as a string slice.
+    /// Returns the internal pointer index.
+    ///
+    /// A subsequent call to [`Self::next`] will return the line at this index.
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// **Optionally** returns the next line as a `string slice`.
+    ///
     /// **Does not** remove the returned line to support reloading the [`Source`].
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&str> {
@@ -208,9 +219,11 @@ pub enum SourceError {
     /// Failed to read the source from the file or `stdin`.
     #[error("file/stdin read failed")]
     IO(#[from] std::io::Error),
+
     /// Data received from `stdin` in not encoded in UTF-8.
     #[error("could not convert stdin bytes to string")]
     UTF(#[from] std::str::Utf8Error),
+
     /// No G-code source target provided.
     /// No source file path was supplied and the `stdin` is also not readable.
     #[error("no gcode file provided via filepath or stdin")]

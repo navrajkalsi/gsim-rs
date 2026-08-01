@@ -6,6 +6,7 @@ pub mod interpreter;
 pub mod lexer;
 pub mod machine;
 pub mod parser;
+mod points;
 mod renderer;
 pub mod source;
 mod tui;
@@ -55,9 +56,10 @@ impl Default for Speed {
 impl Display for Speed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self.0 {
-            MAX_SPEED => String::from("MAX"),
-            MIN_SPEED => String::from("MIN"),
-            num => num.to_string(),
+            MAX_SPEED => String::from("Max"),
+            MIN_SPEED => String::from("Min"),
+            SPEED => String::from("Default"),
+            num => (num as i8 - SPEED as i8).to_string(),
         };
 
         write!(f, "{string}")

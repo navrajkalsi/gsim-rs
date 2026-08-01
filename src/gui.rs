@@ -2,8 +2,8 @@
 //!
 //! Creates a new [`Window`] and renders the simulation in it using the [`wgpu`] graphics API.
 //!
-//! The render loop receives render job [`Command`]s from the [`Tui`] thread,
-//! and sends [`Signal`]s in response, to continue or terminate the [`Tui`] thread.
+//! The render loop receives render job [`Command`]s from the [`Tui`](crate::tui) thread,
+//! and sends [`Signal`]s in response, to continue or terminate the [`Tui`](crate::tui) thread.
 
 use crate::{
     Command, Interrupt, SINGLE, Signal,
@@ -20,28 +20,38 @@ use winit::{
     window::{Window, WindowId},
 };
 
-/// Represents the current state of the [`Gui`](crate::gui), owned by the **main thread**.
+/// Current state of the [`Gui`](crate::gui), owned by the **main thread**.
 pub struct Gui {
     /// [`Config`] for tool start position and stock dimensions.
     config: Config,
+
     /// Active GPU graphics state. [`None`] before window creation.
     graphics: Option<Graphics>,
 
+    /// Latest [`Command`] received from the [`Tui`](crate::tui).
+    /// Required for checking tui thread status during termination.
     last_command: Option<Command>,
+
     /// Stores any errors that occur during [`Graphics::render`] call.
     error: Option<anyhow::Error>,
+
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<Command>>,
 
+    /// An [`Arc`][`Mutex`] that can be altered to send [`Signal`]s to the [`Tui`](crate::tui).
     signal: Arc<Mutex<Signal>>,
+
+    /// Parsed source loaded [`Interpreter`], ready for iteration.
     interpreter: Interpreter,
 
+    /// [`None`] if the program is running.
     interrupt: Option<Interrupt>,
+
     /// Single step through code blocks.
-    /// This is to be in sync with [`Tui::single`] and is used to bypass [`LineInstancesTracker`]
-    /// render check. While this is `true`, each [`Graphics::update`] call will be followed by a
-    /// [`Graphics::render`] call, irrespective of the return value of [`Graphics::update`].
+    ///
+    /// This is to be in sync with [`Tui::single`](crate::tui::Tui::single)
+    /// and is used determine when to wait for [`Command::Next`] from the tui thread.
     single: bool,
 }
 
@@ -54,6 +64,7 @@ impl Gui {
         let event_loop = EventLoop::<Command>::with_user_event()
             .build()
             .expect("constructing on the main thread");
+
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
         Self {
@@ -71,17 +82,18 @@ impl Gui {
 
     /// Returns an [`EventLoopProxy`] for sending [`Command`]s to the [`Gui`] from other threads.
     pub fn create_proxy(&self) -> EventLoopProxy<Command> {
-        self.event_loop.as_ref().expect("Run method will consume self, therefore eventloop will always be present if the user has a Gui struct.").create_proxy()
+        self.event_loop.as_ref().expect("run method will consume self, therefore eventloop will always be present if the user has a Gui struct.").create_proxy()
     }
 
     /// Starts the [`Gui`] by running the [`EventLoop`].
     ///
-    /// While exiting, checks if the [`Tui`] is still running, using [`Gui::current_command`],
+    /// While exiting,
+    /// checks if the [`Tui`](crate::tui) is still running using [`Self::last_command`],
     /// and sends [`Signal::Stop`] to signal a stop, else checks for any error in [`Command::Stop`].
     ///
     /// # Errors
-    /// Returns any error in [`Command::Stop`] from [`Tui`] or [`EventLoopError`],
-    /// prioritizing [`Tui`] error.
+    /// Returns any error in [`Self::last_command`] from the [`Tui`](crate::tui) or
+    /// stored [`Self::error`], prioritizing the [`Tui`](crate::tui) error.
     pub fn run(mut self) -> anyhow::Result<()> {
         let event_loop = self.event_loop.take().unwrap();
         let res = event_loop.run_app(&mut self);
@@ -89,12 +101,14 @@ impl Gui {
         // prioritize tui thread error
         // check if the tui thread is still running, if so, tell it to stop
         match self.last_command {
-            // the tui thread signalled main thread to stop because of an error in tui thread
+            // the tui thread signalled main thread to stop because of an error on tui thread
             Some(Command::Stop(Some(e))) => self.error = Some(e),
 
+            // quit event from the user
             Some(Command::Stop(None)) => (),
 
-            _ => self.send_signal(Signal::Stop), // tui thread still running, stop it
+            // tui thread still running, stop it
+            _ => self.send_signal(Signal::Stop),
         };
 
         if let Some(e) = self.error {
@@ -104,18 +118,25 @@ impl Gui {
         }
     }
 
+    /// Obtains the lock for [`Self::signal`] and updates it to match the new provided `signal`.
     fn send_signal(&self, signal: Signal) {
         *self.signal.lock().unwrap() = signal;
     }
 
+    /// Reloads internals of [`Gui`] to begin rendering again from the first block.
+    ///
+    /// Sends [`Signal::Pause`] with an [`Interrupt::Start`] to the [`Tui`](crate::tui),
+    /// so that the tui can wait for user-event to begin the simulation again.
+    ///
+    /// Removes any drawn toolpaths and resets the stock.
     fn reload(&mut self) {
         self.interrupt = Some(Interrupt::Start);
+        self.interpreter.reload();
         self.send_signal(Signal::Pause {
             interrupt: Interrupt::Start,
             machine: *self.interpreter.machine(),
             current: 0,
         });
-        self.interpreter.reload();
 
         if let Some(graphics) = self.graphics.as_mut() {
             graphics.clear();
@@ -123,15 +144,16 @@ impl Gui {
         }
     }
 
-    // adds end interrupt on exhaustion
+    /// Retrieves [`MotionSummary`] from [`Interpreter::execute`],
+    /// and sends the appropriate [`Signal`] to the [`Tui`](crate::tui).
+    ///
+    /// If no summary is found, on exhaustion of blocks,
+    /// [`Interrupt::End`] is activated and also sent to the tui.
     fn execute(&mut self) -> Result<Option<MotionSummary>, InterpreterError> {
         debug_assert!(self.interrupt.is_none());
 
-        let machine = *self.interpreter.machine();
-        let current = self.interpreter.parser.source().index();
-
         let (motion, signal) = match self.interpreter.execute()? {
-            Some(block) => {
+            (current, machine, Some(block)) => {
                 // check for interrupt with mcode
                 self.interrupt = block.mcode.and_then(|mcode| mcode.into());
 
@@ -153,7 +175,7 @@ impl Gui {
                 )
             }
 
-            None => {
+            (current, machine, None) => {
                 // exhausted
                 self.interrupt = Some(Interrupt::End);
                 (
@@ -172,6 +194,7 @@ impl Gui {
         Ok(motion)
     }
 
+    /// Requests redraw for [`Self::graphics`] window.
     fn request_redraw(&mut self) {
         self.graphics.as_mut().unwrap().window.request_redraw()
     }
@@ -196,8 +219,24 @@ impl Gui {
             };
 
             // exhausted, execute new block and seed the line tracker
-            if let Some(motion) = self.execute()? {
-                self.graphics.as_mut().unwrap().lines_tracker.add(motion);
+            match self.execute() {
+                Ok(Some(motion)) => self.graphics.as_mut().unwrap().lines_tracker.add(motion),
+
+                Ok(None) => (), // just try again on next redraw
+
+                Err(error) => {
+                    // since the line has already been executed,
+                    // we have to provide the index of previous block, that caused this error
+                    let current = self.interpreter.source().index().saturating_sub(1);
+
+                    self.send_signal(Signal::Error {
+                        error,
+                        machine: *self.interpreter.machine(),
+                        current,
+                    });
+
+                    return Err(error.into());
+                }
             }
         }
 

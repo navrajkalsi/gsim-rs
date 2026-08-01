@@ -60,7 +60,7 @@
 
 use std::str::FromStr;
 
-use crate::FLOAT_VARIANCE;
+use crate::{FLOAT_VARIANCE, points::Point};
 use serde::Deserialize;
 
 /// Program configuration at start.
@@ -129,14 +129,6 @@ pub enum Axis {
     X,
     Y,
     Z,
-}
-
-/// A 3D point in space.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
-pub struct Point {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
 }
 
 /// Tool configuration.
