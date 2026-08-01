@@ -9,13 +9,14 @@ mod uniforms;
 
 use crate::{
     STOCK, Speed, TOOL, TOOLPATH, View,
-    config::{Config, Point},
+    config::{Config, ToolConfig},
     geometry::{
-        line::{BufferAction, LineInstance, LineInstancesTracker},
+        line::{BufferAction, LineInstance, LinesTracker},
         stock::{StockInstance, StockTracker},
         tools::ToolInstance,
         uniforms::Uniforms,
     },
+    points::Point,
 };
 use std::sync::Arc;
 use wgpu::CurrentSurfaceTexture;
@@ -78,7 +79,7 @@ pub struct Graphics {
     stock_count: u32,
 
     /// Tracks total [`LineInstance`]s drawn and left to be drawn from the latest simulation move.
-    pub lines_tracker: LineInstancesTracker,
+    pub lines_tracker: LinesTracker,
 
     /// Tracks state changes of [`StockInstance`]s during cutting moves.
     stock_tracker: StockTracker,
@@ -102,6 +103,9 @@ pub struct Graphics {
     pub tool: bool,
 
     pub speed: Speed,
+
+    tool_config: ToolConfig,
+
     // speed just batches up frames
     skipped_frames: u8,
 
@@ -118,6 +122,8 @@ impl Graphics {
     ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_instance_buffer`].
     /// - [`StockInstance`] buffers and pipeline. Creates a stock corresponding to
     ///   [`Config::stock`], and writes it to [`Self::stock_instance_buffer`].
+    ///
+    // TODO sets up default tool
     ///
     /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     pub async fn build(
@@ -187,8 +193,10 @@ impl Graphics {
 
         let (msaa_texture, msaa_texture_view) = msaa_texture(&device, window_size, surface_format);
 
-        let (uniforms, uniform_buffer, uniform_bind_group_layout, uniform_bind_group) =
-            uniforms::setup_uniforms(window_size, &device);
+        let uniforms = Uniforms::new(window_size, config.stock, config.default_tool);
+
+        let (uniform_buffer, uniform_bind_group_layout, uniform_bind_group) =
+            uniforms::setup_uniforms(uniforms, &device);
 
         let (lines_pipeline, lines_vertex_buffer, lines_instance_buffer, lines_index_buffer) =
             line::setup_pipeline(&device, &uniform_bind_group_layout, surface_format);
@@ -241,7 +249,7 @@ impl Graphics {
             stock_index_buffer,
             stock_count: stock_tracker.total_count as u32,
 
-            lines_tracker: LineInstancesTracker::new(stock_tracker.voxel_edge),
+            lines_tracker: LinesTracker::new(stock_tracker.voxel_edge),
 
             stock_tracker,
 
@@ -256,6 +264,8 @@ impl Graphics {
             tool: TOOL,
 
             speed: Speed::default(),
+            tool_config: config.default_tool,
+
             skipped_frames: 0,
 
             window,
@@ -549,6 +559,10 @@ impl Graphics {
             0,
             bytemuck::cast_slice(&[self.uniforms]),
         );
+    }
+
+    pub fn set_tool(&mut self, tool_config: ToolConfig) {
+        self.tool_config = tool_config
     }
 }
 

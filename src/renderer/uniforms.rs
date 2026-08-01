@@ -2,34 +2,19 @@
 //!
 //! Sets up GPU *uniforms* for use across shaders and render pipelines.
 
-use crate::{config::Point, geometry::uniforms::Uniforms};
+use crate::geometry::uniforms::Uniforms;
 use wgpu::{BindGroupLayoutEntry, util::DeviceExt};
-use winit::dpi::PhysicalSize;
 
 /// Creates a [`Uniforms`] and prepares it for usage in the GPU shaders and pipelines.
 ///
 /// Returns a tuple consisting of:
-/// - CPU [`Uniforms`] struct.
 /// - GPU uniform buffer, filled with the [`Uniforms`] struct.
 /// - Bind group layout, with a single *binding entry* of `0`.
 /// - Bind group, with `0` entry bound to the returned uniform buffer.
 pub fn setup_uniforms(
-    window_size: PhysicalSize<u32>,
+    uniforms: Uniforms,
     device: &wgpu::Device,
-) -> (
-    Uniforms,
-    wgpu::Buffer,
-    wgpu::BindGroupLayout,
-    wgpu::BindGroup,
-) {
-    const MAX_TRAVELS: Point = Point {
-        x: 500.0,
-        y: 250.0,
-        z: 250.0,
-    };
-
-    let uniforms = Uniforms::new(window_size, MAX_TRAVELS);
-
+) -> (wgpu::Buffer, wgpu::BindGroupLayout, wgpu::BindGroup) {
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Uniforms Buffer"),
         contents: bytemuck::cast_slice(&[uniforms]),
@@ -59,5 +44,5 @@ pub fn setup_uniforms(
         }],
     });
 
-    (uniforms, uniform_buffer, bind_group_layout, bind_group)
+    (uniform_buffer, bind_group_layout, bind_group)
 }

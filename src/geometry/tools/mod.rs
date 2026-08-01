@@ -1,4 +1,4 @@
-use crate::{config::Point, geometry::line::LineInstance};
+use crate::{geometry::line::LineInstance, points::Point};
 
 /// Represents the current 3D position of the tool,
 /// that can be drawn to the screen with a vertex shader.

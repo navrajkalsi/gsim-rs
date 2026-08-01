@@ -14,6 +14,7 @@ use clap::Parser;
 pub struct Cli {
     /// Path of the input G-code file. If not provided, stdin is targeted instead.
     pub source: Option<String>,
+
     /// Path of the config file.
     #[arg(short, default_value_t = String::from("./gsim.json"))]
     pub config: String,

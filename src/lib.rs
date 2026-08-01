@@ -6,19 +6,19 @@ pub mod interpreter;
 pub mod lexer;
 pub mod machine;
 pub mod parser;
-mod points;
+pub mod points;
 mod renderer;
 pub mod source;
 mod tui;
 
 use crate::{
     cli::Cli,
-    config::{Body, Config, Setup},
+    config::Config,
     gui::Gui,
     interpreter::{BlockSummary, Interpreter, InterpreterError},
     lexer::Lexer,
     machine::Machine,
-    parser::{MCode, Parser},
+    parser::Parser,
     source::Source,
     tui::Tui,
 };
@@ -129,17 +129,6 @@ pub enum Interrupt {
     End,
 }
 
-impl From<MCode> for Option<Interrupt> {
-    fn from(mcode: MCode) -> Self {
-        match mcode {
-            MCode::Stop => Some(Interrupt::Stop),
-            MCode::OptionalStop => Some(Interrupt::OptionalStop),
-            MCode::End => Some(Interrupt::End),
-            _ => None,
-        }
-    }
-}
-
 impl Display for Interrupt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self {
@@ -222,12 +211,6 @@ pub fn run() -> anyhow::Result<()> {
         machine,
         current: 0,
     }));
-
-    assert_eq!(config.setup, Setup::Milling, "lathe is not implemented yet");
-    assert!(
-        matches!(config.stock, Body::Cuboid { .. }),
-        "cylindrical stock is not implemented yet"
-    );
 
     let gui = Gui::new(config.clone(), signal.clone(), interpreter);
     let tui = Tui::new(gui.create_proxy(), source, signal.clone());

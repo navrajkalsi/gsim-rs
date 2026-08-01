@@ -1,7 +1,6 @@
 use crate::{
-    config::Point,
-    machine::{Arc, CircularDirection, Line, MotionSummary, PlanarPoint},
-    parser::Plane,
+    machine::{Arc, CircularDirection, Line, MotionSummary, Plane},
+    points::{PlanarPoint, Point},
 };
 use std::f32::consts::PI;
 
@@ -110,7 +109,7 @@ impl LineInstances {
     /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] variant.
     // TODO uses the parent tracker to get a valid resolution
     // add to child methods also
-    fn new(summary: MotionSummary, tracker: &LineInstancesTracker) -> Self {
+    fn new(summary: MotionSummary, tracker: &LinesTracker) -> Self {
         match summary {
             MotionSummary::Rapid(line) => {
                 Self::linear_points(line, tracker, LineInstance::rapid_move)
@@ -131,7 +130,7 @@ impl LineInstances {
     /// if the length of [`Line`] is shorter than [`SPEED`].
     fn linear_points(
         line: Line,
-        tracker: &LineInstancesTracker,
+        tracker: &LinesTracker,
         get_instance: fn(Point, Point) -> LineInstance,
     ) -> Self {
         let start = line.start;
@@ -147,7 +146,7 @@ impl LineInstances {
         }
 
         // amount to move each axis by to get next point
-        let delta = dir.mul_float(tracker.resolution).div_float(dist);
+        let delta = (dir * tracker.resolution) / dist;
 
         let mut current = start;
 
@@ -180,8 +179,8 @@ impl LineInstances {
     ///
     /// ## Reference
     /// [FreeMathHelp](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
-    fn arc_points(arc: Arc, tracker: &LineInstancesTracker) -> Self {
-        let plane = arc.center.plane();
+    fn arc_points(arc: Arc, tracker: &LinesTracker) -> Self {
+        let plane = arc.center.plane;
         let start = PlanarPoint::from_point(arc.start, plane);
 
         let center = arc.center;
@@ -210,8 +209,8 @@ impl LineInstances {
         let rel_start = start - center;
 
         // minor arc sweep angle with primary axis of the plane in radians
-        let mut current_sweep = (rel_start.first() / radius).clamp(-1.0, 1.0).acos();
-        if rel_start.second().is_sign_negative() {
+        let mut current_sweep = (rel_start.first / radius).clamp(-1.0, 1.0).acos();
+        if rel_start.second.is_sign_negative() {
             current_sweep += PI;
         }
         let mut current_pos = arc.start;
@@ -247,19 +246,19 @@ impl LineInstances {
             } else {
                 match plane {
                     Plane::XY => Point::new(
-                        arc.center.first() + radius * current_sweep.cos(),
-                        arc.center.second() + radius * current_sweep.sin(),
+                        arc.center.first + radius * current_sweep.cos(),
+                        arc.center.second + radius * current_sweep.sin(),
                         current_pos.z + step_linear,
                     ),
                     Plane::XZ => Point::new(
-                        arc.center.first() + radius * current_sweep.cos(),
+                        arc.center.first + radius * current_sweep.cos(),
                         current_pos.y + step_linear,
-                        arc.center.second() + radius * current_sweep.sin(),
+                        arc.center.second + radius * current_sweep.sin(),
                     ),
                     Plane::YZ => Point::new(
                         current_pos.x + step_linear,
-                        arc.center.first() + radius * current_sweep.cos(),
-                        arc.center.second() + radius * current_sweep.sin(),
+                        arc.center.first + radius * current_sweep.cos(),
+                        arc.center.second + radius * current_sweep.sin(),
                     ),
                 }
             };
@@ -312,7 +311,7 @@ pub struct LinesTracker {
     first: bool,
 }
 
-impl LineInstancesTracker {
+impl LinesTracker {
     /// Construct a new [`LineInstancesTracker`].
     pub fn new(voxel_edge: f32) -> Self {
         Self {
@@ -341,7 +340,7 @@ impl LineInstancesTracker {
     }
 }
 
-impl Iterator for LineInstancesTracker {
+impl Iterator for LinesTracker {
     type Item = BufferAction;
 
     /// Iterates [`Self::instances`] and returns a [`BufferAction`] depending on state of `self`.

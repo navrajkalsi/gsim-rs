@@ -7,15 +7,11 @@
 //! The following is an example of a valid config file:
 //! ```text
 //! {
-//!  "setup": "milling",
 //!  "units": "metric",
 //!  "stock": {
-//!    "shape": "cuboid",
-//!    "dimensions": {
-//!      "x": 500,
-//!      "y": 500,
-//!      "z": 500
-//!    }
+//!    "x": 500,
+//!    "y": 500,
+//!    "z": 500
 //!  },
 //!  "zero_pos": {
 //!    "x": 0,
@@ -38,111 +34,60 @@
 //!      "diameter": 5,
 //!      "length": 10
 //!    }
-//!  ]
+//!  ],
+//!  "default_tool": {
+//!    "number": 0,
+//!    "diameter": 10,
+//!    "length": 20
+//!  }
 //! }
 //! ```
-//! - Sets up a `milling` simulation.
-//! - Treats every dimension in `metric` system.
-//! - Creates a `cuboid` shaped stock, with each side measuring `500mm`.
-//! - Does not offset reference point of the stock, and sets it as the `zero_pos`. Here, for a
-//!   `cuboid` stock, the reference point is the **left-bottom-near** point.
+//! - Treats every dimension in the `metric` system.
+//! - Creates a cuboid shaped stock, with each side measuring `500mm`.
+//! - Does not offset the reference-point of the stock, and sets it as the `zero_pos`.
+//!   The reference point of a cuboid stock is the **left-bottom-near** point.
 //! - Starts the simulation at `start_pos`, which is offset from the reference point. Here, it
 //!   will start at middle of **X** and **Y** of the stock and **250mm** above the stock.
 //! - Creates two tools(numbered `1` & `2`), each with `diameter` `5mm` and `length` `10mm`.
+//! - Creates a default tool config, also with `diameter` `10mm` and `length` `20mm`.
 //!
 //! ## Restrictions
 //! - Any **excess elements** will be rejected.
-//! - `setup` can only have two possible values: `milling` or `turning`.
 //! - `units` can only have two possible values: `imperial` or `metric`.
-//! - Stock `shape` can only have two possible values: `cuboid` or `cylinder`.
 //! - Every stock dimension **must** be positive and non-zero.
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
-use std::str::FromStr;
-
 use crate::{FLOAT_VARIANCE, points::Point};
 use serde::Deserialize;
+use std::str::FromStr;
 
 /// Program configuration at start.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Machining setup for the entire program.
-    pub setup: Setup,
     /// Unit system applied to all dimensional values (e.g. `stock_size`, `tool_length`).
     /// [`Machine`](crate::machine) will also be configured with this system.
     pub units: Unit,
-    /// Stock body description.
-    pub stock: Body,
+
+    /// Stock dimensions.
+    pub stock: Point,
+
     /// Work offset zero position.
     /// This is relative to a **stock reference point**.
-    /// Check [`Stock`] for details on reference point.
+    /// Reference point is at `0.0` for each axis (**left-bottom-near**).
     pub zero_pos: Point,
+
     /// Start position at the beginning of the program.
     /// This is relative to **stock reference point**.
-    /// Check [`Stock`] for details on reference point.
+    /// Reference point is at `0.0` for each axis (**left-bottom-near**).
     pub start_pos: Point,
+
     /// Collection of tool configurations to be used during G-code execution.
     pub tools: Vec<ToolConfig>,
-}
 
-/// Available types of machining setups.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Setup {
-    Milling,
-    Turning,
-}
-
-/// Possible unit standards for dimensional values.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Unit {
-    Metric,
-    Imperial,
-}
-
-/// Description of a stock, irrespective of the machining setup.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(tag = "shape", content = "dimensions", rename_all = "lowercase")]
-pub enum Body {
-    /// A solid box.
-    /// Reference point is at `0.0` for each axis (**bottom-left-near**).
-    Cuboid { x: f32, y: f32, z: f32 },
-
-    /// A solid cylinder.
-    /// Reference point is also at `0.0` for each axis (**center of base-face**).
-    Cylinder {
-        /// Axis along which the curved face should be laid.
-        axis: Axis,
-        /// Diameter of the cylinder.
-        diameter: f32,
-        /// Distance between both circular faces of the cylinder.
-        length: f32,
-    },
-}
-
-/// Axis choices for a 3 axis setup.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Axis {
-    X,
-    Y,
-    Z,
-}
-
-/// Tool configuration.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct ToolConfig {
-    /// Number of the tool.
-    /// This is denoted with a `T` code in G-code.
-    pub number: u32,
-    /// Diameter of the tool to render when `self.number` tool is activated.
-    /// This is guaranteed to be positive and non zero.
-    pub diameter: f32,
-    /// Length of the tool to render when `self.number` tool is activated.
-    /// This is guaranteed to be positive and non zero.
-    pub length: f32,
+    /// Default tool configuration to be used when no tool is selected or the selected tool number
+    /// is not found in [`Self::tools`].
+    pub default_tool: ToolConfig,
 }
 
 impl Config {
@@ -179,41 +124,57 @@ impl FromStr for Config {
         let ret: Self = serde_json::from_str(s)?;
 
         // make sure stock size and tool diameter and length are positive and non zero
-        match &ret.stock {
-            Body::Cuboid { x, y, z } => {
-                if let Setup::Turning = ret.setup {
-                    return Err(ConfigError::TurningStock); // unusual turning stock
-                }
-
-                if *x < FLOAT_VARIANCE || *y < FLOAT_VARIANCE || *z < FLOAT_VARIANCE {
-                    return Err(ConfigError::StockNonPositive);
-                }
-            }
-
-            Body::Cylinder {
-                axis,
-                diameter,
-                length,
-            } => {
-                if let Setup::Turning = ret.setup
-                    && !matches!(axis, Axis::Z)
-                {
-                    return Err(ConfigError::TurningStock); // unusual turning stock setup
-                }
-
-                if *diameter < FLOAT_VARIANCE || *length < FLOAT_VARIANCE {
-                    return Err(ConfigError::StockNonPositive);
-                }
-            }
-        };
-
-        for tool in &ret.tools {
-            if tool.diameter < FLOAT_VARIANCE || tool.length < FLOAT_VARIANCE {
-                return Err(ConfigError::ToolNonPositive(tool.number));
-            }
+        if ret.stock.x < FLOAT_VARIANCE
+            || ret.stock.y < FLOAT_VARIANCE
+            || ret.stock.z < FLOAT_VARIANCE
+        {
+            return Err(ConfigError::StockNonPositive);
         }
 
+        for tool in &ret.tools {
+            tool.validate()?
+        }
+
+        ret.default_tool.validate()?;
+
         Ok(ret)
+    }
+}
+
+/// Possible unit standards for dimensional values.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Unit {
+    Metric,
+    Imperial,
+}
+
+/// Tool configuration.
+#[derive(Clone, Debug, Copy, Deserialize, PartialEq)]
+pub struct ToolConfig {
+    /// Number of the tool.
+    /// This is denoted with a `T` code in G-code.
+    pub number: u32,
+
+    /// Diameter of the tool to render when `self.number` tool is activated.
+    /// This is guaranteed to be positive and non zero.
+    pub diameter: f32,
+
+    /// Length of the tool to render when `self.number` tool is activated.
+    /// This is guaranteed to be positive and non zero.
+    pub length: f32,
+}
+
+impl ToolConfig {
+    /// Verifies the tool to have positive diameter and length.
+    ///
+    /// Returns [`ConfigError::ToolNonPositive`] if the tool has zero or negative diameter or length.
+    fn validate(&self) -> Result<(), ConfigError> {
+        if self.diameter < FLOAT_VARIANCE || self.length < FLOAT_VARIANCE {
+            Err(ConfigError::ToolNonPositive(self.number))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -223,15 +184,15 @@ pub enum ConfigError {
     /// Failed to read the config file.
     #[error("failed to read file at '{1}'")]
     IO(#[source] std::io::Error, String),
+
     /// Failed to parse the config file as JSON.
     #[error("failed to parse JSON")]
     Parse(#[from] serde_json::Error),
+
     /// Stock dimensions are not all positive.
     #[error("a stock dimension is either negative or zero")]
     StockNonPositive,
-    /// Abnormal turning stock setup.
-    #[error("the stock description/setup is abnormal for a turning setup")]
-    TurningStock,
+
     /// Tool dimensions are not all positive.
     #[error("diameter or length is either negative or zero for tool number '{0}'")]
     ToolNonPositive(u32),
@@ -251,15 +212,11 @@ mod tests {
     fn good() {
         let json = r#"
             {
-              "setup": "milling",
               "units": "metric",
               "stock": {
-                "shape": "cuboid",
-                "dimensions": {
-                  "x": 500,
-                  "y": 500,
-                  "z": 500
-                }
+                "x": 500,
+                "y": 500,
+                "z": 500
               },
               "zero_pos": {
                 "x": 0,
@@ -282,7 +239,12 @@ mod tests {
                   "diameter": 5,
                   "length": 10
                 }
-              ]
+              ],
+              "default_tool": {
+                "number": 0,
+                "diameter": 10,
+                "length": 20
+              }
             }"#;
 
         let ret = Config::from_str(json).unwrap();
@@ -291,9 +253,8 @@ mod tests {
         assert_eq!(
             ret,
             Config {
-                setup: Setup::Milling,
                 units: Unit::Metric,
-                stock: Body::Cuboid {
+                stock: Point {
                     x: 500.0,
                     y: 500.0,
                     z: 500.0
@@ -319,7 +280,12 @@ mod tests {
                         diameter: 5.0,
                         length: 10.0,
                     }
-                ]
+                ],
+                default_tool: ToolConfig {
+                    number: 0,
+                    diameter: 10.0,
+                    length: 20.0
+                }
             }
         );
     }
@@ -329,15 +295,11 @@ mod tests {
     fn bad_units() {
         let json = r#"
             {
-              "setup": "milling",
               "units": "invalid",
               "stock": {
-                "shape": "cuboid",
-                "dimensions": {
-                  "x": 500,
-                  "y": 500,
-                  "z": 500
-                }
+                "x": 500,
+                "y": 500,
+                "z": 500
               },
               "zero_pos": {
                 "x": 0,
@@ -360,26 +322,27 @@ mod tests {
                   "diameter": 5,
                   "length": 10
                 }
-              ]
+              ],
+              "default_tool": {
+                "number": 0,
+                "diameter": 10,
+                "length": 20
+              }
             }"#;
 
         Config::from_str(json).unwrap();
     }
 
     #[test]
-    #[should_panic = "unknown field `excess`, expected one of `setup`, `units`, `stock`, `zero_pos`, `start_pos`, `tools`"]
+    #[should_panic = "unknown field `excess`, expected one of `units`, `stock`, `zero_pos`, `start_pos`, `tools`, `default_tool`"]
     fn excess() {
         let json = r#"
             {
-              "setup": "milling",
               "units": "metric",
               "stock": {
-                "shape": "cuboid",
-                "dimensions": {
-                  "x": 500,
-                  "y": 500,
-                  "z": 500
-                }
+                "x": 500,
+                "y": 500,
+                "z": 500
               },
               "zero_pos": {
                 "x": 0,
@@ -414,15 +377,11 @@ mod tests {
     fn invalid_stock() {
         let json = r#"
             {
-              "setup": "milling",
               "units": "metric",
               "stock": {
-                "shape": "cuboid",
-                "dimensions": {
-                  "x": -500,
-                  "y": 500,
-                  "z": 500
-                }
+                "x": -500,
+                "y": 500,
+                "z": 500
               },
               "zero_pos": {
                 "x": 0,
@@ -434,7 +393,12 @@ mod tests {
                 "y": 250,
                 "z": 750
               },
-              "tools": []
+              "tools": [],
+              "default_tool": {
+                "number": 0,
+                "diameter": 10,
+                "length": 20
+              }
             }"#;
 
         Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));
@@ -445,15 +409,11 @@ mod tests {
     fn invalid_tool() {
         let json = r#"
             {
-              "setup": "milling",
               "units": "metric",
               "stock": {
-                "shape": "cuboid",
-                "dimensions": {
-                  "x": 500,
-                  "y": 500,
-                  "z": 500
-                }
+                "x": 500,
+                "y": 500,
+                "z": 500
               },
               "zero_pos": {
                 "x": 0,
@@ -471,7 +431,12 @@ mod tests {
                   "diameter": -5,
                   "length": 10
                 }
-              ]
+              ],
+              "default_tool": {
+                "number": 0,
+                "diameter": 10,
+                "length": 20
+              }
             }"#;
 
         Config::from_str(json).unwrap_or_else(|e| panic!("{e}"));

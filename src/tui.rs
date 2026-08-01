@@ -140,12 +140,7 @@ impl Tui {
             res = Err(e)
         };
 
-        match self.refresh_signal() {
-            Signal::Stop => (), // main thread already signalled to stop
-            _ => {
-                let _ = self.proxy.send_event(Command::Stop(res.err()));
-            }
-        }
+        self.proxy.send_event(Command::Stop(res.err())); // may be err if main thread exited first
     }
 
     /// Starts the [`Tui`] by drawing to the `terminal` at [`TARGET_FPS`] in a loop and waits for user input.

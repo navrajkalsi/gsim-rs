@@ -4,7 +4,8 @@ use gsim_rs::{
         Suffix::{Float, Int},
         Token,
     },
-    parser::{GCode, Parser, PartialPoint},
+    parser::{GCode, Parser},
+    points::PartialPoint,
     source::Source,
 };
 

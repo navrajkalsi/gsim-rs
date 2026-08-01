@@ -15,7 +15,7 @@
 //! a [`StockInstance`] is **not** an actual *voxel* in the traditional sense.
 //! It is **not** a cube but rather a bar placed in the Z direction, whose height can be changed.
 
-use crate::config::{Body, Point, ToolConfig};
+use crate::{config::ToolConfig, points::Point};
 use std::f32::consts::SQRT_2;
 
 /// Number of voxels ([`StockInstance`]s) on the longer of X & Y axis.
@@ -308,15 +308,7 @@ impl StockTracker {
     ///
     /// Calculates the [`Self::voxel_edge`] size to be used for each voxel ([`StockInstance`]).
     /// Only activates the  exposed faces of each [`StockInstance`].
-    ///
-    /// # Panics
-    /// Panics if [`Body::Cylinder`] is provided.
-    pub fn new(body: Body) -> Self {
-        let size = match body {
-            Body::Cuboid { x, y, z } => Point { x, y, z },
-            Body::Cylinder { .. } => unreachable!("cylinder not implemented yet"),
-        };
-
+    pub fn new(size: Point) -> Self {
         let largest = size.x.max(size.y);
         let edge = largest / STOCK_RESOLUTION as f32; // edge of each bar
 
@@ -683,7 +675,7 @@ mod tests {
             current_x += edge;
         }
 
-        let stock_tracker = StockTracker::new(Body::Cuboid {
+        let stock_tracker = StockTracker::new(Point {
             x: size.x,
             y: size.y,
             z: size.z,
@@ -756,7 +748,7 @@ mod tests {
 
     #[test]
     fn cut() {
-        let mut stock_tracker = StockTracker::new(Body::Cuboid {
+        let mut stock_tracker = StockTracker::new(Point {
             x: 500.0,
             y: 250.0,
             z: 250.0,
