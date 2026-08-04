@@ -562,6 +562,26 @@ impl Graphics {
             bytemuck::cast_slice(&[tool_config.diameter, tool_config.length]),
         );
     }
+
+    pub fn zoom(&mut self, amount: f32) {
+        self.uniforms.add_user_scale(amount);
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
+
+    pub fn pan(&mut self, amount: [f32; 2]) {
+        self.uniforms.add_user_offset(amount);
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
 }
 
 // make sure width and height are at least 1

@@ -18,8 +18,9 @@ use crate::{
 use std::sync::{Arc, Mutex};
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    keyboard::KeyCode::Space,
     window::{Window, WindowId},
 };
 
@@ -67,15 +68,27 @@ pub struct Gui {
     /// and is used determine when to wait for [`Command::Next`] from the tui thread.
     single: bool,
 
-    /// Flag to set when the user has interacted with [`Graphics::window`] with their mouse.
+    /// Flag to set when the user has orbited the [`Graphics::window`] with their mouse,
+    /// to signal that the current view setting is now to be forfeited.
     /// This is set to `false` when [`Command::SetView`] is received,
     /// that resets the view to a predefined viewing angle.
     interracted: bool,
 
     /// Flag to track mouse events received while **left-mouse-button** is pressed.
-    /// This is set and unset on receiving appropriate a [`WindowEvent::MouseInput`].
-    /// Toolpath is stopped while this is active.
-    mouse_pressed: bool,
+    /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
+    ///
+    /// While this is set to `true` the toolpath is stopped,
+    /// as new projection is calculated during this state.
+    left_mouse_pressed: bool,
+
+    /// Flag to track mouse events received while **shift key** is pressed.
+    /// This is set and unset on receiving an appropriate [`WindowEvent::KeyboardInput`] event.
+    space_pressed: bool,
+
+    /// Mouse position set starting from the first [`WindowEvent::CursorMoved`] if [`Self::left_mouse_pressed`].
+    /// Set to [`None`] when [`Self::left_mouse_pressed`] is set to `false`.
+    /// This is used in both panning and orbiting.
+    mouse_pos: Option<[f32; 2]>,
 }
 
 impl Gui {
@@ -101,7 +114,9 @@ impl Gui {
             event_loop: Some(event_loop),
             single: SINGLE,
             interracted: false,
-            mouse_pressed: false,
+            left_mouse_pressed: false,
+            space_pressed: false,
+            mouse_pos: None,
         }
     }
 
@@ -132,7 +147,7 @@ impl Gui {
     }
 
     /// Requests redraw for [`Self::graphics`] window.
-    fn request_redraw(&mut self) {
+    fn redraw(&mut self) {
         self.graphics.as_mut().unwrap().window.request_redraw()
     }
 
@@ -206,7 +221,7 @@ impl Gui {
             //
             // skips looping when proceed command is detected on single mode, as that must require
             // user input for single mode to work
-            self.request_redraw();
+            self.redraw();
         }
 
         // always render when lines have exhausted on single mode
@@ -364,7 +379,10 @@ impl ApplicationHandler<Command> for Gui {
 
             WindowEvent::CloseRequested | WindowEvent::Destroyed => return event_loop.exit(),
 
-            WindowEvent::RedrawRequested if self.interrupt.is_none() && !self.mouse_pressed => {
+            // skip toolpath on orbiting and panning
+            WindowEvent::RedrawRequested
+                if self.interrupt.is_none() && !self.left_mouse_pressed =>
+            {
                 match self.update() {
                     Ok(true) => (), // render
 
@@ -377,25 +395,70 @@ impl ApplicationHandler<Command> for Gui {
 
             WindowEvent::RedrawRequested => (), // just render
 
-            // only care about left mouse button
-            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
-                if !self.interracted {
-                    // first interation after a preset view
+            WindowEvent::KeyboardInput { event, .. } if event.physical_key == Space => {
+                if !self.interracted && self.left_mouse_pressed {
+                    // first interation for oribiting after a preset view
+                    // forfeit current view in tui
                     self.interracted = true;
                     self.send_signal(Signal::Interact);
                 }
 
-                self.mouse_pressed = match state {
+                self.space_pressed = match event.state {
+                    ElementState::Pressed => true,
+                    ElementState::Released => false,
+                }
+            }
+
+            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
+                if !self.interracted && self.space_pressed {
+                    // first interation for oribiting after a preset view
+                    // forfeit current view in tui
+                    self.interracted = true;
+                    self.send_signal(Signal::Interact);
+                }
+
+                self.left_mouse_pressed = match state {
                     ElementState::Pressed => true,
                     ElementState::Released => {
-                        self.request_redraw(); // to resume simulation
+                        self.mouse_pos = None;
+                        self.redraw(); // to resume simulation
                         false
                     }
                 }
             }
 
-            WindowEvent::CursorMoved { position, .. } if self.mouse_pressed => {
-                todo!()
+            // first cursor movement during this mouse press
+            WindowEvent::CursorMoved { position, .. }
+                if self.left_mouse_pressed && self.mouse_pos.is_none() =>
+            {
+                self.mouse_pos = Some([position.x as f32, position.y as f32]);
+            }
+
+            // next cursor movement during this mouse press
+            WindowEvent::CursorMoved { position, .. } if self.left_mouse_pressed => {
+                let old_pos = self.mouse_pos.unwrap();
+                let new_pos = [position.x as f32, position.y as f32];
+                let delta = [new_pos[0] - old_pos[0], old_pos[1] - new_pos[1]];
+
+                if self.space_pressed {
+                    // orbiting
+                } else {
+                    // panning
+                    self.graphics.as_mut().unwrap().pan(delta);
+                }
+
+                self.mouse_pos = Some(new_pos);
+            }
+
+            // does not support touchpads
+            // TODO
+            WindowEvent::MouseWheel { delta, phase, .. } if phase == TouchPhase::Moved => {
+                match delta {
+                    MouseScrollDelta::LineDelta(_, y) => {
+                        self.graphics.as_mut().unwrap().zoom(y / 10.0);
+                    }
+                    MouseScrollDelta::PixelDelta(_) => return,
+                };
             }
 
             _ => return,
@@ -443,6 +506,6 @@ impl ApplicationHandler<Command> for Gui {
 
         self.command = Some(event);
 
-        self.request_redraw();
+        self.redraw();
     }
 }

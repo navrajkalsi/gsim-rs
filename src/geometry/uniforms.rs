@@ -1,10 +1,14 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ops::Neg};
 
 use crate::{View, points::Point};
 use winit::dpi::PhysicalSize;
 
 /// Additional margin applied to the stock in percentage of the screen.
 const STOCK_INSET: f32 = 2.5;
+
+/// Defines the maximum amount the default scaling factor can change in relation to itself,
+/// at runtime due to user input.
+const MAX_SCALE_MANIPULATION: f32 = 0.75;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
@@ -22,9 +26,13 @@ pub struct Uniforms {
     stock_size: [f32; 4],
     /// Width and height of the surface.
     window_size: [f32; 2],
+    user_offset: [f32; 2],
+    // Scaling factor to add to the factor calculated by `scale`.
+    // This is the result of total mouse wheel input.
+    user_scale: f32,
     /// Active [`View`].
     view: View,
-    _pad: u32,
+    _pad: [u32; 2],
 }
 
 impl Uniforms {
@@ -42,8 +50,10 @@ impl Uniforms {
             projection: projection_matrix(view, scale, offset),
             stock_size,
             window_size,
+            user_offset: [0.0, 0.0],
+            user_scale: 0.0,
             view,
-            _pad: 0,
+            _pad: [0, 0],
         }
     }
 
@@ -51,8 +61,24 @@ impl Uniforms {
     pub fn resize(&mut self, window_size: PhysicalSize<u32>) {
         self.window_size = [window_size.width as f32, window_size.height as f32];
         let stock_view = stock_view(self.stock_size.as_slice(), self.view);
-        let scale = scale(self.window_size, stock_view);
-        let offset = offset(self.stock_size, stock_view, scale, self.view);
+
+        let mut scale = scale(self.window_size, stock_view);
+
+        debug_assert!(MAX_SCALE_MANIPULATION >= 0.1 || MAX_SCALE_MANIPULATION <= 0.9);
+        let max_scale_manipulation = scale * MAX_SCALE_MANIPULATION;
+
+        // half rel min limit, double rel max limit
+        self.user_scale = self.user_scale.clamp(
+            max_scale_manipulation.neg() / 2.0,
+            max_scale_manipulation * 2.0,
+        );
+
+        scale += self.user_scale;
+
+        let mut offset = offset(self.stock_size, stock_view, scale, self.view);
+        offset[0] += self.user_offset[0];
+        offset[1] += self.user_offset[1];
+
         self.projection = projection_matrix(self.view, scale, offset);
     }
 
@@ -64,6 +90,24 @@ impl Uniforms {
     /// Changes the active view and recalculates [`Self::projection`].
     pub fn set_view(&mut self, view: View) {
         self.view = view;
+        self.resize(PhysicalSize {
+            width: self.window_size[0] as u32,
+            height: self.window_size[1] as u32,
+        });
+    }
+
+    pub fn add_user_scale(&mut self, to_add: f32) {
+        self.user_scale += to_add;
+        self.resize(PhysicalSize {
+            width: self.window_size[0] as u32,
+            height: self.window_size[1] as u32,
+        });
+    }
+
+    pub fn add_user_offset(&mut self, to_add: [f32; 2]) {
+        self.user_offset[0] += to_add[0];
+        self.user_offset[1] += to_add[1];
+
         self.resize(PhysicalSize {
             width: self.window_size[0] as u32,
             height: self.window_size[1] as u32,
