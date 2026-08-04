@@ -174,6 +174,7 @@ pub enum Signal {
         machine: Machine,
         current: usize,
     },
+    Interact,
     Stop,
 }
 

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::{View, config::ToolConfig, points::Point};
+use crate::{View, points::Point};
 use winit::dpi::PhysicalSize;
 
 /// Additional margin applied to the stock in percentage of the screen.
@@ -24,18 +24,12 @@ pub struct Uniforms {
     window_size: [f32; 2],
     /// Active [`View`].
     view: View,
-
-    tool_len: f32,
-    tool_size: f32,
+    _pad: u32,
 }
 
 impl Uniforms {
     /// Constructs a new [`Uniforms`] with `view` set to [`View::default`].
-    pub fn new(
-        window_size: PhysicalSize<u32>,
-        stock_size: Point,
-        default_tool: ToolConfig,
-    ) -> Self {
+    pub fn new(window_size: PhysicalSize<u32>, stock_size: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
         let stock_size = [stock_size.x, stock_size.y, stock_size.z, 0.0];
         let view = View::default();
@@ -49,8 +43,7 @@ impl Uniforms {
             stock_size,
             window_size,
             view,
-            tool_len: default_tool.length,
-            tool_size: default_tool.diameter,
+            _pad: 0,
         }
     }
 
@@ -75,13 +68,6 @@ impl Uniforms {
             width: self.window_size[0] as u32,
             height: self.window_size[1] as u32,
         });
-    }
-
-    pub fn set_tool(&mut self, tool_config: ToolConfig) {
-        self.tool_len = tool_config.length;
-        self.tool_size = tool_config.diameter;
-
-        // TODO
     }
 }
 

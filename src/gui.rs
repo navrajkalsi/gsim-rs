@@ -18,7 +18,7 @@ use crate::{
 use std::sync::{Arc, Mutex};
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
@@ -66,6 +66,16 @@ pub struct Gui {
     /// This is to be in sync with [`Tui::single`](crate::tui::Tui::single)
     /// and is used determine when to wait for [`Command::Next`] from the tui thread.
     single: bool,
+
+    /// Flag to set when the user has interacted with [`Graphics::window`] with their mouse.
+    /// This is set to `false` when [`Command::SetView`] is received,
+    /// that resets the view to a predefined viewing angle.
+    interracted: bool,
+
+    /// Flag to track mouse events received while **left-mouse-button** is pressed.
+    /// This is set and unset on receiving appropriate a [`WindowEvent::MouseInput`].
+    /// Toolpath is stopped while this is active.
+    mouse_pressed: bool,
 }
 
 impl Gui {
@@ -90,6 +100,8 @@ impl Gui {
             interrupt: Some(Interrupt::Start),
             event_loop: Some(event_loop),
             single: SINGLE,
+            interracted: false,
+            mouse_pressed: false,
         }
     }
 
@@ -352,7 +364,7 @@ impl ApplicationHandler<Command> for Gui {
 
             WindowEvent::CloseRequested | WindowEvent::Destroyed => return event_loop.exit(),
 
-            WindowEvent::RedrawRequested if self.interrupt.is_none() => {
+            WindowEvent::RedrawRequested if self.interrupt.is_none() && !self.mouse_pressed => {
                 match self.update() {
                     Ok(true) => (), // render
 
@@ -364,6 +376,27 @@ impl ApplicationHandler<Command> for Gui {
             }
 
             WindowEvent::RedrawRequested => (), // just render
+
+            // only care about left mouse button
+            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
+                if !self.interracted {
+                    // first interation after a preset view
+                    self.interracted = true;
+                    self.send_signal(Signal::Interact);
+                }
+
+                self.mouse_pressed = match state {
+                    ElementState::Pressed => true,
+                    ElementState::Released => {
+                        self.request_redraw(); // to resume simulation
+                        false
+                    }
+                }
+            }
+
+            WindowEvent::CursorMoved { position, .. } if self.mouse_pressed => {
+                todo!()
+            }
 
             _ => return,
         };
@@ -383,7 +416,10 @@ impl ApplicationHandler<Command> for Gui {
         let graphics = self.graphics.as_mut().expect("app has been started");
 
         match &event {
-            Command::SetView(view) => graphics.set_view(*view),
+            Command::SetView(view) => {
+                self.interracted = false;
+                graphics.set_view(*view)
+            }
 
             Command::SetSingle(single) => self.single = *single,
 

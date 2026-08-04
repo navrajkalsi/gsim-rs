@@ -428,7 +428,7 @@ pub struct Machine {
     /// This is relative to a **stock reference point**.
     /// This is the same as [`Config::zero_pos`](crate::config::Config::zero_pos) and is determined at startup.
     ///
-    /// Check [`Stock`](crate::config::Stock) for details on reference point.
+    /// Check [`Config`](crate::config::Config) for details on reference point.
     zero_pos: Point,
 
     /// Current position of each axis.
@@ -436,7 +436,7 @@ pub struct Machine {
     /// The starting position of the machine will be
     /// [`Config::start_pos`](crate::config::Config::start_pos).
     ///
-    /// Check [`Stock`](crate::config::Body) for details on reference point.
+    /// Check [`Config`](crate::config::Config) for details on reference point.
     pos: Point,
 
     /// Current tool in the spindle.

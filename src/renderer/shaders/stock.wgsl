@@ -12,13 +12,13 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
-struct VertexInput {
+struct Vertex {
     @location(0) xy: vec2<f32>,
     @location(1) z: u32,
     @location(2) face: u32,
 };
 
-struct InstanceInput {
+struct Instance {
     @location(3) center: vec2<f32>,
     @location(4) height: f32,
     @location(5) faces: u32,
@@ -26,33 +26,33 @@ struct InstanceInput {
 
 struct VertexOutput {
     // builtin position means that the value is to be used for clip_position
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) @interpolate(flat) color: vec3<f32>,
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) @interpolate(flat) color: vec4<f32>,
 };
 
 const TOP = 1 << 0;
 
 fn clipped() -> VertexOutput {
     var clipped: VertexOutput;
-    clipped.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    clipped.clip_pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);
     return clipped;
 }
 
 @vertex
-fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
-    if voxel.height <= 0.0 {
+fn vs_main(vertex: Vertex, instance: Instance) -> VertexOutput {
+    if instance.height <= 0.0 {
         return clipped();
     }
 
-    if (voxel.faces & vertex.face) == 0u {
+    if (instance.faces & vertex.face) == 0u {
         return clipped();
     }
 
     let window_size = uniforms.window_size;
     let stock_height = uniforms.stock_size.z;
 
-    let xy = voxel.center + vertex.xy;
-    let z = voxel.height * f32(vertex.z);
+    let xy = instance.center + vertex.xy;
+    let z = instance.height * f32(vertex.z);
 
     let world = uniforms.projection * vec4<f32>(xy, z, 1.0);
 
@@ -60,17 +60,17 @@ fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
 
     // convert to ndc
     // direction already match ndc
-    out.clip_position = vec4<f32>((world.xy / window_size * 2.0), world.z, 1.0);
+    out.clip_pos = vec4<f32>((world.xy / window_size * 2.0), world.z, 1.0);
 
     if vertex.face == TOP {
         // top face gets dimmer with depth
         // useful for perceiving depth from top view
-        let rel_height = (voxel.height / stock_height) / 1.5;
+        let rel_height = (instance.height / stock_height) / 2.0;
         let color_seg = 0.3 + rel_height;
-        out.color = vec3<f32>(color_seg, color_seg, color_seg);
+        out.color = vec4<f32>(color_seg, color_seg, color_seg, 1.0);
     } else {
         // color all side faces darker
-        out.color = vec3<f32>(0.25, 0.25, 0.25);
+        out.color = vec4<f32>(0.25, 0.25, 0.25, 1.0);
     }
 
     return out;
@@ -78,5 +78,5 @@ fn vs_main(vertex: VertexInput, voxel: InstanceInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return in.color;
 }

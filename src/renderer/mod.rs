@@ -193,7 +193,7 @@ impl Graphics {
 
         let (msaa_texture, msaa_texture_view) = msaa_texture(&device, window_size, surface_format);
 
-        let uniforms = Uniforms::new(window_size, config.stock, config.default_tool);
+        let uniforms = Uniforms::new(window_size, config.stock);
 
         let (uniform_buffer, uniform_bind_group_layout, uniform_bind_group) =
             uniforms::setup_uniforms(uniforms, &device);
@@ -202,7 +202,7 @@ impl Graphics {
             line::setup_pipeline(&device, &uniform_bind_group_layout, surface_format);
 
         // show tool
-        let tool = ToolInstance::at_point(config.start_pos);
+        let tool = ToolInstance::at_point(config.start_pos, config.default_tool);
         let (tool_pipeline, tool_instance_buffer) =
             tool::setup_pipeline(&device, &uniform_bind_group_layout, surface_format);
         queue.write_buffer(&tool_instance_buffer, 0, bytemuck::cast_slice(&[tool]));
@@ -343,20 +343,12 @@ impl Graphics {
             self.queue.write_buffer(
                 &self.tool_instance_buffer,
                 0,
-                bytemuck::cast_slice(&[ToolInstance::at_point(pos)]),
+                bytemuck::cast_slice(&[ToolInstance::at_point(pos, self.tool_config)]),
             );
 
             // only reconsturct instances if there was a change
-            if self.stock_tracker.cut(
-                crate::config::ToolConfig {
-                    number: 1,
-                    diameter: 20.0,
-                    length: 125.0,
-                },
-                pos,
-            ) {
+            if self.stock_tracker.cut(self.tool_config, pos) {
                 let (index, instances) = self.stock_tracker.instances(); // is guarraunteed to be rendered
-                //
                 let offset = index * size_of::<StockInstance>();
 
                 self.queue.write_buffer(
@@ -562,7 +554,13 @@ impl Graphics {
     }
 
     pub fn set_tool(&mut self, tool_config: ToolConfig) {
-        self.tool_config = tool_config
+        self.tool_config = tool_config;
+
+        self.queue.write_buffer(
+            &self.tool_instance_buffer,
+            std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+            bytemuck::cast_slice(&[tool_config.diameter, tool_config.length]),
+        );
     }
 }
 

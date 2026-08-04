@@ -19,26 +19,20 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
-struct VertexInput {
+struct Instance {
     @location(0) pos: vec3<f32>,
+    @location(1) diameter: f32,
+    @location(2) length: f32,
 };
 
-struct VertexOutput {
-    // builtin position means that the value is to be used for clip_position
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-};
-
-fn clipped() -> VertexOutput {
-    var clipped: VertexOutput;
-    clipped.clip_position = vec4<f32>(1.1, 1.1, 1.1, 1.0);
-    return clipped;
+fn clipped() -> vec4<f32> {
+    return vec4<f32>(2.0, 2.0, 2.0, 1.0);
 }
 
 // angle must be multiple of 4 as we need to draw 4 triangles for each unit degree to create a
 // cylinder
 @vertex
-fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> @builtin(position) vec4<f32> {
     // total triangles = 360/10 * 4
     // total vertices = 360/10 * 4 * 3 = 432
     if index >= 432 {
@@ -59,10 +53,10 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     let angle = radians(f32(triangle % 36) * 10.0);
     let angle_next = radians(f32(triangle % 36) * 10.0 + 10.0);
 
-    let tool_size = 10.0;
-    let tool_len = 125.0;
+    let tool_rad = instance.diameter / 2.0;
+    let tool_len = instance.length;
 
-    var position = vec4<f32>(in.pos, 1.0);
+    var position = vec4<f32>(instance.pos, 1.0);
 
     switch vertex + face * 3u {
         case 11 {
@@ -73,50 +67,50 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
         }
         case 10 {
             // bottom circle perimeter point at curent angle
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
+            position.x += tool_rad * cos(angle);
+            position.y += tool_rad * sin(angle);
             position.z += 0.0;
         }
         case 9 {
             // bottom circle perimeter point at next unit degree angle
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
+            position.x += tool_rad * cos(angle_next);
+            position.y += tool_rad * sin(angle_next);
             position.z += 0.0;
         }
         case 8 {
             // first wall triangle bottom
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
+            position.x += tool_rad * cos(angle);
+            position.y += tool_rad * sin(angle);
             position.z += 0.0;
         }
         case 7 {
             // first wall triangle top first
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
+            position.x += tool_rad * cos(angle);
+            position.y += tool_rad * sin(angle);
             position.z += tool_len;
         }
         case 6 {
             // first wall triangle top second
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
+            position.x += tool_rad * cos(angle_next);
+            position.y += tool_rad * sin(angle_next);
             position.z += tool_len;
         }
         case 5 {
             // second wall triangle top
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
+            position.x += tool_rad * cos(angle_next);
+            position.y += tool_rad * sin(angle_next);
             position.z += tool_len;
         }
         case 4 {
             // second wall triangle bottom first
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
+            position.x += tool_rad * cos(angle_next);
+            position.y += tool_rad * sin(angle_next);
             position.z += 0.0;
         }
         case 3 {
             // second wall triangle bottom second
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
+            position.x += tool_rad * cos(angle);
+            position.y += tool_rad * sin(angle);
             position.z += 0.0;
         }
         case 2 {
@@ -127,14 +121,14 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
         }
         case 1 {
             // top circle perimeter point at curent angle
-            position.x += tool_size * cos(angle);
-            position.y += tool_size * sin(angle);
+            position.x += tool_rad * cos(angle);
+            position.y += tool_rad * sin(angle);
             position.z += tool_len;
         }
         case 0u {
             // bottom circle perimeter point at next unit degree angle
-            position.x += tool_size * cos(angle_next);
-            position.y += tool_size * sin(angle_next);
+            position.x += tool_rad * cos(angle_next);
+            position.y += tool_rad * sin(angle_next);
             position.z += tool_len;
         }
         default {
@@ -147,14 +141,10 @@ fn vs_main(@builtin(vertex_index) index: u32, in: VertexInput) -> VertexOutput {
     // convert position to number of pixels
     position = uniforms.projection * position;
 
-    var out: VertexOutput;
-    out.clip_position = vec4<f32>((position.xy / window_size * 2.0), position.z, 1.0);
-    out.color = vec4<f32>(0.1, 0.1, 0.1, 1.0);
-
-    return out;
+    return vec4<f32>((position.xy / window_size * 2.0), position.z, 1.0);
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.1, 0.1, 0.1, 1.0);
 }

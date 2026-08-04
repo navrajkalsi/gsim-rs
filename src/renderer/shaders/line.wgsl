@@ -15,11 +15,11 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
-struct VertexInput {
+struct Vertex {
     @location(0) vertex: u32,
 };
 
-struct InstanceInput {
+struct Instance {
     @location(1) start: vec3<f32>,
     @location(2) end: vec3<f32>,
     @location(3) move_type: u32,
@@ -38,7 +38,7 @@ const STROKE_WIDTH = 2.0;
 const SMOOTHING = 1.0; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
-fn vs_main(quad: VertexInput, instance: InstanceInput) -> VertexOutput {
+fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
     let window_size = uniforms.window_size;
 
     // scaled to fit the screen, in pixels
