@@ -698,7 +698,7 @@ impl Tui {
             Span::styled(
                 match self.view {
                     Some(view) => view.to_string(),
-                    None => "FREE".to_string(),
+                    None => "ORBITING".to_string(),
                 },
                 THEME.active_mode,
             ),

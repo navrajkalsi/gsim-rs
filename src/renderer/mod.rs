@@ -18,12 +18,20 @@ use crate::{
     },
     points::Point,
 };
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use wgpu::CurrentSurfaceTexture;
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 /// Maximum number of [`LineInstance`]s allowed to be used in the [`Graphics::lines_instance_buffer`].
 const MAX_INSTANCES: u64 = 1_000_000;
+
+/// Frames to draw per second.
+pub const TARGET_FPS: u64 = 60;
+// approx, due to int division truncation
+const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS);
 
 /// GPU state for toothpath simulation.
 pub struct Graphics {
@@ -108,6 +116,8 @@ pub struct Graphics {
 
     // speed just batches up frames
     skipped_frames: u8,
+
+    last_frame: Instant,
 
     /// [`Arc`] keeps the [`Window`] valid for as long as [`Self::surface`] needs,
     /// and lets us use `'static` lifetime with the surface.
@@ -267,6 +277,7 @@ impl Graphics {
             tool_config: config.default_tool,
 
             skipped_frames: 0,
+            last_frame: Instant::now(),
 
             window,
         })
@@ -428,8 +439,14 @@ impl Graphics {
     ///
     /// # Errors
     /// Returns [`anyhow::Error`] indicating that the surface is lost.
-    pub fn render(&mut self) -> anyhow::Result<()> {
+    // TODO enforces frame rate
+    pub fn render(&mut self, force_draw: bool) -> anyhow::Result<()> {
         if !self.configured {
+            return Ok(());
+        }
+
+        if !force_draw && self.last_frame.elapsed() < TIME_BETWEEN_FRAMES {
+            // skip frame
             return Ok(());
         }
 
@@ -534,6 +551,8 @@ impl Graphics {
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
 
+        self.last_frame = Instant::now();
+
         Ok(())
     }
 
@@ -575,6 +594,16 @@ impl Graphics {
 
     pub fn pan(&mut self, amount: [f32; 2]) {
         self.uniforms.add_user_offset(amount);
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.uniforms]),
+        );
+    }
+
+    pub fn orbit(&mut self, amount: [f32; 2]) {
+        self.uniforms.add_user_projection(amount);
 
         self.queue.write_buffer(
             &self.uniform_buffer,

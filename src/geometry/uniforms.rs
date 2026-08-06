@@ -10,6 +10,9 @@ const STOCK_INSET: f32 = 2.5;
 /// at runtime due to user input.
 const MAX_SCALE_MANIPULATION: f32 = 0.75;
 
+/// Custom factor for converting number of lines scrolled to the simulation scaling factor.
+const LINES_TO_SCALE_FACTOR: f32 = 0.1;
+
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
 
@@ -27,12 +30,12 @@ pub struct Uniforms {
     /// Width and height of the surface.
     window_size: [f32; 2],
     user_offset: [f32; 2],
+    user_projection: [f32; 2],
     // Scaling factor to add to the factor calculated by `scale`.
     // This is the result of total mouse wheel input.
     user_scale: f32,
     /// Active [`View`].
     view: View,
-    _pad: [u32; 2],
 }
 
 impl Uniforms {
@@ -51,9 +54,9 @@ impl Uniforms {
             stock_size,
             window_size,
             user_offset: [0.0, 0.0],
+            user_projection: [0.0, 0.0],
             user_scale: 0.0,
             view,
-            _pad: [0, 0],
         }
     }
 
@@ -90,14 +93,16 @@ impl Uniforms {
     /// Changes the active view and recalculates [`Self::projection`].
     pub fn set_view(&mut self, view: View) {
         self.view = view;
+
         self.resize(PhysicalSize {
             width: self.window_size[0] as u32,
             height: self.window_size[1] as u32,
         });
     }
 
-    pub fn add_user_scale(&mut self, to_add: f32) {
-        self.user_scale += to_add;
+    pub fn add_user_scale(&mut self, lines_scrolled: f32) {
+        self.user_scale += lines_scrolled * LINES_TO_SCALE_FACTOR;
+
         self.resize(PhysicalSize {
             width: self.window_size[0] as u32,
             height: self.window_size[1] as u32,
@@ -107,6 +112,29 @@ impl Uniforms {
     pub fn add_user_offset(&mut self, to_add: [f32; 2]) {
         self.user_offset[0] += to_add[0];
         self.user_offset[1] += to_add[1];
+
+        self.resize(PhysicalSize {
+            width: self.window_size[0] as u32,
+            height: self.window_size[1] as u32,
+        });
+    }
+
+    pub fn add_user_projection(&mut self, to_add: [f32; 2]) {
+        // arbitrary distance of view window from stock center
+        let dist_from_stock_center = self.stock_size[0] + self.stock_size[1] + self.stock_size[2];
+
+        let x_angle = (to_add[0] / 2.0 / dist_from_stock_center)
+            .clamp(-1.0, 1.0)
+            .asin()
+            * 2.0;
+
+        let y_angle = (to_add[1] / 2.0 / dist_from_stock_center)
+            .clamp(-1.0, 1.0)
+            .asin()
+            * 2.0;
+
+        self.user_projection[0] += x_angle;
+        self.user_projection[1] += y_angle;
 
         self.resize(PhysicalSize {
             width: self.window_size[0] as u32,
