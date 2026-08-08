@@ -10,13 +10,15 @@
 // The tool is drawn at depth `0.0`, which is the nearest plane.
 
 struct Uniforms {
-    projection: mat4x4<f32>,
+    center: mat4x4<f32>,
+    scale: mat4x4<f32>,
+    x_rotation: mat4x4<f32>,
+    y_rotation: mat4x4<f32>,
+    z_rotation: mat4x4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
-    user_offset: vec2<f32>,
-    user_projection: vec2<f32>,
+    bounding_cube_edge: f32,
     user_scale: f32,
-    view: u32,
 };
 
 @group(0) @binding(0)
@@ -129,7 +131,7 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> @builtin(po
             position.z += tool_len;
         }
         case 0u {
-            // bottom circle perimeter point at next unit degree angle
+            // top circle perimeter point at next unit degree angle
             position.x += tool_rad * cos(angle_next);
             position.y += tool_rad * sin(angle_next);
             position.z += tool_len;
@@ -142,9 +144,12 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> @builtin(po
     let window_size = uniforms.window_size;
 
     // convert position to number of pixels
-    position = uniforms.projection * position;
+    position = uniforms.scale * (uniforms.x_rotation * (uniforms.y_rotation * (uniforms.z_rotation * (uniforms.center *
+    position))));
+    position.x /= window_size.x;
+    position.y /= window_size.y;
 
-    return vec4<f32>((position.xy / window_size * 2.0), position.z, 1.0);
+    return position;
 }
 
 @fragment

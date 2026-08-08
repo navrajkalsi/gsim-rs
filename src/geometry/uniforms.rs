@@ -1,41 +1,34 @@
-use std::{cmp::Ordering, ops::Neg};
+use std::f32::consts::PI;
 
 use crate::{View, points::Point};
 use winit::dpi::PhysicalSize;
-
-/// Additional margin applied to the stock in percentage of the screen.
-const STOCK_INSET: f32 = 2.5;
 
 /// Defines the maximum amount the default scaling factor can change in relation to itself,
 /// at runtime due to user input.
 const MAX_SCALE_MANIPULATION: f32 = 0.75;
 
 /// Custom factor for converting number of lines scrolled to the simulation scaling factor.
-const LINES_TO_SCALE_FACTOR: f32 = 0.1;
+const LINES_TO_SCALE_FACTOR: f32 = 0.25;
 
 const COS30: f32 = 0.8660254;
 const SIN30: f32 = 0.5;
+const COS45: f32 = 0.707107;
 
 /// Represents the constant data to be shared across all geometric instances, per frame.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
-    /// View matrix to center the scale and scale it to [`Self::window_size`].
-    /// Multiplication with this matrix results in **pixel** units.
-    projection: [[f32; 4]; 4],
-    /// Size of the stock.
-    /// The first three numbers correspond to X, Y, and Z axis travels respectively.
-    /// The last value is used for alignment and is never used.
+    center: [[f32; 4]; 4], // translation
+    scale: [[f32; 4]; 4],
+    //rotation is done before scaling so that final z is scaled to 0 and 1
+    //and xy can be scaled to -1 to 1
+    x_rotation: [[f32; 4]; 4],
+    y_rotation: [[f32; 4]; 4],
+    z_rotation: [[f32; 4]; 4],
     stock_size: [f32; 4],
-    /// Width and height of the surface.
     window_size: [f32; 2],
-    user_offset: [f32; 2],
-    user_projection: [f32; 2],
-    // Scaling factor to add to the factor calculated by `scale`.
-    // This is the result of total mouse wheel input.
+    bounding_cube_edge: f32,
     user_scale: f32,
-    /// Active [`View`].
-    view: View,
 }
 
 impl Uniforms {
@@ -43,61 +36,80 @@ impl Uniforms {
     pub fn new(window_size: PhysicalSize<u32>, stock_size: Point) -> Self {
         let window_size = [window_size.width as f32, window_size.height as f32];
         let stock_size = [stock_size.x, stock_size.y, stock_size.z, 0.0];
-        let view = View::default();
 
-        let stock_view = stock_view(stock_size.as_slice(), view);
-        let scale = scale(window_size, stock_view);
-        let offset = offset(stock_size, stock_view, scale, view);
+        let center = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [
+                -stock_size[0] / 2.0,
+                -stock_size[1] / 2.0,
+                -stock_size[2] / 2.0,
+                1.0,
+            ],
+        ];
+
+        let bounding_cube_edge = max_bounding_cube_edge(stock_size.as_slice());
+
+        // cannot scale directly to ndc as the volume is not a square
+        // we NEED to go through pixels
+        let xy_scale = xy_scale(window_size, bounding_cube_edge) * 2.0; // to pixels, for offsetting
+        let z_scale = z_scale(bounding_cube_edge); // direct ndc
+
+        let scale = [
+            [xy_scale, 0.0, 0.0, 0.0],
+            [0.0, xy_scale, 0.0, 0.0],
+            [0.0, 0.0, z_scale, 0.0],
+            [0.0, 0.0, 0.5, 1.0],
+        ];
 
         Self {
-            projection: projection_matrix(view, scale, offset),
+            center,
+            scale,
+            x_rotation: x_rotation(0.0),
+            y_rotation: y_rotation(0.0),
+            z_rotation: z_rotation(0.0),
             stock_size,
             window_size,
-            user_offset: [0.0, 0.0],
-            user_projection: [0.0, 0.0],
+            bounding_cube_edge,
             user_scale: 0.0,
-            view,
         }
     }
 
     /// Recalculates [`Self::projection`] view matrix for a new `window_size`.
     pub fn resize(&mut self, window_size: PhysicalSize<u32>) {
         self.window_size = [window_size.width as f32, window_size.height as f32];
-        let stock_view = stock_view(self.stock_size.as_slice(), self.view);
 
-        let mut scale = scale(self.window_size, stock_view);
+        let xy_scale = xy_scale(self.window_size, self.bounding_cube_edge) * 2.0; // to pixels, for offsetting
 
         debug_assert!(MAX_SCALE_MANIPULATION >= 0.1 || MAX_SCALE_MANIPULATION <= 0.9);
-        let max_scale_manipulation = scale * MAX_SCALE_MANIPULATION;
+        let max_scale_manipulation = xy_scale * MAX_SCALE_MANIPULATION;
 
         // half rel min limit, double rel max limit
-        self.user_scale = self.user_scale.clamp(
-            max_scale_manipulation.neg() / 2.0,
-            max_scale_manipulation * 2.0,
-        );
+        self.user_scale = self
+            .user_scale
+            .clamp(-max_scale_manipulation / 2.0, max_scale_manipulation * 2.0);
 
-        scale += self.user_scale;
-
-        let mut offset = offset(self.stock_size, stock_view, scale, self.view);
-        offset[0] += self.user_offset[0];
-        offset[1] += self.user_offset[1];
-
-        self.projection = projection_matrix(self.view, scale, offset);
+        self.scale[0][0] = xy_scale + self.user_scale;
+        self.scale[1][1] = xy_scale + self.user_scale;
     }
 
     /// Returns the active [`View`].
     pub fn view(&self) -> View {
-        self.view
+        // self.view
+        View::Isometric
     }
 
     /// Changes the active view and recalculates [`Self::projection`].
     pub fn set_view(&mut self, view: View) {
-        self.view = view;
+        let (x, y, z) = match view {
+            View::Isometric => ((PI / 2.0) - 0.615472907, 0.0, -PI / 4.0),
+            View::Top => (0.0, 0.0, 0.0),
+        };
 
-        self.resize(PhysicalSize {
-            width: self.window_size[0] as u32,
-            height: self.window_size[1] as u32,
-        });
+        self.x_rotation = x_rotation(x);
+        self.y_rotation = y_rotation(y);
+        self.z_rotation = z_rotation(z);
     }
 
     pub fn add_user_scale(&mut self, lines_scrolled: f32) {
@@ -109,37 +121,24 @@ impl Uniforms {
         });
     }
 
-    pub fn add_user_offset(&mut self, to_add: [f32; 2]) {
-        self.user_offset[0] += to_add[0];
-        self.user_offset[1] += to_add[1];
-
-        self.resize(PhysicalSize {
-            width: self.window_size[0] as u32,
-            height: self.window_size[1] as u32,
-        });
+    pub fn add_user_offset(&mut self, delta: [f32; 2]) {
+        self.scale[3][0] += delta[0] * 2.0; // double since scale is being also being doubled
+        self.scale[3][1] += delta[1] * 2.0;
     }
 
-    pub fn add_user_projection(&mut self, to_add: [f32; 2]) {
-        // arbitrary distance of view window from stock center
-        let dist_from_stock_center = self.stock_size[0] + self.stock_size[1] + self.stock_size[2];
+    pub fn add_user_projection(&mut self, delta: [f32; 2]) {
+        // // arbitrary distance of view window from stock center
+        // let window_dist = self.stock_size[0] + self.stock_size[1] + self.stock_size[2];
+        //
+        // let x_angle = (delta[0] / 2.0 / window_dist).clamp(-1.0, 1.0).asin() * 2.0;
+        // let y_angle = (delta[1] / 2.0 / window_dist).clamp(-1.0, 1.0).asin() * 2.0;
+        //
+        // eprintln!("x: {x_angle}");
+        // eprintln!("y: {y_angle}");
+        // eprintln!("");
 
-        let x_angle = (to_add[0] / 2.0 / dist_from_stock_center)
-            .clamp(-1.0, 1.0)
-            .asin()
-            * 2.0;
-
-        let y_angle = (to_add[1] / 2.0 / dist_from_stock_center)
-            .clamp(-1.0, 1.0)
-            .asin()
-            * 2.0;
-
-        self.user_projection[0] += x_angle;
-        self.user_projection[1] += y_angle;
-
-        self.resize(PhysicalSize {
-            width: self.window_size[0] as u32,
-            height: self.window_size[1] as u32,
-        });
+        let x_angle = delta[1] / 100.0;
+        let y_angle = delta[0] / 100.0;
     }
 }
 
@@ -147,10 +146,12 @@ impl Uniforms {
 /// rendered from the provided [`View`].
 ///
 /// The returned size will be in the same units as `stock_size`.
+///
+/// This is only used for predefined views.
 fn stock_view(stock_size: &[f32], view: View) -> [f32; 2] {
     match view {
         // use projection of the bounding box to get final x and y
-        View::Isometric => project_bounding_box(stock_size),
+        View::Isometric => isometric_stock_view(stock_size),
         // use x and y of the stock
         View::Top => [stock_size[0], stock_size[1]],
     }
@@ -160,7 +161,7 @@ fn stock_view(stock_size: &[f32], view: View) -> [f32; 2] {
 /// rendered from [`View::Isometric`].
 ///
 /// The returned size will be in the same units as `stock_size`.
-fn project_bounding_box(stock_size: &[f32]) -> [f32; 2] {
+fn isometric_stock_view(stock_size: &[f32]) -> [f32; 2] {
     [
         (stock_size[0] + stock_size[1]) * COS30,
         (stock_size[0] + stock_size[1]) * SIN30 + stock_size[2],
@@ -173,27 +174,15 @@ fn project_bounding_box(stock_size: &[f32]) -> [f32; 2] {
 /// The provided `stock_view` must be the size **AFTER** any projection.
 ///
 /// The returned scale will prioritize fitting the dimension that is longer relative to that of the window.
-fn scale(window_size: [f32; 2], stock_view: [f32; 2]) -> f32 {
-    const {
-        assert!(STOCK_INSET >= 0.0 && STOCK_INSET <= 25.0);
-    }
-
-    // y / x
-    // compensate for any inset
-    let usable_percentage = 1.0 - (STOCK_INSET * 2.0) / 100.0;
-    let usable_width = usable_percentage * window_size[0];
-    let usable_height = usable_percentage * window_size[1];
-
-    let window_ratio = usable_height / usable_width;
-    let stock_ratio = stock_view[1] / stock_view[0];
-
-    match stock_ratio.total_cmp(&window_ratio) {
-        // y of stock is smaller, scale to fit x of stock and shrink in y
-        Ordering::Less => usable_width / stock_view[0],
-        // choose any
-        Ordering::Equal => usable_width / stock_view[0],
-        // y of stock is larger, scale to fit y of stock and shrink in x
-        Ordering::Greater => usable_height / stock_view[1],
+// only xy scale
+// since we max bounding shape is a cube, we need to scale according to the
+// window dimension that is smaller
+fn xy_scale(window_size: [f32; 2], bounding_cube_edge: f32) -> f32 {
+    // scale to fit in x
+    if window_size[0] < window_size[1] {
+        window_size[0] / bounding_cube_edge
+    } else {
+        window_size[1] / bounding_cube_edge
     }
 }
 
@@ -217,11 +206,20 @@ fn offset(stock_size: [f32; 4], stock_view: [f32; 2], scale: f32, view: View) ->
 
 /// Constructs a view-projection matrix for a provided [`View`],
 /// scales the vertices & center the view volume using provided `offset`.
-fn projection_matrix(view: View, scale: f32, offset: [f32; 2]) -> [[f32; 4]; 4] {
+fn projection_matrix(
+    view: View,
+    scale: f32,
+    offset: [f32; 2],
+    stock_size: &[f32],
+    x_angle: f32,
+) -> [[f32; 4]; 4] {
     // the actual matrix would visually be the transpose of the return value, row first
-    let x = 500.0;
-    let y = 250.0;
-    let z = 250.0;
+    let x = stock_size[0];
+    let y = stock_size[1];
+    let z = stock_size[2];
+
+    let y_angle: f32 = 0.0;
+
     let ratio = (y / x) * 0.5; // target to put all the stock boundary in middle 0.5 depth
     match view {
         View::Isometric => [
@@ -237,4 +235,135 @@ fn projection_matrix(view: View, scale: f32, offset: [f32; 2]) -> [[f32; 4]; 4] 
             [offset[0], offset[1], 0.75, 1.0],
         ],
     }
+}
+
+// cube edge in machine units
+fn max_bounding_cube_edge(stock_size: &[f32]) -> f32 {
+    // dont take root
+    let xy_diagonal_sqr = stock_size[0].powi(2) + stock_size[1].powi(2);
+
+    (xy_diagonal_sqr + stock_size[2].powi(2)).sqrt()
+}
+
+// returns factor to fit the supplied cube edge into 0.5
+// add 0.5 to pull z up into the view has the volume
+//
+// we are scaling to 0.5 to have extra padding in depth for tool
+// since without adding any value our z will be in half neg and half pos,ie, centered around 0.0.
+// we need to center it around 0.5 therefore we need to add 0.5
+fn z_scale(bounding_cube_edge: f32) -> f32 {
+    0.5 / bounding_cube_edge
+}
+
+fn rotation(x_angle: f32, y_angle: f32) -> [[f32; 4]; 4] {
+    let x = x_rotation(x_angle);
+    let y = y_rotation(y_angle);
+
+    let ret = multiply(x, y);
+
+    ret
+}
+
+fn x_rotation(x_angle: f32) -> [[f32; 4]; 4] {
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, x_angle.cos(), -x_angle.sin(), 0.0],
+        [0.0, x_angle.sin(), x_angle.cos(), 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn y_rotation(y_angle: f32) -> [[f32; 4]; 4] {
+    [
+        [y_angle.cos(), 0.0, -y_angle.sin(), 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [y_angle.sin(), 0.0, y_angle.cos(), 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn z_rotation(z_angle: f32) -> [[f32; 4]; 4] {
+    [
+        [z_angle.cos(), z_angle.sin(), 0.0, 0.0],
+        [-z_angle.sin(), z_angle.cos(), 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn multiply(first: [[f32; 4]; 4], second: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    [
+        [
+            first[0][0] * second[0][0]
+                + first[0][1] * second[1][0]
+                + first[0][2] * second[2][0]
+                + first[0][3] * second[3][0],
+            first[0][0] * second[0][1]
+                + first[0][1] * second[1][1]
+                + first[0][2] * second[2][1]
+                + first[0][3] * second[3][1],
+            first[0][0] * second[0][2]
+                + first[0][1] * second[1][2]
+                + first[0][2] * second[2][2]
+                + first[0][3] * second[3][2],
+            first[0][0] * second[0][3]
+                + first[0][1] * second[1][3]
+                + first[0][2] * second[2][3]
+                + first[0][3] * second[3][3],
+        ],
+        [
+            first[1][0] * second[0][0]
+                + first[1][1] * second[1][0]
+                + first[1][2] * second[2][0]
+                + first[1][3] * second[3][0],
+            first[1][0] * second[0][1]
+                + first[1][1] * second[1][1]
+                + first[1][2] * second[2][1]
+                + first[1][3] * second[3][1],
+            first[1][0] * second[0][2]
+                + first[1][1] * second[1][2]
+                + first[1][2] * second[2][2]
+                + first[1][3] * second[3][2],
+            first[1][0] * second[0][3]
+                + first[1][1] * second[1][3]
+                + first[1][2] * second[2][3]
+                + first[1][3] * second[3][3],
+        ],
+        [
+            first[2][0] * second[0][0]
+                + first[2][1] * second[1][0]
+                + first[2][2] * second[2][0]
+                + first[2][3] * second[3][0],
+            first[2][0] * second[0][1]
+                + first[2][1] * second[1][1]
+                + first[2][2] * second[2][1]
+                + first[2][3] * second[3][1],
+            first[2][0] * second[0][2]
+                + first[2][1] * second[1][2]
+                + first[2][2] * second[2][2]
+                + first[2][3] * second[3][2],
+            first[2][0] * second[0][3]
+                + first[2][1] * second[1][3]
+                + first[2][2] * second[2][3]
+                + first[2][3] * second[3][3],
+        ],
+        [
+            first[3][0] * second[0][0]
+                + first[3][1] * second[1][0]
+                + first[3][2] * second[2][0]
+                + first[3][3] * second[3][0],
+            first[3][0] * second[0][1]
+                + first[3][1] * second[1][1]
+                + first[3][2] * second[2][1]
+                + first[3][3] * second[3][1],
+            first[3][0] * second[0][2]
+                + first[3][1] * second[1][2]
+                + first[3][2] * second[2][2]
+                + first[3][3] * second[3][2],
+            first[3][0] * second[0][3]
+                + first[3][1] * second[1][3]
+                + first[3][2] * second[2][3]
+                + first[3][3] * second[3][3],
+        ],
+    ]
 }

@@ -3,13 +3,15 @@
 // Draws a cuboidal stock instance of specified height.
 
 struct Uniforms {
-    projection: mat4x4<f32>,
+    center: mat4x4<f32>,
+    scale: mat4x4<f32>,
+    x_rotation: mat4x4<f32>,
+    y_rotation: mat4x4<f32>,
+    z_rotation: mat4x4<f32>,
     stock_size: vec4<f32>,
     window_size: vec2<f32>,
-    user_offset: vec2<f32>,
-    user_projection: vec2<f32>,
+    bounding_cube_edge: f32,
     user_scale: f32,
-    view: u32,
 };
 
 @group(0) @binding(0)
@@ -55,15 +57,16 @@ fn vs_main(vertex: Vertex, instance: Instance) -> VertexOutput {
     let stock_height = uniforms.stock_size.z;
 
     let xy = instance.center + vertex.xy;
-    let z = instance.height * f32(vertex.z);
+    let z = select(instance.height, 0.0, vertex.z == 0);
 
-    let world = uniforms.projection * vec4<f32>(xy, z, 1.0);
+    let world = uniforms.scale * (uniforms.x_rotation * (uniforms.y_rotation * (uniforms.z_rotation *
+    (uniforms.center * vec4<f32>(xy, z, 1.0)))));
 
     var out: VertexOutput;
 
-    // convert to ndc
-    // direction already match ndc
-    out.clip_pos = vec4<f32>((world.xy / window_size * 2.0), world.z, 1.0);
+    out.clip_pos = world;
+    out.clip_pos.x /= window_size.x;
+    out.clip_pos.y /= window_size.y;
 
     if vertex.face == TOP {
         // top face gets dimmer with depth

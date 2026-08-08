@@ -168,8 +168,8 @@ impl Graphics {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Device"),
-                // required_features: wgpu::Features::POLYGON_MODE_LINE,
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
+                // required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
@@ -507,7 +507,7 @@ impl Graphics {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &self.depth_texture_view,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    load: wgpu::LoadOp::Clear(0.0),
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
@@ -559,11 +559,12 @@ impl Graphics {
     /// Sets the active [`View`] in [`Self::uniforms`] and uploads the updated uniforms to
     /// [`Self::uniform_buffer`].
     pub fn set_view(&mut self, view: View) {
-        if self.uniforms.view() == view {
-            return;
-        } else {
-            self.uniforms.set_view(view);
-        }
+        // if self.uniforms.view() == view {
+        //     return;
+        // } else {
+        //     self.uniforms.set_view(view);
+        // }
+        self.uniforms.set_view(view);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
