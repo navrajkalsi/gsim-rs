@@ -23,7 +23,6 @@ use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::KeyCode::Space,
     window::{Window, WindowId},
 };
 
@@ -85,9 +84,12 @@ pub struct Gui {
     /// as new projection is calculated during this state.
     left_mouse_pressed: bool,
 
-    /// Flag to track mouse events received while **shift key** is pressed.
-    /// This is set and unset on receiving an appropriate [`WindowEvent::KeyboardInput`] event.
-    space_pressed: bool,
+    /// Flag to track mouse events received while **middle-mouse-button** is pressed.
+    /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
+    ///
+    /// While this is set to `true` the toolpath is stopped,
+    /// as new projection is calculated during this state.
+    middle_mouse_pressed: bool,
 }
 
 impl Gui {
@@ -114,7 +116,7 @@ impl Gui {
             single: SINGLE,
             interacted: false,
             left_mouse_pressed: false,
-            space_pressed: false,
+            middle_mouse_pressed: false,
         }
     }
 
@@ -383,10 +385,7 @@ impl ApplicationHandler<Command> for Gui {
 
             WindowEvent::CloseRequested | WindowEvent::Destroyed => return event_loop.exit(),
 
-            // skip toolpath on orbiting and panning
-            WindowEvent::RedrawRequested
-                if self.interrupt.is_none() && !self.left_mouse_pressed =>
-            {
+            WindowEvent::RedrawRequested if self.interrupt.is_none() => {
                 match self.update() {
                     Ok(true) => true, // render
 
@@ -402,32 +401,38 @@ impl ApplicationHandler<Command> for Gui {
 
             WindowEvent::RedrawRequested => false, // just render
 
-            WindowEvent::KeyboardInput { event, .. } if event.physical_key == Space => {
-                if !self.interacted && self.left_mouse_pressed {
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Middle,
+                ..
+            } => {
+                if !self.interacted {
                     // first interaction for oribiting after a preset view
                     // forfeit current view in tui
                     self.interacted = true;
                     self.send_signal(Signal::Interact);
                 }
 
-                self.space_pressed = match event.state {
+                self.middle_mouse_pressed = match state {
                     ElementState::Pressed => true,
-                    ElementState::Released => false,
+                    ElementState::Released if self.single => false,
+                    ElementState::Released => {
+                        self.redraw(); // to resume simulation
+                        false
+                    }
                 };
 
                 false
             }
 
-            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
-                if !self.interacted && self.space_pressed {
-                    // first interaction for oribiting after a preset view
-                    // forfeit current view in tui
-                    self.interacted = true;
-                    self.send_signal(Signal::Interact);
-                }
-
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
                 self.left_mouse_pressed = match state {
                     ElementState::Pressed => true,
+                    ElementState::Released if self.single => false,
                     ElementState::Released => {
                         self.redraw(); // to resume simulation
                         false
@@ -468,15 +473,17 @@ impl ApplicationHandler<Command> for Gui {
             None => return,
         };
 
+        // handle pointer movement here as this is raw data
         match event {
-            // handle pointer movement here as this is raw data
+            // prioritize orbiting
+            DeviceEvent::MouseMotion { delta } if self.middle_mouse_pressed => {
+                let delta = [delta.0 as f32, delta.1.neg() as f32];
+                graphics.orbit(delta) // orbiting
+            }
+
             DeviceEvent::MouseMotion { delta } if self.left_mouse_pressed => {
                 let delta = [delta.0 as f32, delta.1.neg() as f32];
-
-                match self.space_pressed {
-                    true => graphics.orbit(delta), // orbiting
-                    false => graphics.pan(delta),  // panning
-                }
+                graphics.pan(delta) // panning
             }
 
             _ => return,

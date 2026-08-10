@@ -60,6 +60,11 @@ impl Point {
             Plane::YZ => ((self.y - other.y).powi(2) + (self.z - other.z).powi(2)).sqrt(),
         }
     }
+
+    /// Returns coordinates of the point as an array.
+    pub fn as_array(&self) -> [f32; 3] {
+        [self.x, self.y, self.z]
+    }
 }
 
 impl Add for Point {

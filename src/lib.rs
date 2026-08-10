@@ -24,6 +24,7 @@ use crate::{
 };
 use clap::Parser as _;
 use std::{
+    f32::consts::PI,
     fmt::Display,
     sync::{Arc, Mutex},
 };
@@ -99,6 +100,16 @@ pub enum View {
     Isometric,
     /// Simlutate `X` & `Y` axes, from **top view**.
     Top,
+}
+
+impl View {
+    // order of rotations: z,y,x
+    pub fn rotations(&self) -> [f32; 3] {
+        match self {
+            View::Isometric => [(PI / 2.0) - 0.615473, 0.0, -PI / 4.0],
+            View::Top => [0.0, 0.0, 0.0],
+        }
+    }
 }
 
 // required for use in gui uniforms

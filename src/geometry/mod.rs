@@ -27,6 +27,7 @@
 //! maximum travels are **positive**.
 
 pub mod line;
+mod math;
 pub mod stock;
 pub mod tools;
 pub mod uniforms;

@@ -38,24 +38,21 @@ pub struct BlockSummary {
 impl BlockSummary {
     /// Returns `true` if this block caused a successful tool change.
     pub fn is_tool_change(&self) -> bool {
-        match self.mcode {
-            Some(MCode::ToolChange(_)) => true,
-            _ => false,
-        }
+        matches!(self.mcode, Some(MCode::ToolChange(_)))
     }
 
     /// Returns `true` if this block lead to an [`Interrupt`].
     pub fn is_interrupt(&self) -> bool {
-        match self.mcode {
-            Some(MCode::Stop) | Some(MCode::OptionalStop) | Some(MCode::End) => true,
-            _ => false,
-        }
+        matches!(
+            self.mcode,
+            Some(MCode::Stop) | Some(MCode::OptionalStop) | Some(MCode::End)
+        )
     }
 }
 
-impl Into<Option<Interrupt>> for &BlockSummary {
-    fn into(self) -> Option<Interrupt> {
-        match self.mcode? {
+impl From<&BlockSummary> for Option<Interrupt> {
+    fn from(summary: &BlockSummary) -> Self {
+        match summary.mcode? {
             MCode::Stop => Some(Interrupt::Stop),
             MCode::OptionalStop => Some(Interrupt::OptionalStop),
             MCode::End => Some(Interrupt::End),

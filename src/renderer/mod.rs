@@ -14,7 +14,7 @@ use crate::{
         line::{BufferAction, LineInstance, LinesTracker},
         stock::{StockInstance, StockTracker},
         tools::ToolInstance,
-        uniforms::Uniforms,
+        uniforms::{Transform, Uniforms},
     },
     points::Point,
 };
@@ -93,7 +93,11 @@ pub struct Graphics {
     stock_tracker: StockTracker,
 
     /// Constant data shared across all the pipelines.
-    uniforms: Uniforms,
+    //
+    // TODO
+    //
+    transform: Transform,
+
     /// Read-only buffer containing [`Self::uniforms`].
     uniform_buffer: wgpu::Buffer,
     /// GPU bind group, with entry bound to [`Self::uniform_buffer`].
@@ -164,13 +168,19 @@ impl Graphics {
             })
             .await?;
 
+        // set immediate limit to transfer a 4 byte type to the shaders
+        let limits = wgpu::Limits {
+            max_immediate_size: 4,
+            ..Default::default()
+        };
+
         // logical connection to a gpu and its command queue
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Device"),
-                required_features: wgpu::Features::POLYGON_MODE_LINE,
-                // required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::defaults(),
+                // required_features: wgpu::Features::POLYGON_MODE_LINE | wgpu::Features::IMMEDIATES,
+                required_features: wgpu::Features::IMMEDIATES,
+                required_limits: limits,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
@@ -203,10 +213,10 @@ impl Graphics {
 
         let (msaa_texture, msaa_texture_view) = msaa_texture(&device, window_size, surface_format);
 
-        let uniforms = Uniforms::new(window_size, config.stock);
+        let transform = Transform::new(window_size, config.stock);
 
         let (uniform_buffer, uniform_bind_group_layout, uniform_bind_group) =
-            uniforms::setup_uniforms(uniforms, &device);
+            uniforms::setup_uniforms(transform.into(), &device);
 
         let (lines_pipeline, lines_vertex_buffer, lines_instance_buffer, lines_index_buffer) =
             line::setup_pipeline(&device, &uniform_bind_group_layout, surface_format);
@@ -263,7 +273,7 @@ impl Graphics {
 
             stock_tracker,
 
-            uniforms,
+            transform,
             uniform_buffer,
             uniform_bind_group,
 
@@ -298,11 +308,11 @@ impl Graphics {
         (self.msaa_texture, self.msaa_texture_view) =
             msaa_texture(&self.device, new_size, self.surface_config.format);
 
-        self.uniforms.resize(new_size);
+        self.transform.resize(new_size);
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
         );
         self.configured = true;
     }
@@ -522,6 +532,8 @@ impl Graphics {
         // stock
         if self.stock {
             render_pass.set_pipeline(&self.stock_pipeline);
+            // pass stock height to the shader as immediates
+            render_pass.set_immediates(0, bytemuck::cast_slice(&[self.stock_tracker.size.z]));
             render_pass.set_vertex_buffer(0, self.stock_vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.stock_instance_buffer.slice(..));
             render_pass
@@ -559,17 +571,18 @@ impl Graphics {
     /// Sets the active [`View`] in [`Self::uniforms`] and uploads the updated uniforms to
     /// [`Self::uniform_buffer`].
     pub fn set_view(&mut self, view: View) {
-        // if self.uniforms.view() == view {
-        //     return;
-        // } else {
-        //     self.uniforms.set_view(view);
-        // }
-        self.uniforms.set_view(view);
+        if let Some(set_view) = self.transform.view()
+            && set_view == view
+        {
+            return;
+        } else {
+            self.transform.set_view(view);
+        }
 
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
         );
     }
 
@@ -584,32 +597,32 @@ impl Graphics {
     }
 
     pub fn zoom(&mut self, amount: f32) {
-        self.uniforms.add_user_scale(amount);
+        self.transform.scale(amount);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
         );
     }
 
     pub fn pan(&mut self, amount: [f32; 2]) {
-        self.uniforms.add_user_offset(amount);
+        self.transform.translate(amount);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
         );
     }
 
     pub fn orbit(&mut self, amount: [f32; 2]) {
-        self.uniforms.add_user_projection(amount);
+        self.transform.rotate(amount);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
         );
     }
 }

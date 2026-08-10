@@ -284,7 +284,7 @@ impl Tui {
             Ok(false)
         } else {
             match key.code {
-                KeyCode::Char('Q') => return Ok(true),
+                KeyCode::Char('Q') => Ok(true),
 
                 KeyCode::Char('n') if self.single => {
                     self.proxy.send_event(Command::Next).unwrap();
@@ -307,7 +307,7 @@ impl Tui {
             Ok(false)
         } else {
             match key.code {
-                KeyCode::Char('Q') => return Ok(true),
+                KeyCode::Char('Q') => Ok(true),
 
                 KeyCode::Enter => {
                     self.interrupt = match self.interrupt.unwrap() {
@@ -543,11 +543,7 @@ impl Tui {
     /// One line of context is also provided in the preview.
     /// Does not highlight first line if the start interrupt is detected.
     fn preview_widget(&self) -> Paragraph<'_> {
-        let start_interrupt = if let Some(Interrupt::Start) = self.interrupt {
-            true
-        } else {
-            false
-        };
+        let start_interrupt = matches!(self.interrupt, Some(Interrupt::Start));
 
         let current = self.current;
 

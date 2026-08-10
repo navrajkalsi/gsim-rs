@@ -35,7 +35,7 @@ pub fn setup_pipeline(
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Stock Pipeline Layout"),
         bind_group_layouts: &[Some(uniform_bind_group_layout)],
-        immediate_size: 0,
+        immediate_size: 4, // an f32
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

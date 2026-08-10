@@ -6,15 +6,7 @@
 // https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
 
 struct Uniforms {
-    center: mat4x4<f32>,
-    scale: mat4x4<f32>,
-    x_rotation: mat4x4<f32>,
-    y_rotation: mat4x4<f32>,
-    z_rotation: mat4x4<f32>,
-    stock_size: vec4<f32>,
-    window_size: vec2<f32>,
-    bounding_cube_edge: f32,
-    user_scale: f32,
+    matrix: mat4x4<f32>,
 };
 
 @group(0) @binding(0)
@@ -39,18 +31,13 @@ struct VertexOutput {
 const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
 const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
 
-const STROKE_WIDTH = 4.0;
-const SMOOTHING = 2.0; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
+const STROKE_WIDTH = 0.005;
+const SMOOTHING = 0.0025; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
 fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
-    var start = uniforms.scale * (uniforms.x_rotation * (uniforms.y_rotation * (uniforms.z_rotation * (uniforms.center * vec4<f32>(instance.start,
-        1.0)))));
-    var end = uniforms.scale * (uniforms.x_rotation * (uniforms.y_rotation * (uniforms.z_rotation *
-    (uniforms.center * vec4<f32>(instance.end,
-        1.0)))));
-
-    let window_size = uniforms.window_size;
+    var start = uniforms.matrix * vec4<f32>(instance.start, 1.0);
+    var end = uniforms.matrix * vec4<f32>(instance.end, 1.0);
 
     // unit vector from start to end
     let dir = normalize(end - start);
@@ -69,7 +56,7 @@ fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
     let depth = select(start.z, end.z, quad.vertex > 1) + 0.001;
 
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(pos / window_size, depth, 1.0);
+    out.clip_position = vec4<f32>(pos, depth, 1.0);
     out.color = select(FEED_MOVE_COLOR, RAPID_MOVE_COLOR, instance.move_type == 0);
     out.center = side;
     return out;

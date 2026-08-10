@@ -283,7 +283,7 @@ pub struct StockTracker {
     /// Voxel instance counts along X & Y axis.
     voxel_counts: (usize, usize),
     /// Size of the cuboid being represented.
-    size: Point,
+    pub size: Point,
     /// Total count of voxel instances. Hidden and visible.
     pub total_count: usize,
     /// Index of the first voxel instance whose state changed recently, as a result of
