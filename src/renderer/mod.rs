@@ -616,7 +616,7 @@ impl Graphics {
         );
     }
 
-    pub fn orbit(&mut self, amount: [f32; 2]) {
+    pub fn orbit(&mut self, amount: [f32; 3]) {
         self.transform.rotate(amount);
 
         self.queue.write_buffer(

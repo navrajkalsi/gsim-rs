@@ -157,14 +157,6 @@ impl Display for Interrupt {
 /// to the [`Winit`](winit) event loop.
 #[derive(Debug)]
 pub enum Command {
-    SetView(View),
-    SetSingle(bool),
-    SetToolVisibility(bool),
-    SetToolpathVisibility(bool),
-    SetStockVisibility(bool),
-    SetSpeed(Speed),
-    ClearInterrupt,
-    Next,
     Stop,
 }
 
@@ -185,7 +177,12 @@ pub enum Signal {
         machine: Machine,
         current: usize,
     },
-    Interact,
+    SetView(Option<View>),
+    SetSingle(bool),
+    SetToolVisibility(bool),
+    SetToolpathVisibility(bool),
+    SetStockVisibility(bool),
+    SetSpeed(Speed),
     Stop,
 }
 

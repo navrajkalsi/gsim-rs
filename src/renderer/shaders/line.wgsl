@@ -28,6 +28,10 @@ struct VertexOutput {
     @location(1) center: f32, // distance from center
 };
 
+// how much to lift up toolpath above the stock in machine units
+// useful for fighting floating precision
+const Z_OFFSET = 0.1;
+
 const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
 const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
 
@@ -36,8 +40,8 @@ const SMOOTHING = 0.0025; // width of are on each side of line that is used to f
 
 @vertex
 fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
-    var start = uniforms.matrix * vec4<f32>(instance.start, 1.0);
-    var end = uniforms.matrix * vec4<f32>(instance.end, 1.0);
+    var start = uniforms.matrix * vec4<f32>(instance.start.xy, instance.start.z + Z_OFFSET, 1.0);
+    var end = uniforms.matrix * vec4<f32>(instance.end.xy, instance.end.z + Z_OFFSET, 1.0);
 
     // unit vector from start to end
     let dir = normalize(end - start);
@@ -53,7 +57,7 @@ fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
     // use first two vertex invocations for start side
     let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
     // make sure that the toolpath is a little above the stock
-    let depth = select(start.z, end.z, quad.vertex > 1) + 0.001;
+    let depth = select(start.z, end.z, quad.vertex > 1);
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>(pos, depth, 1.0);

@@ -124,9 +124,10 @@ impl Transform {
             .clamp(-max_scale_manipulation / 2.0, max_scale_manipulation * 2.0);
     }
 
-    pub fn rotate(&mut self, delta: [f32; 2]) {
+    pub fn rotate(&mut self, delta: [f32; 3]) {
         self.rotations[1] -= delta[0] * MOUSE_SENSITIVITY;
         self.rotations[0] += delta[1] * MOUSE_SENSITIVITY;
+        self.rotations[2] += delta[2] * MOUSE_SENSITIVITY;
 
         self.view = None;
     }

@@ -53,11 +53,8 @@ fn vs_main(vertex: Vertex, instance: Instance) -> VertexOutput {
     let xy = instance.center + vertex.xy;
     let z = select(instance.height, 0.0, vertex.z == 0);
 
-    let world = uniforms.matrix * vec4<f32>(xy, z, 1.0);
-
     var out: VertexOutput;
-
-    out.clip_pos = world;
+    out.clip_pos = uniforms.matrix * vec4<f32>(xy, z, 1.0);
 
     if vertex.face == TOP {
         // top face gets dimmer with depth

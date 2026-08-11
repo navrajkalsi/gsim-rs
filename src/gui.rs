@@ -9,7 +9,7 @@
 //! reflecting new active state.
 
 use crate::{
-    Command, Interrupt, SINGLE, Signal,
+    Command, Interrupt, SINGLE, Signal, Speed, View,
     config::Config,
     interpreter::{Interpreter, InterpreterError},
     machine::MotionSummary,
@@ -21,8 +21,11 @@ use std::{
 };
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{
+        DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent,
+    },
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    keyboard::{Key, KeyCode, PhysicalKey, SmolStr},
     window::{Window, WindowId},
 };
 
@@ -70,12 +73,15 @@ pub struct Gui {
     /// and is used determine when to wait for [`Command::Next`] from the tui thread.
     single: bool,
 
+    /// Simulation speed.
+    speed: Speed,
+
     /// Flag to set when the user has orbited the [`Graphics::window`] with their mouse,
     /// to signal that the current view setting is now to be forfeited.
     ///
     /// This is set to `false` when [`Command::SetView`] is received,
     /// that resets the view to a predefined viewing angle.
-    interacted: bool,
+    view: Option<View>,
 
     /// Flag to track mouse events received while **left-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
@@ -83,6 +89,13 @@ pub struct Gui {
     /// While this is set to `true` the toolpath is stopped,
     /// as new projection is calculated during this state.
     left_mouse_pressed: bool,
+
+    /// Flag to track mouse events received while **right-mouse-button** is pressed.
+    /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
+    ///
+    /// While this is set to `true` the toolpath is stopped,
+    /// as new projection is calculated during this state.
+    right_mouse_pressed: bool,
 
     /// Flag to track mouse events received while **middle-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
@@ -114,8 +127,10 @@ impl Gui {
             interrupt: Some(Interrupt::Start),
             event_loop: Some(event_loop),
             single: SINGLE,
-            interacted: false,
+            speed: Speed::default(),
+            view: Some(View::default()),
             left_mouse_pressed: false,
+            right_mouse_pressed: false,
             middle_mouse_pressed: false,
         }
     }
@@ -189,7 +204,7 @@ impl Gui {
 
             if self.single {
                 match self.command {
-                    Some(Command::Next) | Some(Command::SetSingle(_)) => (), // only proceed if commanded next or set single
+                    // Some(Command::Next) | Some(Command::SetSingle(_)) => (), // only proceed if commanded next or set single
                     _ => return Ok(true), // render as the command may have changed some static objects
                 }
             };
@@ -304,6 +319,89 @@ impl Gui {
 
         Ok(motion)
     }
+
+    // some means key event was recorded
+    fn handle_key_input(&mut self, key: KeyEvent) -> Option<bool> {
+        if key.state.is_pressed() {
+            return None; // only consider release events
+        }
+
+        let key_code = match key.physical_key {
+            PhysicalKey::Code(key_code) => key_code,
+            PhysicalKey::Unidentified(_) => return None,
+        };
+
+        let graphics = self.graphics.as_mut().expect("app has been started");
+
+        match key_code {
+            KeyCode::KeyV => {
+                let new_view = match self.view {
+                    Some(View::Isometric) => View::Top,
+                    Some(View::Top) => View::Isometric,
+                    None => View::default(),
+                };
+
+                self.view = Some(new_view);
+                graphics.set_view(new_view);
+                self.send_signal(Signal::SetView(self.view));
+                Some(true)
+            }
+
+            KeyCode::Digit1 => {
+                self.single = !self.single;
+                self.send_signal(Signal::SetSingle(self.single));
+                Some(false)
+            }
+
+            KeyCode::KeyT => {
+                let new_tool_visibility = !graphics.tool;
+                graphics.tool = new_tool_visibility;
+                self.send_signal(Signal::SetToolVisibility(new_tool_visibility));
+                Some(true)
+            }
+
+            KeyCode::KeyP => {
+                let new_toolpath_visibility = !graphics.toolpath;
+                graphics.toolpath = new_toolpath_visibility;
+                self.send_signal(Signal::SetToolpathVisibility(new_toolpath_visibility));
+                Some(true)
+            }
+
+            KeyCode::KeyS => {
+                let new_stock_visibility = !graphics.stock;
+                graphics.stock = new_stock_visibility;
+                self.send_signal(Signal::SetStockVisibility(new_stock_visibility));
+                Some(true)
+            }
+
+            KeyCode::NumpadAdd if self.speed.inc() => {
+                graphics.speed = self.speed;
+                self.send_signal(Signal::SetSpeed(self.speed));
+                Some(false)
+            }
+
+            KeyCode::Minus if self.speed.dec() => {
+                graphics.speed = self.speed;
+                self.send_signal(Signal::SetSpeed(self.speed));
+                Some(false)
+            }
+
+            KeyCode::Enter => {
+                match self.interrupt {
+                    Some(Interrupt::End) => self.reload(),
+                    _ => {
+                        self.interrupt = None;
+                        self.redraw(); // resume simulation
+                    }
+                };
+                Some(false)
+            }
+
+            KeyCode::KeyN if self.single => Some(true),
+
+            _ => None,
+        }
+    }
 }
 
 impl ApplicationHandler<Command> for Gui {
@@ -399,31 +497,7 @@ impl ApplicationHandler<Command> for Gui {
                 }
             }
 
-            WindowEvent::RedrawRequested => false, // just render
-
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Middle,
-                ..
-            } => {
-                if !self.interacted {
-                    // first interaction for oribiting after a preset view
-                    // forfeit current view in tui
-                    self.interacted = true;
-                    self.send_signal(Signal::Interact);
-                }
-
-                self.middle_mouse_pressed = match state {
-                    ElementState::Pressed => true,
-                    ElementState::Released if self.single => false,
-                    ElementState::Released => {
-                        self.redraw(); // to resume simulation
-                        false
-                    }
-                };
-
-                false
-            }
+            WindowEvent::RedrawRequested => true, // just render
 
             WindowEvent::MouseInput {
                 state,
@@ -433,10 +507,49 @@ impl ApplicationHandler<Command> for Gui {
                 self.left_mouse_pressed = match state {
                     ElementState::Pressed => true,
                     ElementState::Released if self.single => false,
-                    ElementState::Released => {
-                        self.redraw(); // to resume simulation
-                        false
-                    }
+                    ElementState::Released => false,
+                };
+
+                false
+            }
+
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Right,
+                ..
+            } => {
+                if self.view.is_some() {
+                    // first interaction for oribiting after a preset view
+                    // forfeit current view
+                    self.view = None;
+                    self.send_signal(Signal::SetView(None));
+                }
+
+                self.right_mouse_pressed = match state {
+                    ElementState::Pressed => true,
+                    ElementState::Released if self.single => false,
+                    ElementState::Released => false,
+                };
+
+                false
+            }
+
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Middle,
+                ..
+            } => {
+                if self.view.is_some() {
+                    // first interaction for oribiting after a preset view
+                    // forfeit current view
+                    self.view = None;
+                    self.send_signal(Signal::SetView(None));
+                }
+
+                self.middle_mouse_pressed = match state {
+                    ElementState::Pressed => true,
+                    ElementState::Released if self.single => false,
+                    ElementState::Released => false,
                 };
 
                 false
@@ -448,6 +561,11 @@ impl ApplicationHandler<Command> for Gui {
                     false
                 }
                 MouseScrollDelta::PixelDelta(_) => return, // does not support touchpads yet
+            },
+
+            WindowEvent::KeyboardInput { event, .. } => match self.handle_key_input(event) {
+                Some(render) => render,
+                None => return,
             },
 
             _ => return,
@@ -477,8 +595,13 @@ impl ApplicationHandler<Command> for Gui {
         match event {
             // prioritize orbiting
             DeviceEvent::MouseMotion { delta } if self.middle_mouse_pressed => {
-                let delta = [delta.0 as f32, delta.1.neg() as f32];
-                graphics.orbit(delta) // orbiting
+                let delta = [delta.0 as f32, delta.1.neg() as f32, 0.0];
+                graphics.orbit(delta) // orbiting around x and y
+            }
+
+            DeviceEvent::MouseMotion { delta } if self.right_mouse_pressed => {
+                let delta = [0.0, 0.0, delta.1 as f32];
+                graphics.orbit(delta) // orbiting around z
             }
 
             DeviceEvent::MouseMotion { delta } if self.left_mouse_pressed => {
@@ -501,31 +624,7 @@ impl ApplicationHandler<Command> for Gui {
     /// in case of [`Command::Stop`], exits the loop.
     /// Latest command is always stored at the end.
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
-        let graphics = self.graphics.as_mut().expect("app has been started");
-
         match &event {
-            Command::SetView(view) => {
-                self.interacted = false;
-                graphics.set_view(*view)
-            }
-
-            Command::SetSingle(single) => self.single = *single,
-
-            Command::SetToolVisibility(tool) => graphics.tool = *tool,
-
-            Command::SetToolpathVisibility(toolpath) => graphics.toolpath = *toolpath,
-
-            Command::SetStockVisibility(stock) => graphics.stock = *stock,
-
-            Command::SetSpeed(speed) => graphics.speed = *speed,
-
-            Command::ClearInterrupt => match self.interrupt {
-                Some(Interrupt::End) => self.reload(),
-                _ => self.interrupt = None,
-            },
-
-            Command::Next => (), // just redraw
-
             Command::Stop => event_loop.exit(),
         }
 

@@ -190,16 +190,8 @@ impl Tui {
     {
         let mut time_tracker = Instant::now();
 
-        // this is to prevent reset self.view to None again.
-        //
-        // if an interrupt is active and the user interacts with the window during the interrupt,
-        // the program will change again change self.view to None since the self.signal is still
-        // signal::interact as an interrupt is active. therefore this prevents from rewriting
-        // self.view to None on subsequent loop iterations.
-        let mut handled_interact = false;
-
         loop {
-            let stop = match self.refresh_signal() {
+            match self.refresh_signal() {
                 Signal::Run {
                     summary,
                     machine,
@@ -208,8 +200,6 @@ impl Tui {
                     self.summary = Some(summary);
                     self.machine = machine;
                     self.current = current;
-                    handled_interact = false;
-                    self.handle_run_input()?
                 }
 
                 Signal::Pause {
@@ -221,8 +211,6 @@ impl Tui {
                     self.interrupt = Some(self.interrupt.unwrap_or(interrupt));
                     self.machine = machine;
                     self.current = current;
-                    handled_interact = false;
-                    self.handle_pause_input()?
                 }
 
                 Signal::Error {
@@ -233,30 +221,23 @@ impl Tui {
                     self.error = Some(error);
                     self.machine = machine;
                     self.current = current;
-                    handled_interact = false;
-                    self.handle_error_input()? // error is returned here
+                    return Err(self.error.unwrap().into());
                 }
 
-                Signal::Interact => {
-                    // user can also interact also during an interrupt
-                    if !handled_interact {
-                        self.view = None;
-                        handled_interact = true;
-                    }
+                Signal::SetView(view) => self.view = view,
 
-                    if self.interrupt.is_some() {
-                        self.handle_pause_input()?
-                    } else {
-                        self.handle_run_input()?
-                    }
-                }
+                Signal::SetSingle(single) => self.single = single,
 
-                Signal::Stop => true,
+                Signal::SetToolVisibility(tool) => self.tool = tool,
+
+                Signal::SetToolpathVisibility(toolpath) => self.toolpath = toolpath,
+
+                Signal::SetStockVisibility(stock) => self.stock = stock,
+
+                Signal::SetSpeed(speed) => self.speed = speed,
+
+                Signal::Stop => return Ok(()),
             };
-
-            if stop {
-                return Ok(());
-            }
 
             if time_tracker.elapsed() > TIME_BETWEEN_FRAMES {
                 terminal.draw(|frame| self.draw(frame))?;
@@ -271,132 +252,6 @@ impl Tui {
     /// This [`Signal`] may or may not be different from the one used for previous frame.
     fn refresh_signal(&mut self) -> Signal {
         self.signal.lock().unwrap().clone()
-    }
-
-    /// Handles every key event possible for a [`Signal::Run`].
-    /// Can also be used for a [`Signal::Interact`] as both have the exact same possible events.
-    fn handle_run_input(&mut self) -> Result<bool, std::io::Error> {
-        let Some(key) = poll_key_press()? else {
-            return Ok(false);
-        };
-
-        if self.handle_common_keys(key) {
-            Ok(false)
-        } else {
-            match key.code {
-                KeyCode::Char('Q') => Ok(true),
-
-                KeyCode::Char('n') if self.single => {
-                    self.proxy.send_event(Command::Next).unwrap();
-                    Ok(false)
-                }
-
-                _ => Ok(false),
-            }
-        }
-    }
-
-    /// Handles every key event possible for a [`Signal::Pause`].
-    /// Can also be used for a [`Signal::Interact`] if an [`Interrupt`] is active.
-    fn handle_pause_input(&mut self) -> Result<bool, std::io::Error> {
-        let Some(key) = poll_key_press()? else {
-            return Ok(false);
-        };
-
-        if self.handle_common_keys(key) {
-            Ok(false)
-        } else {
-            match key.code {
-                KeyCode::Char('Q') => Ok(true),
-
-                KeyCode::Enter => {
-                    self.interrupt = match self.interrupt.unwrap() {
-                        Interrupt::End => Some(Interrupt::Start),
-                        _ => None,
-                    };
-                    self.proxy.send_event(Command::ClearInterrupt).unwrap();
-                    Ok(false)
-                }
-
-                _ => Ok(false),
-            }
-        }
-    }
-
-    /// Handles every key event possible for a [`Signal::Error`].
-    /// On receiving the appropriate user input, [`Self::error`] is returned through this call.
-    fn handle_error_input(&mut self) -> anyhow::Result<bool> {
-        let Some(key) = poll_key_press()? else {
-            return Ok(false);
-        };
-
-        match key.code {
-            KeyCode::Char('Q') | KeyCode::Enter | KeyCode::Esc => Err(self
-                .error
-                .expect("should be called only on error signal")
-                .into()),
-
-            _ => Ok(false),
-        }
-    }
-
-    /// Handles common key inputs for [`Signal::Run`], [`Signal::Pause`] and [`Signal::Interact`].
-    /// Returns `true` if the event was handled.
-    fn handle_common_keys(&mut self, key: KeyEvent) -> bool {
-        match key.code {
-            KeyCode::Char('v') => {
-                let new_view = match self.view {
-                    Some(View::Isometric) => View::Top,
-                    Some(View::Top) => View::Isometric,
-                    None => View::Isometric,
-                };
-
-                self.view = Some(new_view);
-                self.proxy.send_event(Command::SetView(new_view)).unwrap();
-            }
-
-            KeyCode::Char('1') => {
-                self.single = !self.single;
-                self.proxy
-                    .send_event(Command::SetSingle(self.single))
-                    .unwrap()
-            }
-
-            KeyCode::Char('t') => {
-                self.tool = !self.tool;
-                self.proxy
-                    .send_event(Command::SetToolVisibility(self.tool))
-                    .unwrap()
-            }
-
-            KeyCode::Char('p') => {
-                self.toolpath = !self.toolpath;
-                self.proxy
-                    .send_event(Command::SetToolpathVisibility(self.toolpath))
-                    .unwrap()
-            }
-
-            KeyCode::Char('s') => {
-                self.stock = !self.stock;
-                self.proxy
-                    .send_event(Command::SetStockVisibility(self.stock))
-                    .unwrap()
-            }
-
-            KeyCode::Char('+') if self.speed.inc() => self
-                .proxy
-                .send_event(Command::SetSpeed(self.speed))
-                .unwrap(),
-
-            KeyCode::Char('-') if self.speed.dec() => self
-                .proxy
-                .send_event(Command::SetSpeed(self.speed))
-                .unwrap(),
-
-            _ => return false,
-        };
-
-        true
     }
 
     /// Prepares individual sections of the terminal screen,
