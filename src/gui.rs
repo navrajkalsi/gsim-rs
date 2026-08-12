@@ -25,7 +25,7 @@ use winit::{
         DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent,
     },
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, KeyCode, PhysicalKey, SmolStr},
+    keyboard::{Key, KeyCode, NamedKey, PhysicalKey, SmolStr},
     window::{Window, WindowId},
 };
 
@@ -202,13 +202,6 @@ impl Gui {
         if proceed {
             // exhausted, execute new block and seed the line tracker
 
-            if self.single {
-                match self.command {
-                    // Some(Command::Next) | Some(Command::SetSingle(_)) => (), // only proceed if commanded next or set single
-                    _ => return Ok(true), // render as the command may have changed some static objects
-                }
-            };
-
             match self.execute() {
                 Ok(Some(motion)) => self.graphics.as_mut().unwrap().lines_tracker.add(motion),
 
@@ -326,67 +319,10 @@ impl Gui {
             return None; // only consider release events
         }
 
-        let key_code = match key.physical_key {
-            PhysicalKey::Code(key_code) => key_code,
-            PhysicalKey::Unidentified(_) => return None,
-        };
-
         let graphics = self.graphics.as_mut().expect("app has been started");
 
-        match key_code {
-            KeyCode::KeyV => {
-                let new_view = match self.view {
-                    Some(View::Isometric) => View::Top,
-                    Some(View::Top) => View::Isometric,
-                    None => View::default(),
-                };
-
-                self.view = Some(new_view);
-                graphics.set_view(new_view);
-                self.send_signal(Signal::SetView(self.view));
-                Some(true)
-            }
-
-            KeyCode::Digit1 => {
-                self.single = !self.single;
-                self.send_signal(Signal::SetSingle(self.single));
-                Some(false)
-            }
-
-            KeyCode::KeyT => {
-                let new_tool_visibility = !graphics.tool;
-                graphics.tool = new_tool_visibility;
-                self.send_signal(Signal::SetToolVisibility(new_tool_visibility));
-                Some(true)
-            }
-
-            KeyCode::KeyP => {
-                let new_toolpath_visibility = !graphics.toolpath;
-                graphics.toolpath = new_toolpath_visibility;
-                self.send_signal(Signal::SetToolpathVisibility(new_toolpath_visibility));
-                Some(true)
-            }
-
-            KeyCode::KeyS => {
-                let new_stock_visibility = !graphics.stock;
-                graphics.stock = new_stock_visibility;
-                self.send_signal(Signal::SetStockVisibility(new_stock_visibility));
-                Some(true)
-            }
-
-            KeyCode::NumpadAdd if self.speed.inc() => {
-                graphics.speed = self.speed;
-                self.send_signal(Signal::SetSpeed(self.speed));
-                Some(false)
-            }
-
-            KeyCode::Minus if self.speed.dec() => {
-                graphics.speed = self.speed;
-                self.send_signal(Signal::SetSpeed(self.speed));
-                Some(false)
-            }
-
-            KeyCode::Enter => {
+        match key.logical_key {
+            Key::Named(NamedKey::Enter) => {
                 match self.interrupt {
                     Some(Interrupt::End) => self.reload(),
                     _ => {
@@ -394,10 +330,75 @@ impl Gui {
                         self.redraw(); // resume simulation
                     }
                 };
+
                 Some(false)
             }
 
-            KeyCode::KeyN if self.single => Some(true),
+            Key::Character(character) => match character.as_str() {
+                "1" => {
+                    self.single = !self.single;
+                    self.send_signal(Signal::SetSingle(self.single));
+
+                    if !self.single {
+                        self.redraw(); // resume simulation
+                    }
+
+                    Some(false)
+                }
+
+                "n" if self.single => {
+                    self.redraw(); // resume simulation
+                    Some(true)
+                }
+
+                "p" => {
+                    let new_toolpath_visibility = !graphics.toolpath;
+                    graphics.toolpath = new_toolpath_visibility;
+                    self.send_signal(Signal::SetToolpathVisibility(new_toolpath_visibility));
+                    Some(true)
+                }
+
+                "s" => {
+                    let new_stock_visibility = !graphics.stock;
+                    graphics.stock = new_stock_visibility;
+                    self.send_signal(Signal::SetStockVisibility(new_stock_visibility));
+                    Some(true)
+                }
+
+                "t" => {
+                    let new_tool_visibility = !graphics.tool;
+                    graphics.tool = new_tool_visibility;
+                    self.send_signal(Signal::SetToolVisibility(new_tool_visibility));
+                    Some(true)
+                }
+
+                "v" => {
+                    let new_view = match self.view {
+                        Some(View::Isometric) => View::Top,
+                        Some(View::Top) => View::Isometric,
+                        None => View::default(),
+                    };
+
+                    self.view = Some(new_view);
+                    graphics.set_view(new_view);
+                    self.send_signal(Signal::SetView(self.view));
+                    Some(true)
+                }
+
+                "+" if self.speed.inc() => {
+                    graphics.speed = self.speed;
+                    self.send_signal(Signal::SetSpeed(self.speed));
+                    Some(false)
+                }
+
+                "-" if self.speed.dec() => {
+                    graphics.speed = self.speed;
+                    self.send_signal(Signal::SetSpeed(self.speed));
+                    Some(false)
+                }
+
+                _ => None,
+            },
 
             _ => None,
         }

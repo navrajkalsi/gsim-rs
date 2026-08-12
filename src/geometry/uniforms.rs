@@ -54,7 +54,9 @@ fn z_scale(bounding_cube_edge: f32) -> f32 {
 #[derive(Copy, Clone, Debug)]
 pub struct Transform {
     stock_size: [f32; 3],
-    rotations: [f32; 3],
+    // stores current rotations,
+    // also centers in machine units
+    orientation: Matrix,
     scales: [f32; 3],
     translations: [f32; 3],
     window_size: [f32; 2],
@@ -66,16 +68,17 @@ pub struct Transform {
 impl Transform {
     /// Constructs a new [`Uniforms`] with `view` set to [`View::default`].
     pub fn new(window_size: PhysicalSize<u32>, stock_size: Point) -> Self {
+        let stock_size = stock_size.as_array();
         let window_size = [window_size.width as f32, window_size.height as f32];
-        let bounding_cube_edge = max_bounding_cube_edge(stock_size.as_array());
+        let bounding_cube_edge = max_bounding_cube_edge(stock_size);
         // cannot scale directly to ndc as the volume is not a square
         // we NEED to go through pixels
         let xy_scale = xy_scale(window_size, bounding_cube_edge); // to pixels
         let z_scale = z_scale(bounding_cube_edge); // direct ndc
 
         Self {
-            stock_size: stock_size.as_array(),
-            rotations: View::default().rotations(),
+            stock_size,
+            orientation: Matrix::new(stock_size).rotate(View::default().rotations()),
             scales: [xy_scale, xy_scale, z_scale],
             translations: [0.0, 0.0, 0.5], // lifts up z to the center
             window_size,
@@ -98,7 +101,7 @@ impl Transform {
 
     /// Changes the active view and recalculates [`Self::projection`].
     pub fn set_view(&mut self, view: View) {
-        self.rotations = view.rotations();
+        self.orientation = Matrix::new(self.stock_size).rotate(view.rotations());
         self.view = Some(view);
     }
 
@@ -125,9 +128,13 @@ impl Transform {
     }
 
     pub fn rotate(&mut self, delta: [f32; 3]) {
-        self.rotations[1] -= delta[0] * MOUSE_SENSITIVITY;
-        self.rotations[0] += delta[1] * MOUSE_SENSITIVITY;
-        self.rotations[2] += delta[2] * MOUSE_SENSITIVITY;
+        let rotations = [
+            delta[1] * MOUSE_SENSITIVITY, // mouse movement in y rotates around x
+            delta[0] * MOUSE_SENSITIVITY,
+            delta[2] * MOUSE_SENSITIVITY,
+        ];
+
+        self.orientation = self.orientation.rotate(rotations);
 
         self.view = None;
     }
@@ -145,8 +152,8 @@ impl Transform {
 impl From<Transform> for Uniforms {
     fn from(transform: Transform) -> Self {
         Uniforms(
-            Matrix::new(transform.stock_size)
-                .rotate(transform.rotations) // must rotate first as units are the same
+            transform
+                .orientation
                 .scale(transform.final_scales()) // xy in pixels, z in ndc
                 .translate(transform.translations) // add panning in pixels and lift up z in ndc
                 .scale([

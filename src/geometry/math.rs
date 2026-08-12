@@ -87,9 +87,9 @@ impl Matrix {
         let sin = angle.sin();
 
         Self([
-            [cos, 0.0, sin, 0.0],
+            [cos, 0.0, -sin, 0.0],
             [0.0, 1.0, 0.0, 0.0],
-            [-sin, 0.0, cos, 0.0],
+            [sin, 0.0, cos, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }

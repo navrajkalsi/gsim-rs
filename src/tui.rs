@@ -200,6 +200,7 @@ impl Tui {
                     self.summary = Some(summary);
                     self.machine = machine;
                     self.current = current;
+                    self.interrupt = None;
                 }
 
                 Signal::Pause {
@@ -208,7 +209,7 @@ impl Tui {
                     current,
                 } => {
                     // if we are revisiting the same interrupt signal on the next frame
-                    self.interrupt = Some(self.interrupt.unwrap_or(interrupt));
+                    self.interrupt = Some(interrupt);
                     self.machine = machine;
                     self.current = current;
                 }
