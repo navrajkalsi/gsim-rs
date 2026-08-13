@@ -389,7 +389,7 @@ impl Graphics {
                 Ok((proceed, false))
             }
         } else {
-            Ok((proceed, render))
+            Ok((proceed, false))
         }
     }
 
@@ -578,6 +578,17 @@ impl Graphics {
         } else {
             self.transform.set_view(view);
         }
+
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[Uniforms::from(self.transform)]),
+        );
+    }
+
+    pub fn fit_view(&mut self) {
+        self.transform.reset_scale();
+        self.transform.reset_translations();
 
         self.queue.write_buffer(
             &self.uniform_buffer,

@@ -139,6 +139,16 @@ impl Transform {
         self.view = None;
     }
 
+    pub fn reset_translations(&mut self) {
+        self.translations[0] = 0.0;
+        self.translations[1] = 0.0;
+        // do not reset z translations as we need to pull z up in the center range
+    }
+
+    pub fn reset_scale(&mut self) {
+        self.user_scale = 0.0
+    }
+
     // adds any user scales
     fn final_scales(&self) -> [f32; 3] {
         [

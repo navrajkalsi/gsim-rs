@@ -14,7 +14,7 @@
 
 #[allow(unused_imports)]
 use crate::{
-    Command, Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
+    Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
     config::Unit,
     machine::{CircularDirection, FeedMode, Motion, Plane, Positioning},
     source::Source,
@@ -38,7 +38,10 @@ use ratatui::{
 use std::{
     error::Error,
     io::Stdout,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use winit::event_loop::EventLoopProxy;
@@ -73,11 +76,13 @@ const THEME: Theme = Theme {
 /// Current state of the [`Tui`](crate::tui).
 pub struct Tui {
     /// Event proxy for sending [`Command`]s to [`Gui`].
-    proxy: EventLoopProxy<Command>,
+    proxy: EventLoopProxy<()>,
 
     /// Current selected [`View`].
     /// [`None`] if the user has interacted with simulation window with their mouse.
     view: Option<View>,
+
+    fit: bool,
 
     /// Copy of source for previewing.
     source: Source,
@@ -114,7 +119,7 @@ pub struct Tui {
     machine: Machine,
 
     /// Index of the block that lead to the latest [`Signal`].
-    current: usize,
+    index: usize,
 }
 
 impl Tui {
@@ -122,19 +127,20 @@ impl Tui {
     ///
     /// The [`Self::view`] is set to [`View::default`],
     /// and [`Self::speed`] to [`Speed::default`].
-    pub fn new(proxy: EventLoopProxy<Command>, source: Source, signal: Arc<Mutex<Signal>>) -> Self {
-        let (interrupt, machine, current) = match &*signal.lock().unwrap() {
+    pub fn new(proxy: EventLoopProxy<()>, source: Source, signal: Arc<Mutex<Signal>>) -> Self {
+        let (interrupt, machine, index) = match &*signal.lock().unwrap() {
             Signal::Pause {
                 interrupt,
                 machine,
-                current,
-            } => (*interrupt, *machine, *current),
+                index,
+            } => (*interrupt, *machine, *index),
             _ => unreachable!("program should always start with an interrupt"),
         };
 
         Self {
             proxy,
             view: Some(View::default()),
+            fit: true,
             source,
             single: SINGLE,
             tool: TOOL,
@@ -146,7 +152,7 @@ impl Tui {
             error: None,
             summary: None,
             machine,
-            current,
+            index,
         }
     }
 
@@ -163,7 +169,7 @@ impl Tui {
         let mut terminal = match prepare_terminal() {
             Ok(t) => t,
             Err(e) => {
-                self.proxy.send_event(Command::Stop).unwrap();
+                self.proxy.send_event(()).unwrap();
                 return Err(e);
             }
         };
@@ -175,7 +181,7 @@ impl Tui {
             res = Err(e)
         };
 
-        let _ = self.proxy.send_event(Command::Stop); // may be err if main thread exited first
+        let _ = self.proxy.send_event(()); // may be err if main thread exited first
 
         res
     }
@@ -190,38 +196,49 @@ impl Tui {
     {
         let mut time_tracker = Instant::now();
 
-        loop {
+        // did the user initiate a os signal
+        // handles: SIGINT, SIGTERM and SIGHUP
+        let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+        let r = running.clone();
+
+        ctrlc::set_handler(move || r.store(false, Ordering::SeqCst))?;
+
+        while running.load(Ordering::SeqCst) {
+            if self.check_exit()? {
+                return Ok(());
+            }
+
             match self.refresh_signal() {
                 Signal::Run {
                     summary,
                     machine,
-                    current,
+                    index,
                 } => {
                     self.summary = Some(summary);
                     self.machine = machine;
-                    self.current = current;
+                    self.index = index;
                     self.interrupt = None;
                 }
 
                 Signal::Pause {
                     interrupt,
                     machine,
-                    current,
+                    index,
                 } => {
                     // if we are revisiting the same interrupt signal on the next frame
                     self.interrupt = Some(interrupt);
                     self.machine = machine;
-                    self.current = current;
+                    self.index = index;
                 }
 
                 Signal::Error {
                     error,
                     machine,
-                    current,
+                    index,
                 } => {
                     self.error = Some(error);
                     self.machine = machine;
-                    self.current = current;
+                    self.index = index;
                     return Err(self.error.unwrap().into());
                 }
 
@@ -237,6 +254,8 @@ impl Tui {
 
                 Signal::SetSpeed(speed) => self.speed = speed,
 
+                Signal::SetFit(fit) => self.fit = fit,
+
                 Signal::Stop => return Ok(()),
             };
 
@@ -246,6 +265,8 @@ impl Tui {
                 // time_tracker = Instant::now(); // not performant
             }
         }
+
+        Ok(())
     }
 
     /// Obtains the lock for [`Self::signal`], copies the [`Signal`] and returns it.
@@ -253,6 +274,16 @@ impl Tui {
     /// This [`Signal`] may or may not be different from the one used for previous frame.
     fn refresh_signal(&mut self) -> Signal {
         self.signal.lock().unwrap().clone()
+    }
+
+    /// Did the user use the terminal to exit the program.
+    fn check_exit(&mut self) -> Result<bool, std::io::Error> {
+        let exit = match poll_key_press()? {
+            Some(key) => key.code == KeyCode::Char('Q'),
+            None => false,
+        };
+
+        Ok(exit)
     }
 
     /// Prepares individual sections of the terminal screen,
@@ -401,7 +432,7 @@ impl Tui {
     fn preview_widget(&self) -> Paragraph<'_> {
         let start_interrupt = matches!(self.interrupt, Some(Interrupt::Start));
 
-        let current = self.current;
+        let current = self.index;
 
         const CONTEXT_COUNT: usize = 1; // num of lines to show before current line
         // max num of lines in total. one context, one current and rest look ahead
@@ -556,6 +587,15 @@ impl Tui {
             ),
             Span::styled(" | ", THEME.root),
             Span::styled(
+                "FIT",
+                if self.fit {
+                    THEME.active_mode
+                } else {
+                    THEME.inactive_mode
+                },
+            ),
+            Span::styled(" | ", THEME.root),
+            Span::styled(
                 "SINGLE",
                 if self.single {
                     THEME.active_mode
@@ -631,8 +671,13 @@ impl Tui {
             spans1.push(Span::styled(" Next Block ", THEME.key_desc));
         }
 
+        if !self.fit {
+            spans1.push(Span::styled("  f  ", THEME.key));
+            spans1.push(Span::styled(" Fit View ", THEME.key_desc));
+        }
+
         let spans2 = vec![
-            Span::styled("  1  ", THEME.key),
+            Span::styled("  Space  ", THEME.key),
             Span::styled(" Toggle Single ", THEME.key_desc),
             Span::styled("  t  ", THEME.key),
             Span::styled(" Toggle Tool ", THEME.key_desc),

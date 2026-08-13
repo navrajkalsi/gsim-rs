@@ -9,7 +9,7 @@
 //! reflecting new active state.
 
 use crate::{
-    Command, Interrupt, SINGLE, Signal, Speed, View,
+    Interrupt, SINGLE, Signal, Speed, View,
     config::Config,
     interpreter::{Interpreter, InterpreterError},
     machine::MotionSummary,
@@ -38,10 +38,6 @@ pub struct Gui {
     /// Active GPU graphics state. [`None`] before window creation.
     graphics: Option<Graphics>,
 
-    /// Latest [`Command`] received from the [`Tui`](crate::tui).
-    /// Required for checking tui thread status during termination.
-    command: Option<Command>,
-
     /// Stores any errors that occur during [`Graphics::render`], [`Self::resumed`] or [`Self::execute`].
     ///
     /// Exit behaviour differs depending on where the error originated from:
@@ -56,7 +52,7 @@ pub struct Gui {
 
     /// [`winit`] event loop that can receive user events in form of [`Command`]s.
     /// Consumed on [`Gui::run`] call.
-    event_loop: Option<EventLoop<Command>>,
+    event_loop: Option<EventLoop<()>>,
 
     /// An [`Arc`][`Mutex`] that can be altered to send [`Signal`]s to the [`Tui`](crate::tui).
     signal: Arc<Mutex<Signal>>,
@@ -73,6 +69,10 @@ pub struct Gui {
     /// and is used determine when to wait for [`Command::Next`] from the tui thread.
     single: bool,
 
+    // user requested to execute next block while in single block.
+    // reset to false on block fulfilling and turning off single block.
+    next_requested: bool,
+
     /// Simulation speed.
     speed: Speed,
 
@@ -82,6 +82,9 @@ pub struct Gui {
     /// This is set to `false` when [`Command::SetView`] is received,
     /// that resets the view to a predefined viewing angle.
     view: Option<View>,
+
+    /// Is [`Self::view`] zoomed in the most without overflow.
+    fit: bool,
 
     /// Flag to track mouse events received while **left-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
@@ -111,7 +114,7 @@ impl Gui {
     ///
     /// The event loop is configured to block and wait until a new (user or OS) event arrives.
     pub fn new(config: Config, signal: Arc<Mutex<Signal>>, interpreter: Interpreter) -> Self {
-        let event_loop = EventLoop::<Command>::with_user_event()
+        let event_loop = EventLoop::builder()
             .build()
             .expect("constructing on the main thread");
 
@@ -120,15 +123,16 @@ impl Gui {
         Self {
             config,
             graphics: None,
-            command: None,
             error: None,
             signal,
             interpreter,
             interrupt: Some(Interrupt::Start),
             event_loop: Some(event_loop),
             single: SINGLE,
+            next_requested: false,
             speed: Speed::default(),
             view: Some(View::default()),
+            fit: true,
             left_mouse_pressed: false,
             right_mouse_pressed: false,
             middle_mouse_pressed: false,
@@ -136,7 +140,7 @@ impl Gui {
     }
 
     /// Returns an [`EventLoopProxy`] for sending [`Command`]s to the [`Gui`] from other threads.
-    pub fn create_proxy(&self) -> EventLoopProxy<Command> {
+    pub fn create_proxy(&self) -> EventLoopProxy<()> {
         self.event_loop.as_ref().expect("run method will consume self, therefore eventloop will always be present if the user has a gui struct.").create_proxy()
     }
 
@@ -157,8 +161,10 @@ impl Gui {
     }
 
     /// Obtains the lock for [`Self::signal`] and updates it to match the new provided `signal`.
-    fn send_signal(&self, signal: Signal) {
-        *self.signal.lock().unwrap() = signal;
+    fn send_signal(&self, new_signal: Signal) {
+        if let Ok(mut signal) = self.signal.lock() {
+            *signal = new_signal
+        }
     }
 
     /// Requests redraw for [`Self::graphics`] window.
@@ -178,7 +184,7 @@ impl Gui {
         self.send_signal(Signal::Pause {
             interrupt: Interrupt::Start,
             machine: *self.interpreter.machine(),
-            current: 0,
+            index: 0,
         });
 
         if let Some(graphics) = self.graphics.as_mut() {
@@ -200,8 +206,16 @@ impl Gui {
         };
 
         if proceed {
-            // exhausted, execute new block and seed the line tracker
+            // in single mode and no next block was requested,
+            // therefore this redraw request was not related to the simulation
+            // as a block is always drawn to completion before checking for new ones
+            // only seed new block on user request
+            if self.single && !self.next_requested {
+                return Ok(false);
+            }
 
+            // not on single block
+            // exhausted, execute new block and seed the line tracker
             match self.execute() {
                 Ok(Some(motion)) => self.graphics.as_mut().unwrap().lines_tracker.add(motion),
 
@@ -215,25 +229,36 @@ impl Gui {
                     self.send_signal(Signal::Error {
                         error,
                         machine: *self.interpreter.machine(),
-                        current,
+                        index: current,
                     });
 
                     return Err(error.into());
                 }
             }
+
+            if self.single {
+                // if single mode is on, then this must be reset here so that next block is not triggered
+                self.next_requested = false;
+                // always render when lines have exhausted on single mode
+                // to make sure that the block is fully rendered
+                return Ok(true);
+            }
         }
 
+        // only pause the redraw simulation loop if single block is detected,
+        // and no next block is requsted,
+        // the simulation loop can now only resume with user input
+        // since we have already returned in this scenario, we can safely call redraw
+        //
         // redraw for newly added motion, draining previous motion, or execute new block if motion was None
-        if !self.single || !proceed {
-            // loops back to this func
-            //
-            // skips looping when proceed command is detected on single mode, as that must require
-            // user input for single mode to work
-            self.redraw();
-        }
+        // loops back to this func
+        //
+        // skips looping when proceed command is detected on single mode, as that must require
+        // user input for single mode to work
+        self.redraw();
 
         // always render when lines have exhausted on single mode
-        Ok(render || (self.single && proceed))
+        Ok(render)
     }
 
     /// Retrieves [`MotionSummary`] from [`Interpreter::execute`],
@@ -265,7 +290,7 @@ impl Gui {
                     Signal::Run {
                         summary: block.clone(),
                         machine,
-                        current,
+                        index: current,
                     },
                 )
             }
@@ -280,7 +305,7 @@ impl Gui {
                             .interrupt
                             .expect("it has been checked that this block causes an interrupt"),
                         machine,
-                        current,
+                        index: current,
                     },
                 )
             }
@@ -290,7 +315,7 @@ impl Gui {
                 Signal::Run {
                     summary: block.clone(),
                     machine,
-                    current,
+                    index: current,
                 },
             ),
 
@@ -302,7 +327,7 @@ impl Gui {
                     Signal::Pause {
                         interrupt: Interrupt::End,
                         machine,
-                        current,
+                        index: current,
                     },
                 )
             }
@@ -334,20 +359,31 @@ impl Gui {
                 Some(false)
             }
 
+            Key::Named(NamedKey::Space) => {
+                self.single = !self.single;
+                self.next_requested = false;
+
+                self.send_signal(Signal::SetSingle(self.single));
+
+                if !self.single {
+                    self.redraw(); // resume simulation
+                }
+
+                Some(false)
+            }
+
             Key::Character(character) => match character.as_str() {
-                "1" => {
-                    self.single = !self.single;
-                    self.send_signal(Signal::SetSingle(self.single));
+                "f" if !self.fit => {
+                    graphics.fit_view();
 
-                    if !self.single {
-                        self.redraw(); // resume simulation
-                    }
-
-                    Some(false)
+                    self.fit = true;
+                    self.send_signal(Signal::SetFit(true));
+                    Some(true)
                 }
 
                 "n" if self.single => {
                     self.redraw(); // resume simulation
+                    self.next_requested = true;
                     Some(true)
                 }
 
@@ -405,7 +441,7 @@ impl Gui {
     }
 }
 
-impl ApplicationHandler<Command> for Gui {
+impl ApplicationHandler for Gui {
     /// On the first call,
     /// creates [`Window`] and builds [`Graphics`] by blocking till completion.
     ///
@@ -505,11 +541,12 @@ impl ApplicationHandler<Command> for Gui {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.left_mouse_pressed = match state {
-                    ElementState::Pressed => true,
-                    ElementState::Released if self.single => false,
-                    ElementState::Released => false,
-                };
+                if self.fit {
+                    self.fit = false;
+                    self.send_signal(Signal::SetFit(false));
+                }
+
+                self.left_mouse_pressed = state.is_pressed();
 
                 false
             }
@@ -526,11 +563,7 @@ impl ApplicationHandler<Command> for Gui {
                     self.send_signal(Signal::SetView(None));
                 }
 
-                self.right_mouse_pressed = match state {
-                    ElementState::Pressed => true,
-                    ElementState::Released if self.single => false,
-                    ElementState::Released => false,
-                };
+                self.right_mouse_pressed = state.is_pressed();
 
                 false
             }
@@ -547,17 +580,18 @@ impl ApplicationHandler<Command> for Gui {
                     self.send_signal(Signal::SetView(None));
                 }
 
-                self.middle_mouse_pressed = match state {
-                    ElementState::Pressed => true,
-                    ElementState::Released if self.single => false,
-                    ElementState::Released => false,
-                };
+                self.middle_mouse_pressed = state.is_pressed();
 
                 false
             }
 
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(_, y) => {
+                    if self.fit {
+                        self.fit = false;
+                        self.send_signal(Signal::SetFit(false));
+                    }
+
                     self.graphics.as_mut().unwrap().zoom(y);
                     false
                 }
@@ -624,13 +658,9 @@ impl ApplicationHandler<Command> for Gui {
     /// Each command alters [`Graphics`] state and draws a new frame or,
     /// in case of [`Command::Stop`], exits the loop.
     /// Latest command is always stored at the end.
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Command) {
-        match &event {
-            Command::Stop => event_loop.exit(),
-        }
-
-        self.command = Some(event);
-
-        self.redraw();
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: ()) {
+        // do not record tui exit event,
+        // just exit and report any errors
+        event_loop.exit();
     }
 }

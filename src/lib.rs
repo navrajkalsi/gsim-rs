@@ -8,6 +8,7 @@ pub mod machine;
 pub mod parser;
 pub mod points;
 mod renderer;
+mod signal;
 pub mod source;
 mod tui;
 
@@ -19,6 +20,7 @@ use crate::{
     lexer::Lexer,
     machine::Machine,
     parser::Parser,
+    signal::Signal,
     source::Source,
     tui::Tui,
 };
@@ -153,39 +155,6 @@ impl Display for Interrupt {
     }
 }
 
-/// Communicates changes from the [`Ratatui`](ratatui) loop,
-/// to the [`Winit`](winit) event loop.
-#[derive(Debug)]
-pub enum Command {
-    Stop,
-}
-
-#[derive(Debug, Clone)]
-pub enum Signal {
-    Run {
-        summary: Arc<BlockSummary>,
-        machine: Machine,
-        current: usize,
-    },
-    Pause {
-        interrupt: Interrupt,
-        machine: Machine,
-        current: usize,
-    },
-    Error {
-        error: InterpreterError,
-        machine: Machine,
-        current: usize,
-    },
-    SetView(Option<View>),
-    SetSingle(bool),
-    SetToolVisibility(bool),
-    SetToolpathVisibility(bool),
-    SetStockVisibility(bool),
-    SetSpeed(Speed),
-    Stop,
-}
-
 fn display_banner() {
     println!(
         "\x1b[1;37m
@@ -218,7 +187,7 @@ pub fn run() -> anyhow::Result<()> {
     let signal = Arc::new(Mutex::new(Signal::Pause {
         interrupt: Interrupt::Start,
         machine,
-        current: 0,
+        index: 0,
     }));
 
     let gui = Gui::new(config, signal.clone(), interpreter);

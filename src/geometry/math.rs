@@ -7,6 +7,8 @@
 //!
 //!  ## Reference
 //!  https://webgpufundamentals.org/webgpu/lessons/webgpu-orthographic-projection.html
+//!
+//!  uses left hand system
 // TODO make sure positive always rotates clockwise
 
 use std::{

@@ -33,6 +33,7 @@ name = "geometry_bench"
 anyhow = "1.0.102"
 bytemuck = { version = "1.24", features = ["derive"] }
 clap = { version = "4.6.0", features = ["derive"] }
+ctrlc = { version = "3.5", features = ["termination"] }
 env_logger = "0.11.10"
 log = "0.4.30"
 pollster = "0.4.0"
