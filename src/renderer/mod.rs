@@ -8,15 +8,17 @@ mod tool;
 mod uniforms;
 
 use crate::{
-    STOCK, Speed, TOOL, TOOLPATH, View,
     config::{Config, ToolConfig},
+    defaults,
     geometry::{
         line::{BufferAction, LineInstance, LinesTracker},
         stock::{StockInstance, StockTracker},
         tools::ToolInstance,
         uniforms::{Transform, Uniforms},
+        view::View,
     },
     points::Point,
+    speed::Speed,
 };
 use std::{
     sync::Arc,
@@ -279,9 +281,9 @@ impl Graphics {
 
             configured: false,
 
-            stock: STOCK,
-            toolpath: TOOLPATH,
-            tool: TOOL,
+            stock: defaults::STOCK,
+            toolpath: defaults::TOOLPATH,
+            tool: defaults::TOOL,
 
             speed: Speed::default(),
             tool_config: config.default_tool,
@@ -381,7 +383,7 @@ impl Graphics {
         }
 
         if render {
-            if self.skipped_frames >= self.speed.numeric() {
+            if self.skipped_frames >= self.speed.frames_to_skip() {
                 self.skipped_frames = 0;
                 Ok((proceed, true))
             } else {

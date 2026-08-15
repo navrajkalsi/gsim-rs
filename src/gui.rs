@@ -9,11 +9,14 @@
 //! reflecting new active state.
 
 use crate::{
-    Interrupt, SINGLE, Signal, Speed, View,
+    Signal,
     config::Config,
-    interpreter::{Interpreter, InterpreterError},
+    defaults,
+    geometry::view::View,
+    interpreter::{Interpreter, InterpreterError, Interrupt},
     machine::MotionSummary,
     renderer::Graphics,
+    speed::Speed,
 };
 use std::{
     ops::Neg,
@@ -21,11 +24,9 @@ use std::{
 };
 use winit::{
     application::ApplicationHandler,
-    event::{
-        DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent,
-    },
+    event::{DeviceEvent, DeviceId, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, KeyCode, NamedKey, PhysicalKey, SmolStr},
+    keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
 
@@ -128,7 +129,7 @@ impl Gui {
             interpreter,
             interrupt: Some(Interrupt::Start),
             event_loop: Some(event_loop),
-            single: SINGLE,
+            single: defaults::SINGLE,
             next_requested: false,
             speed: Speed::default(),
             view: Some(View::default()),

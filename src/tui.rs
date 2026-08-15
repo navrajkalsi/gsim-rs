@@ -6,22 +6,22 @@
 //! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
 //!
 //! The render loop draws endlessly to achieve the [`TARGET_FPS`],
-//! and only terminates on reading [`Signal::Error`] or [`Signal::Stop`] from the [`Gui`].
-//! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`] from [`Gui`].
+//! and only terminates on reading [`Signal::Error`] or [`Signal::Stop`] from [`Gui`](crate::gui).
+//! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`].
 //!
 //! Listens for user input,
 //! and sends [`Command`]s to the [`Gui`] thread on receiving corresponding user input.
 
-#[allow(unused_imports)]
 use crate::{
-    Gui, Interrupt, SINGLE, STOCK, Signal, Speed, TOOL, TOOLPATH, View,
+    Interrupt, Signal,
     config::Unit,
-    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning},
-    source::Source,
-};
-use crate::{
+    defaults,
+    geometry::view::View,
     interpreter::{BlockSummary, InterpreterError},
     machine::Machine,
+    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning},
+    source::Source,
+    speed::Speed,
 };
 use ratatui::{
     Frame, Terminal,
@@ -142,10 +142,10 @@ impl Tui {
             view: Some(View::default()),
             fit: true,
             source,
-            single: SINGLE,
-            tool: TOOL,
-            toolpath: TOOLPATH,
-            stock: STOCK,
+            single: defaults::SINGLE,
+            tool: defaults::TOOL,
+            toolpath: defaults::TOOLPATH,
+            stock: defaults::STOCK,
             speed: Speed::default(),
             signal,
             interrupt: Some(interrupt),

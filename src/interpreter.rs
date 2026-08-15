@@ -3,18 +3,43 @@
 //! Executes [`CodeBlock`]s (represented as [`Parser`])
 //! on a [`Machine`], by accessing its public API.
 
-#![allow(unused_imports)]
 use crate::{
-    Interrupt,
-    config::{ToolConfig, Unit},
+    config::Unit,
     machine::{
         CircularDirection, Direction, FeedMode, Machine, MachineError, Motion, MotionSummary,
         Plane, Positioning, ReturnLevel,
     },
-    parser::{Code, CodeBlock, Codes, GCode, MCode, Parser, ParserError},
+    parser::{Code, Codes, GCode, MCode, Parser, ParserError},
     source::Source,
 };
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
+
+/// Represents the types of program cycle interruptions.
+/// These interruptions need user input to be removed and resume cycle.
+#[derive(Debug, Clone, Copy)]
+pub enum Interrupt {
+    /// Confirm program start or restart.
+    Start,
+    /// M00 program stop detected.
+    Stop,
+    /// M01 optional program stop detected.
+    OptionalStop,
+    /// M30 program end detected.
+    End,
+}
+
+impl Display for Interrupt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Interrupt::Start => "START INTERRUPT",
+            Interrupt::Stop => "STOP INTERRUPT",
+            Interrupt::OptionalStop => "OPTIONAL STOP INTERRUPT",
+            Interrupt::End => "END INTERRUPT",
+        };
+
+        write!(f, "{string}")
+    }
+}
 
 /// A summary of consumed [`CodeBlock`].
 ///

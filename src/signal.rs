@@ -4,9 +4,11 @@
 //! that serves as an interface for representing the current overall state.
 
 use crate::{
-    Interrupt, Speed, View,
+    Interrupt,
+    geometry::view::View,
     interpreter::{BlockSummary, InterpreterError},
     machine::Machine,
+    speed::Speed,
 };
 use std::sync::Arc;
 

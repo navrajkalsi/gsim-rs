@@ -31,3 +31,4 @@ mod math;
 pub mod stock;
 pub mod tools;
 pub mod uniforms;
+pub mod view;

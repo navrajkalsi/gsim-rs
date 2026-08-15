@@ -1,4 +1,7 @@
-use crate::{View, geometry::math::Matrix, points::Point};
+use crate::{
+    geometry::{math::Matrix, view::View},
+    points::Point,
+};
 use winit::dpi::PhysicalSize;
 
 /// Defines the maximum amount the default scaling factor can change in relation to itself,
