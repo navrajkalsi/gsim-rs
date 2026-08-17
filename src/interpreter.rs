@@ -1,7 +1,10 @@
 //! # Interpreter
 //!
-//! Executes [`CodeBlock`]s (represented as [`Parser`])
+//! Executes [`CodeBlock`](crate::parser::CodeBlock)s (represented as [`Parser`])
 //! on a [`Machine`], by accessing its public API.
+//!
+//! Generates a [`BlockSummary`] on executing each [`CodeBlock`](crate::parser::CodeBlock),
+//! which can then be use to simulate that specific block of G-code.
 
 use crate::{
     config::Unit,
@@ -20,11 +23,11 @@ use std::{fmt::Display, sync::Arc};
 pub enum Interrupt {
     /// Confirm program start or restart.
     Start,
-    /// M00 program stop detected.
+    /// M00 program stop.
     Stop,
-    /// M01 optional program stop detected.
+    /// M01 optional program stop.
     OptionalStop,
-    /// M30 program end detected.
+    /// M30 program end.
     End,
 }
 
@@ -41,10 +44,11 @@ impl Display for Interrupt {
     }
 }
 
-/// A summary of consumed [`CodeBlock`].
+/// A summary of consumed a [`CodeBlock`](crate::parser::CodeBlock).
 ///
-/// Contains all the information required by the [`Tui`](crate::tui::Tui)
-/// to render the new [`Machine`] state.
+/// Contains all the information required by:
+/// - The [`Gui`](crate::gui) to simulate the block.
+/// - The [`Tui`](crate::tui) to render the new [`Machine`] state.
 #[derive(Debug, Clone)]
 pub struct BlockSummary {
     /// Parsed [`GCode`]s from the block.
@@ -102,13 +106,14 @@ impl Interpreter {
         Self { parser, machine }
     }
 
-    /// Executes the [`Parser::next`] [`CodeBlock`] from the [`Parser`] on the [`Machine`].
+    /// Executes the [`next`](Parser::next) [`CodeBlock`](crate::parser::CodeBlock)
+    /// from the [`Parser`] on the [`Machine`].
     ///
     /// On success, returns a tuple of:
     /// - **Index** of the latest execute block.
     /// - Copy of **machine** with the updated state as a result of executing the parsed code.
     /// - A summary of changes during execution as [`BlockSummary`],
-    ///   or [`None`] on exhaustion of [`CodeBlock`]s.
+    ///   or [`None`] on exhaustion of blocks.
     ///
     /// Returns [`InterpreterError`] on failure.
     pub fn execute(

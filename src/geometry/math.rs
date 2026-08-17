@@ -1,26 +1,26 @@
-//!  # Math
+//! # Math
 //!
-//!  Provides [`Matrix`] interface for simplifying the 3D matrix maths.
+//! Provides [`Matrix`] interface for simplifying the 3D matrix maths required for simulation.
+//! Transformations are applied assuming **right-handed coordinate system**.
 //!
-//!  Every matrix is represented as its transpose in memory and this module.
-//!  See display impl for actual representation.
+//! Every matrix is represented as its transpose in memory and this module.
+//! See [`display`](Matrix::fmt) implementation for actual representation.
 //!
-//!  ## Reference
-//!  https://webgpufundamentals.org/webgpu/lessons/webgpu-orthographic-projection.html
-//!
-//!  uses left hand system
-// TODO make sure positive always rotates clockwise
+//! ## Reference
+//! [WebGPU Fundamentals](https://webgpufundamentals.org/webgpu/lessons/webgpu-orthographic-projection.html)
 
 use std::{
     fmt::Display,
     ops::{Index, Mul},
 };
 
+/// A 4x4 matrix.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Matrix([[f32; 4]; 4]);
 
 impl Matrix {
+    /// Constructs a new [`Matrix`] that centers the given `stock_size`, in machine units.
     pub fn new(stock_size: [f32; 3]) -> Self {
         Self::identity().translate([
             -stock_size[0] / 2.0,
@@ -29,6 +29,7 @@ impl Matrix {
         ])
     }
 
+    /// Constructs an identity matrix.
     const fn identity() -> Self {
         Self([
             [1.0, 0.0, 0.0, 0.0],
@@ -38,6 +39,7 @@ impl Matrix {
         ])
     }
 
+    /// Moves the X, Y and Z of [`self`] by the provided `delta`s.
     pub fn translate(mut self, delta: [f32; 3]) -> Self {
         self.0[3][0] += delta[0];
         self.0[3][1] += delta[1];
@@ -45,7 +47,8 @@ impl Matrix {
         self
     }
 
-    // also scales the translations
+    /// Scales the X, Y and Z of [`self`] by the provided `scales`.
+    /// Also scales any existing translations.
     pub fn scale(mut self, scales: [f32; 3]) -> Self {
         self.0[0][0] *= scales[0];
         self.0[1][0] *= scales[0];
@@ -65,13 +68,21 @@ impl Matrix {
         self
     }
 
-    // rotation order: z, y, x
+    /// Rotates around the X, Y and Z of [`self`] by the provided `rotations`.
+    /// The `rotations` must be in **radians**.
+    ///
+    /// The order of rotations is: Z, Y, X.
+    ///
+    /// Positive angle rotates in **clockwise** direction.
     pub fn rotate(self, rotations: [f32; 3]) -> Self {
         Matrix::rotation_x(rotations[0])
             * (Matrix::rotation_y(rotations[1]) * (Matrix::rotation_z(rotations[2]) * self))
     }
 
-    // rads
+    /// Constructs a new [`Matrix`], which when multiplied to another Matrix,
+    /// rotates this other Matrix by the given `angle` around X.
+    ///
+    /// The provided angle must be in **radians**.
     fn rotation_x(angle: f32) -> Self {
         let cos = angle.cos();
         let sin = angle.sin();
@@ -84,6 +95,10 @@ impl Matrix {
         ])
     }
 
+    /// Constructs a new [`Matrix`], which when multiplied to another Matrix,
+    /// rotates this other Matrix by the given `angle` around Y.
+    ///
+    /// The provided angle must be in **radians**.
     fn rotation_y(angle: f32) -> Self {
         let cos = angle.cos();
         let sin = angle.sin();
@@ -96,6 +111,10 @@ impl Matrix {
         ])
     }
 
+    /// Constructs a new [`Matrix`], which when multiplied to another Matrix,
+    /// rotates this other Matrix by the given `angle` around Z.
+    ///
+    /// The provided angle must be in **radians**.
     fn rotation_z(angle: f32) -> Self {
         let cos = angle.cos();
         let sin = angle.sin();

@@ -4,22 +4,25 @@
 //! and houses its render loop and event handling.
 //!
 //! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
-//!
-//! The render loop draws endlessly to achieve the [`TARGET_FPS`],
-//! and only terminates on reading [`Signal::Error`] or [`Signal::Stop`] from [`Gui`](crate::gui).
 //! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`].
 //!
-//! Listens for user input,
-//! and sends [`Command`]s to the [`Gui`] thread on receiving corresponding user input.
+//! The render loop draws endlessly to achieve the [`TARGET_FPS`], terminating on either:
+//! - Receiving `Q` keypress from the user.
+//! - Receiving `SIGINT`, `SIGTERM` or `SIGHUP` signal from the OS.
+//! - Reading [`Signal::Error`] or [`Signal::Stop`] from the [`Gui`](crate::gui).
+//!
+//! While exiting, always sends an event to the [`Gui`](crate::gui) to terminate it as well.
+//!
+//! The Tui reports any **G-code specific** errors to the user,
+//! but any simulation or other errors are printed to `stderr` during program exit.
 
 use crate::{
-    Interrupt, Signal,
     config::Unit,
     defaults,
     geometry::view::View,
-    interpreter::{BlockSummary, InterpreterError},
-    machine::Machine,
-    machine::{CircularDirection, FeedMode, Motion, Plane, Positioning},
+    interpreter::{BlockSummary, InterpreterError, Interrupt},
+    machine::{CircularDirection, FeedMode, Machine, Motion, Plane, Positioning},
+    signal::Signal,
     source::Source,
     speed::Speed,
 };
@@ -55,13 +58,13 @@ const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS);
 /// Maximum number of [`Block`]s from [`Source`] visible ahead of the current block.
 const MAX_PREVIEW_AHEAD: usize = 10;
 
-/// Hex encoded default background color.
+/// Hex encoded background color.
 const BG: Color = Color::from_u32(0x001e1e1e);
 
 /// Default [`Theme`] for the [`Tui`].
 const THEME: Theme = Theme {
     root: Style::new().bg(BG).fg(Color::White),
-    title: Style::new().fg(Color::Red).bg(BG).bold(),
+    program_title: Style::new().fg(Color::Red).bg(BG).bold(),
     block_title: Style::new().fg(Color::LightGreen).bold(),
     interrupt: Style::new().fg(Color::Black).bg(Color::White).bold(),
     summary: Style::new().fg(Color::Blue).bg(BG).bold(),
@@ -75,14 +78,12 @@ const THEME: Theme = Theme {
 
 /// Current state of the [`Tui`](crate::tui).
 pub struct Tui {
-    /// Event proxy for sending [`Command`]s to [`Gui`].
+    /// Event proxy for sending exit event to the [`Gui`](crate::gui).
     proxy: EventLoopProxy<()>,
 
     /// Current selected [`View`].
     /// [`None`] if the user has interacted with simulation window with their mouse.
     view: Option<View>,
-
-    fit: bool,
 
     /// Copy of source for previewing.
     source: Source,
@@ -99,20 +100,29 @@ pub struct Tui {
     /// Stock visibility flag.
     stock: bool,
 
+    /// Set to `true` when [`Self::view`] is **centered** and **zoomed-in** the most without overflow.
+    fit: bool,
+
     /// Simulation speed.
     speed: Speed,
 
-    /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`] to send [`Signal`]s.
+    /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`](crate::gui) to send [`Signal`]s.
     signal: Arc<Mutex<Signal>>,
 
     /// [`Interrupt`] received from a [`Signal::Pause`].
-    /// This is only cleared on receiving input from the user.
+    /// This is only cleared on receiving a [`Signal::Run`].
     interrupt: Option<Interrupt>,
 
     /// Error from the latest [`Signal::Error`].
+    /// This is never cleared and the user can only exit after this.
+    ///
+    /// This error is **G-code specific** and not related to the simulation.
+    /// Simulation errors are **not** reported to the user using the [`Tui`]
+    /// and are instead printed to the `stderr` during program exit.
     error: Option<InterpreterError>,
 
     /// [`BlockSummary`] received from a [`Signal::Run`].
+    /// Rendered only if [`Self::interrupt`] and [`Self::error`] are [`None`].
     summary: Option<Arc<BlockSummary>>,
 
     /// Current state of the [`Machine`] after the latest [`Signal`].
@@ -123,7 +133,7 @@ pub struct Tui {
 }
 
 impl Tui {
-    /// Constructs a new [`Tui`] and sets up all the flags to their predefined constants.
+    /// Constructs a [`Tui`] by setting all the flags to their predefined defaults in [`defaults`].
     ///
     /// The [`Self::view`] is set to [`View::default`],
     /// and [`Self::speed`] to [`Speed::default`].
@@ -156,14 +166,13 @@ impl Tui {
         }
     }
 
-    /// Starts up the [`Tui`] by drawing frames at [`TARGET_FPS`] and communicates any user input to
-    /// the [`Gui`].
+    /// Starts up the [`Tui`] by setting up the terminal and drawing frames at [`TARGET_FPS`].
     ///
     /// The [`Tui`] thread cannot terminate the program now, just by returning an `Error`.
-    /// A [`Command::Stop`] must be sent to the main thread running the [`Gui`],
-    /// to tell it to exit the program.
+    /// An event must be sent to the main thread running the [`Gui`](crate::gui),
+    /// using [`Self::proxy`], to tell it to exit the program.
     ///
-    /// Always sends a [`Command::Stop`] to the [`Gui`] while exiting, even in case of an error.
+    /// All errors originating in the [`Tui`] thread are returned here.
     pub fn run(mut self) -> anyhow::Result<()> {
         // on failure to prepare terminal, tell main thread to stop and return the error
         let mut terminal = match prepare_terminal() {
@@ -186,17 +195,16 @@ impl Tui {
         res
     }
 
-    /// Starts the [`Tui`] by drawing to the `terminal` at [`TARGET_FPS`] in a loop and waits for user input.
+    /// Frame draw loop.
     ///
-    /// Before drawing each new frame, [`Self::signal`] is refreshed to get potential new
-    /// [`Signal`] from [`Gui`].
+    /// Before drawing each new frame, [`Self::signal`] is refreshed to get a potential new
+    /// [`Signal`], exit key press is `polled` and OS exit signals are checked.
     fn start_loop<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()>
     where
         anyhow::Error: From<B::Error>,
     {
         let mut time_tracker = Instant::now();
 
-        // did the user initiate a os signal
         // handles: SIGINT, SIGTERM and SIGHUP
         let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
         let r = running.clone();
@@ -225,7 +233,6 @@ impl Tui {
                     machine,
                     index,
                 } => {
-                    // if we are revisiting the same interrupt signal on the next frame
                     self.interrupt = Some(interrupt);
                     self.machine = machine;
                     self.index = index;
@@ -276,7 +283,7 @@ impl Tui {
         self.signal.lock().unwrap().clone()
     }
 
-    /// Did the user use the terminal to exit the program.
+    /// Checks if the user pressed exit key in the terminal.
     fn check_exit(&mut self) -> Result<bool, std::io::Error> {
         let exit = match poll_key_press()? {
             Some(key) => key.code == KeyCode::Char('Q'),
@@ -331,7 +338,7 @@ impl Tui {
                 .block(
                     Block::default()
                         .padding(Padding::symmetric(2, 1))
-                        .title(Line::styled(" Alarm ", THEME.title).centered()) // use program title
+                        .title(Line::styled(" Alarm ", THEME.program_title).centered()) // use program title
                         .style(THEME.alarm),
                 )
                 .centered();
@@ -345,7 +352,7 @@ impl Tui {
     /// Returns program title for display at top.
     fn title_text(&self) -> Paragraph<'_> {
         Paragraph::new("GSim-rs")
-            .style(THEME.title)
+            .style(THEME.program_title)
             .block(Block::default().padding(Padding::symmetric(1, 1)))
             .centered()
     }
@@ -757,7 +764,7 @@ fn get_centered(x: u16, y: u16, rect: Rect) -> Rect {
         .split(chunks[1])[1] // return the middle chunk
 }
 
-/// Polls for an [`Event::Key`] of [`KeyEventKind::Press`](KeyEventKind::Press).
+/// Polls for an [`Event::Key`] of [`KeyEventKind::Press`](event::KeyEventKind::Press).
 fn poll_key_press() -> Result<Option<KeyEvent>, std::io::Error> {
     if !poll(Duration::from_millis(100))? {
         return Ok(None);
@@ -772,7 +779,7 @@ fn poll_key_press() -> Result<Option<KeyEvent>, std::io::Error> {
 /// Styling for each section of the [`Tui`].
 struct Theme {
     root: Style,
-    title: Style,
+    program_title: Style,
     block_title: Style,
     interrupt: Style,
     summary: Style,

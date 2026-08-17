@@ -1,7 +1,7 @@
 //! Signal
 //!
 //! Aids in communicating state changes from [`Gui`](crate::gui) window to the [`Tui`](crate::tui),
-//! that serves as an interface for representing the current overall state.
+//! which serves as an interface for representing the current overall state.
 
 use crate::{
     Interrupt,

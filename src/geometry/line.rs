@@ -1,11 +1,27 @@
+//! # Line
+//!
+//! Creates and manages toolpath simulation throughout program execution.
+//!
+//! [`LinesTracker`] exposes [`LinesTracker::add`] for simulating a **new move**,
+//! represented as a [`MotionSummary`],
+//! by breaking it up into small [`LineInstance`]s that can then be drawn by a vertex shader.
+//! This is done with the help of [`LineInstances`] abstraction.
+//!
+//! This splitting and drawing of instances depends on the type of [`MotionSummary`]:
+//! - [`MotionSummary::Feed`] & [`MotionSummary::Rapid`] are represented as a single
+//!   [`LineInstance`] in their final form.
+//! - [`MotionSummary::Arc`] is represented as a collection of [`LineInstance`]s on completion.
+
 use crate::{
     machine::{Arc, CircularDirection, Line, MotionSummary, Plane},
     points::{PlanarPoint, Point},
 };
 use std::f32::consts::PI;
 
-const RAPID_MOVE: u32 = 0;
-const FEED_MOVE: u32 = 1;
+/// Configures a [`LineInstance`] as a rapid move.
+const RAPID: u32 = 0;
+/// Configures a [`LineInstance`] as a feed move.
+const FEED: u32 = 1;
 
 /// Represents a straight line between two points,
 /// that can be drawn to the screen with a vertex shader.
@@ -17,13 +33,17 @@ const FEED_MOVE: u32 = 1;
 pub struct LineInstance {
     /// 3D start point of the line.
     pub start: [f32; 3],
+
     /// 3D end point of the line.
     pub end: [f32; 3],
+
     /// Move type of the line, for coloring in the shader.
     pub move_type: u32,
 }
 
 impl LineInstance {
+    /// Returns a [`VertexBufferLayout`](wgpu::VertexBufferLayout) that describes the per-vertex
+    /// data for each [`LineInstance`].
     pub fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: size_of::<u32>() as wgpu::BufferAddress,
@@ -36,16 +56,18 @@ impl LineInstance {
         }
     }
 
-    // vertices of a quad
-    // one quad per instance
+    /// Array of vertices required to construct a single [`LineInstance`].
+    ///
+    /// These vertices are expanded into a *quad* in the shader, using [`Self::indices`].
     pub fn vertices() -> [u32; 4] {
         [0, 1, 2, 3]
     }
 
+    /// Returns a [`VertexBufferLayout`](wgpu::VertexBufferLayout) that describes how the
+    /// [`LineInstance`] is stored in a GPU buffer.
     pub fn instance_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: size_of::<Self>() as wgpu::BufferAddress,
-            // this buffer represents unique data across instances
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -67,27 +89,30 @@ impl LineInstance {
         }
     }
 
+    /// Indices of [`Self::vertices`] array to prevent duplication of vertices.
+    ///
+    /// The indices are ordered in **counter-clockwise** order for each quad.
     pub fn indices() -> [u16; 6] {
-        [0, 1, 2, 2, 1, 3] // counter clockwise
+        [0, 1, 2, 2, 1, 3]
     }
 
     /// Creates a single [`LineInstance`] from `start` to `end`,
-    /// with [`STROKE_WIDTH`] and [`RAPID_MOVE_COLOR`].
+    /// configured as a [`RAPID`] move.
     pub fn rapid_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x, start.y, start.z],
             end: [end.x, end.y, end.z],
-            move_type: RAPID_MOVE,
+            move_type: RAPID,
         }
     }
 
     /// Creates a single [`LineInstance`] from `start` to `end`,
-    /// with [`STROKE_WIDTH`] and [`FEED_MOVE_COLOR`].
+    /// configured as a [`FEED`] move.
     pub fn feed_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x, start.y, start.z],
             end: [end.x, end.y, end.z],
-            move_type: FEED_MOVE,
+            move_type: FEED,
         }
     }
 }
@@ -95,11 +120,12 @@ impl LineInstance {
 /// Represents an iterator of [`LineInstance`]s based on the geometry type.
 ///
 /// The geometry type is used to determine how the new line instances are added to
-/// the GPU [`buffer`](crate::gui::Graphics::lines_buffer);
+/// the GPU [`buffer`](crate::renderer::Graphics::lines_instance_buffer);
 enum LineInstances {
     /// A single straight line.
     /// Rendered by adding and updating only one new instance to the GPU buffer, in order to save memory.
     Linear(Box<dyn Iterator<Item = LineInstance>>),
+
     /// A circular arc, split into a number of small line instances.
     /// Rendered by adding each new instance to the GPU buffer.
     Arc(Box<dyn Iterator<Item = LineInstance>>),
@@ -107,8 +133,6 @@ enum LineInstances {
 
 impl LineInstances {
     /// Converts a [`MotionSummary`] to the corresponding [`LineInstances`] variant.
-    // TODO uses the parent tracker to get a valid resolution
-    // add to child methods also
     fn new(summary: MotionSummary, tracker: &LinesTracker) -> Self {
         match summary {
             MotionSummary::Rapid(line) => {
@@ -122,12 +146,15 @@ impl LineInstances {
     }
 
     /// Splits a [`Line`] into a [`LineInstances::Linear`] iterator,
-    /// advancing [`SPEED`] units per instance from [`Line::start`] to [`Line::end`].
+    /// advancing [`tracker::resolution`](LinesTracker::resolution) units per instance
+    /// from [`Line::start`] to [`Line::end`].
+    ///
+    /// See [`LinesTracker::resolution`] for the importance of this constraint.
     ///
     /// Each new instance is rooted at `start` rather than the `end` of the previous line instance.
     ///
-    /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
-    /// if the length of [`Line`] is shorter than [`SPEED`].
+    /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance
+    /// if the length of [`Line`] is shorter than [`tracker::resolution`](LinesTracker::resolution).
     fn linear_points(
         line: Line,
         tracker: &LinesTracker,
@@ -170,12 +197,16 @@ impl LineInstances {
     }
 
     /// Splits an [`Arc`] into a [`LineInstances::Arc`] iterator,
-    /// advancing [`SPEED`] per radius radians per instance from [`Arc::start`] to [`Arc::end`].
+    /// advancing [`tracker::resolution`](LinesTracker::resolution)
+    /// per radius radians per instance from [`Arc::start`] to [`Arc::end`].
+    ///
+    /// See [`LinesTracker::resolution`] for the importance of this constraint.
     ///
     /// Each new instance starts at the `end` of the previous line instance.
     ///
     /// The returned iterator is guaranteed to **NOT be empty**, and will return only a single instance,
-    /// if the angular sweep of [`Arc`] is shorter than [`SPEED`] per arc radius.
+    /// if the angular sweep of [`Arc`] is shorter than [`tracker::resolution`](LinesTracker::resolution)
+    /// per radius radians.
     ///
     /// ## Reference
     /// [FreeMathHelp](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
@@ -276,18 +307,20 @@ impl LineInstances {
 /// if there is one.
 ///
 /// This type is helpful in differentiating between `linear` and `arc` moves,
-/// as well as to prevent the program from feeling sluggish by providing `render` flag.
+/// as well as to prevent the program from feeling sluggish by providing `render` flag,
+/// which tells the render loop when the program requires rendering new frame.
 pub enum BufferAction {
-    /// Overwrite the last instance inside the buffer with a new one.
-    /// Render if the last frame render happened more than [`SPEED`] units of travel ago.
     Overwrite {
+        /// Overwrite the last instance inside the buffer with this new one.
         instance: LineInstance,
+        /// Render if the last frame render happened more than [`LinesTracker::resolution`] units of travel ago.
         render: bool,
     },
-    /// Add a new instance to the buffer.
-    /// Render if the last frame render happened more than [`SPEED`] units of travel ago.
+
     Add {
+        /// Add this new instance to the buffer.
         instance: LineInstance,
+        /// Render if the last frame render happened more than [`LinesTracker::resolution`] units of travel ago.
         render: bool,
     },
 }
@@ -301,10 +334,17 @@ pub enum BufferAction {
 pub struct LinesTracker {
     /// Iterator for [`LineInstance`]s.
     instances: Option<LineInstances>,
-    /// Sum of lenghts of each [`LineInstance`] from [`Self::instances`] since the last render.
+
+    /// Sum of lengths of each [`LineInstance`] from [`Self::instances`] since the last render.
     /// These are the instances that are added to the vertex buffer but not drawn to the surface yet.
     len: f32,
 
+    /// Resolution for splitting [`MotionSummary`] into [`LineInstance`]s.
+    ///
+    /// This makes sure that the instances are not **too fine or not too blocky**,
+    /// helping us reduce instance count and not making the stock cutting simulation feel blocky.
+    ///
+    /// This is because stock is updated based on the position of the latest line instance.
     resolution: f32,
 
     /// Flag to check first call to [`Self::next`] after every [`Self::add`] call.
@@ -312,7 +352,8 @@ pub struct LinesTracker {
 }
 
 impl LinesTracker {
-    /// Construct a new [`LineInstancesTracker`].
+    /// Construct a new [`LinesTracker`] and configures it to yield [`LineInstance`]s at
+    /// double the resolution of the provided `voxel_edge`.
     pub fn new(voxel_edge: f32) -> Self {
         Self {
             instances: None,
@@ -323,15 +364,13 @@ impl LinesTracker {
     }
 
     /// Loads a new [`LineInstances`] into [`Self::instances`] and sets [`Self::first`].
-    ///
-    /// The user must be responsible for draining the previous `instances`.
+    /// Any previous instances must be drained before this as those will be lost.
     pub fn add(&mut self, summary: MotionSummary) {
         self.instances = Some(LineInstances::new(summary, self));
         self.first = true;
     }
 
     /// Resets the internal state of `self`.
-    ///
     /// Any previous `instances` and sum of instance lengths is lost.
     pub fn reset(&mut self) {
         self.instances = None;
@@ -345,19 +384,16 @@ impl Iterator for LinesTracker {
 
     /// Iterates [`Self::instances`] and returns a [`BufferAction`] depending on state of `self`.
     ///
-    /// - First call always returns [`BufferAction::Add`], this is checked with [`Self::first`] flag.
+    /// - After [`Self::add`] the first call always returns [`BufferAction::Add`],
+    ///   this is checked with [`Self::first`] flag.
     /// - Subsequent calls return [`BufferAction::Overwrite`],
     ///   if [`Self::instances`] is [`LineInstances::Linear`].
     /// - Subsequent calls return [`BufferAction::Add`],
     ///   if [`Self::instances`] is [`LineInstances::Arc`].
-    /// - Exhaustion of instances returns [`BufferAction::Exhausted`].
+    /// - Exhaustion of instances returns [`None`].
     ///
     /// In case of [`BufferAction::Overwrite`] & [`BufferAction::Add`],
-    /// `render` flags is determined on comparing [`Self::len`] with [`SPEED`].
-    ///
-    /// # Panics
-    /// Panics if called when [`Self::instances`] is [`None`].
-    // TODO
+    /// `render` flag is determined on comparing [`Self::len`] with [`Self::resolution`].
     fn next(&mut self) -> Option<Self::Item> {
         let instance = match self.instances.as_mut()? {
             LineInstances::Linear(lines) => lines.next(),

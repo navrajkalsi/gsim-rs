@@ -3,19 +3,19 @@
 //! Creates a new [`Window`] and renders the simulation in it using the [`wgpu`] graphics API.
 //!
 //! Drives G-code interpretation with each new frame draw.
+//! Handles **both** mouse and keyboard input from the user.
 //!
-//! The render loop receives user input as [`Command`]s from the [`Tui`](crate::tui) thread,
-//! and sends [`Signal`]s to the [`Tui`](crate::tui) thread to change the tui frontend,
-//! reflecting new active state.
+//! Sends [`Signal`]s to the [`Tui`](crate::tui) thread to change the tui frontend,
+//! reflecting the new active state.
 
 use crate::{
-    Signal,
     config::Config,
     defaults,
     geometry::view::View,
     interpreter::{Interpreter, InterpreterError, Interrupt},
     machine::MotionSummary,
     renderer::Graphics,
+    signal::Signal,
     speed::Speed,
 };
 use std::{
@@ -45,13 +45,13 @@ pub struct Gui {
     /// - [`Graphics::render`] and [`Self::resumed`] errors
     ///   cause the gui to exit immediately and close the window, without waiting on the tui.
     /// - [`Self::execute`] errors keep the window alive and wait on the tui to send
-    ///   [`Command::Stop`] before exiting.
+    ///   an event before exiting.
     ///
     /// This exit behaviour is implemented because it lets the user observe the toolpath
     /// in case the reason for error was the actual G-code and not the simulation.
     error: Option<anyhow::Error>,
 
-    /// [`winit`] event loop that can receive user events in form of [`Command`]s.
+    /// [`winit`] event loop for receiving exit event from the [`Tui`](crate::tui).
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<()>>,
 
@@ -67,51 +67,50 @@ pub struct Gui {
     /// Single step through code blocks.
     ///
     /// This is to be in sync with [`Tui::single`](crate::tui::Tui::single)
-    /// and is used determine when to wait for [`Command::Next`] from the tui thread.
+    /// and is used to determine when to wait for user input for executing next block(s).
     single: bool,
 
-    // user requested to execute next block while in single block.
-    // reset to false on block fulfilling and turning off single block.
+    /// Checked while [`Self::single`] is `true` and means that a new block must be executed
+    /// and drawn completely. The loop then waits for next user input.
+    ///
+    /// Reset to `false` when a new block is executed and simulated,
+    /// or when [`Self::single`] is reset to `false`.
     next_requested: bool,
 
     /// Simulation speed.
     speed: Speed,
 
-    /// Flag to set when the user has orbited the [`Graphics::window`] with their mouse,
-    /// to signal that the current view setting is now to be forfeited.
-    ///
-    /// This is set to `false` when [`Command::SetView`] is received,
-    /// that resets the view to a predefined viewing angle.
+    /// Current selected [`View`].
+    /// [`None`] if the user has interacted with simulation window with their mouse.
     view: Option<View>,
 
-    /// Is [`Self::view`] zoomed in the most without overflow.
+    /// Set to `true` when [`Self::view`] is **centered** and **zoomed-in** the most without overflow.
     fit: bool,
 
     /// Flag to track mouse events received while **left-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
     ///
-    /// While this is set to `true` the toolpath is stopped,
-    /// as new projection is calculated during this state.
+    /// While this is set to `true` any mouse movement is recorded and used for **panning**.
     left_mouse_pressed: bool,
 
     /// Flag to track mouse events received while **right-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
     ///
-    /// While this is set to `true` the toolpath is stopped,
-    /// as new projection is calculated during this state.
+    /// While this is set to `true` any mouse movement is recorded and used for
+    /// **rotation around Z axis** of the window.
     right_mouse_pressed: bool,
 
     /// Flag to track mouse events received while **middle-mouse-button** is pressed.
     /// This is set and unset on receiving an appropriate [`WindowEvent::MouseInput`] event.
     ///
-    /// While this is set to `true` the toolpath is stopped,
-    /// as new projection is calculated during this state.
+    /// While this is set to `true` any mouse movement is recorded and used for
+    /// **rotation around X and Y axes** of the window.
     middle_mouse_pressed: bool,
 }
 
 impl Gui {
     /// Constructs a new [`Gui`],
-    /// initializing the [`EventLoop`] ready to receive [`Command`]s and send [`Signal`]s.
+    /// initializing the [`EventLoop`] ready to begin G-code execution and send [`Signal`]s.
     ///
     /// The event loop is configured to block and wait until a new (user or OS) event arrives.
     pub fn new(config: Config, signal: Arc<Mutex<Signal>>, interpreter: Interpreter) -> Self {
@@ -140,7 +139,9 @@ impl Gui {
         }
     }
 
-    /// Returns an [`EventLoopProxy`] for sending [`Command`]s to the [`Gui`] from other threads.
+    /// Returns an [`EventLoopProxy`] for sending events to the [`Gui`] from other threads.
+    ///
+    /// Any event received from this is assumed to be an **exit event**.
     pub fn create_proxy(&self) -> EventLoopProxy<()> {
         self.event_loop.as_ref().expect("run method will consume self, therefore eventloop will always be present if the user has a gui struct.").create_proxy()
     }
@@ -175,8 +176,8 @@ impl Gui {
 
     /// Reloads internals of [`Gui`] to begin rendering again from the first block.
     ///
-    /// Sends [`Signal::Pause`] with an [`Interrupt::Start`] to the [`Tui`](crate::tui),
-    /// so that the tui can wait for user-event to begin the simulation again.
+    /// Sends [`Signal::Pause`] with an [`Interrupt::Start`] to the [`Tui`](crate::tui).
+    /// After this, the program will require user input to resume.
     ///
     /// Removes any drawn toolpaths and resets the stock.
     fn reload(&mut self) {
@@ -194,7 +195,7 @@ impl Gui {
         }
     }
 
-    /// Updates [`Self::graphics`] and [`Self::execute`]s the next block if the previous block was finished rendering.
+    /// Updates [`Self::graphics`] and [`execute`](Self::execute)s the next block if the previous block has finished rendering.
     ///
     /// Returns `true` if the simulation now needs to be rendered and `false` to skip this frame.
     fn update(&mut self) -> anyhow::Result<bool> {
@@ -207,16 +208,16 @@ impl Gui {
         };
 
         if proceed {
-            // in single mode and no next block was requested,
-            // therefore this redraw request was not related to the simulation
-            // as a block is always drawn to completion before checking for new ones
-            // only seed new block on user request
             if self.single && !self.next_requested {
+                // in single mode and no next block was requested,
+                // therefore this redraw request was not related to the simulation
+                // as a block is always drawn to completion before checking for new ones
+                // only seed new block on next user request
                 return Ok(false);
             }
 
-            // not on single block
             // exhausted, execute new block and seed the line tracker
+            // in single mode, we reach here if user requested next block
             match self.execute() {
                 Ok(Some(motion)) => self.graphics.as_mut().unwrap().lines_tracker.add(motion),
 
@@ -225,12 +226,12 @@ impl Gui {
                 Err(error) => {
                     // since the line has already been executed,
                     // we have to provide the index of previous block, that caused this error
-                    let current = self.interpreter.source().index().saturating_sub(1);
+                    let index = self.interpreter.source().index().saturating_sub(1);
 
                     self.send_signal(Signal::Error {
                         error,
                         machine: *self.interpreter.machine(),
-                        index: current,
+                        index,
                     });
 
                     return Err(error.into());
@@ -249,16 +250,9 @@ impl Gui {
         // only pause the redraw simulation loop if single block is detected,
         // and no next block is requsted,
         // the simulation loop can now only resume with user input
-        // since we have already returned in this scenario, we can safely call redraw
-        //
-        // redraw for newly added motion, draining previous motion, or execute new block if motion was None
-        // loops back to this func
-        //
-        // skips looping when proceed command is detected on single mode, as that must require
-        // user input for single mode to work
+        // since we have already returned in that scenario, we can safely call redraw
         self.redraw();
 
-        // always render when lines have exhausted on single mode
         Ok(render)
     }
 
@@ -272,6 +266,7 @@ impl Gui {
 
         let (motion, signal) = match self.interpreter.execute()? {
             (current, machine, Some(block)) if block.is_tool_change() => {
+                // change tool, if config not found use the default one
                 let tool_config = self
                     .config
                     .tools
@@ -279,12 +274,7 @@ impl Gui {
                     .find(|tool| tool.number == machine.tool())
                     .unwrap_or(&self.config.default_tool);
 
-                self.graphics
-                    .as_mut()
-                    .expect(
-                        "should only be reached after an update request, which requires graphics",
-                    )
-                    .set_tool(*tool_config);
+                self.graphics.as_mut().unwrap().set_tool(*tool_config);
 
                 (
                     block.motion,
@@ -340,15 +330,23 @@ impl Gui {
     }
 
     // some means key event was recorded
-    fn handle_key_input(&mut self, key: KeyEvent) -> Option<bool> {
+    /// Handles a **keypress**.
+    ///
+    /// Returns:
+    /// - `None`: The event was not of kind **press** or the key was not supported.
+    /// - `Some(true)`: The event was handled and a new frame needs to be rendered.
+    /// - `Some(false)`: The event was handled but a new frame does not need to be rendered.
+    ///
+    /// On handling the event, sends appropriate [`Signal`] to the [`Tui`](crate::tui).
+    fn handle_key_input(&mut self, key: KeyEvent, event_loop: &ActiveEventLoop) -> Option<bool> {
         if key.state.is_pressed() {
             return None; // only consider release events
         }
 
-        let graphics = self.graphics.as_mut().expect("app has been started");
+        let graphics = self.graphics.as_mut().unwrap();
 
         match key.logical_key {
-            Key::Named(NamedKey::Enter) => {
+            Key::Named(NamedKey::Enter) if self.interrupt.is_some() => {
                 match self.interrupt {
                     Some(Interrupt::End) => self.reload(),
                     _ => {
@@ -389,23 +387,28 @@ impl Gui {
                 }
 
                 "p" => {
-                    let new_toolpath_visibility = !graphics.toolpath;
-                    graphics.toolpath = new_toolpath_visibility;
-                    self.send_signal(Signal::SetToolpathVisibility(new_toolpath_visibility));
+                    let toolpath = !graphics.toolpath;
+                    graphics.toolpath = toolpath;
+                    self.send_signal(Signal::SetToolpathVisibility(toolpath));
                     Some(true)
                 }
 
+                "q" => {
+                    event_loop.exit();
+                    Some(false)
+                }
+
                 "s" => {
-                    let new_stock_visibility = !graphics.stock;
-                    graphics.stock = new_stock_visibility;
-                    self.send_signal(Signal::SetStockVisibility(new_stock_visibility));
+                    let stock = !graphics.stock;
+                    graphics.stock = stock;
+                    self.send_signal(Signal::SetStockVisibility(stock));
                     Some(true)
                 }
 
                 "t" => {
-                    let new_tool_visibility = !graphics.tool;
-                    graphics.tool = new_tool_visibility;
-                    self.send_signal(Signal::SetToolVisibility(new_tool_visibility));
+                    let tool = !graphics.tool;
+                    graphics.tool = tool;
+                    self.send_signal(Signal::SetToolVisibility(tool));
                     Some(true)
                 }
 
@@ -488,10 +491,14 @@ impl ApplicationHandler for Gui {
     ///
     /// Ignores any event if [`Graphics`] has not yet been initialized.
     ///
+    /// Handles mouse and keyboard key presses.
+    /// Does **not** handle [`WindowEvent::CursorMoved`].
+    /// See [`Self::device_event`] implementation for mouse movement handling.
+    ///
     /// On receiving [`WindowEvent::RedrawRequested`], if no [`Self::error`] and [`Self::interrupt`]
     /// are detected, [`updates`](Self::update) the simulation by either: executing a new G-code block
     /// or continuing to render a block already in process. During this,
-    /// appropriate [`Signal`]s are sent to the [`Tui`](crate::tui), in case any user input is required.
+    /// appropriate [`Signal`]s are sent to the [`Tui`](crate::tui), to reflect the changes.
     ///
     /// Calls [`Graphics::render`] if a new frame is to be drawn.
     /// On failure to `render` stores the error and exits the event loop.
@@ -542,13 +549,7 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Left,
                 ..
             } => {
-                if self.fit {
-                    self.fit = false;
-                    self.send_signal(Signal::SetFit(false));
-                }
-
                 self.left_mouse_pressed = state.is_pressed();
-
                 false
             }
 
@@ -557,15 +558,7 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Right,
                 ..
             } => {
-                if self.view.is_some() {
-                    // first interaction for oribiting after a preset view
-                    // forfeit current view
-                    self.view = None;
-                    self.send_signal(Signal::SetView(None));
-                }
-
                 self.right_mouse_pressed = state.is_pressed();
-
                 false
             }
 
@@ -574,35 +567,24 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Middle,
                 ..
             } => {
-                if self.view.is_some() {
-                    // first interaction for oribiting after a preset view
-                    // forfeit current view
-                    self.view = None;
-                    self.send_signal(Signal::SetView(None));
-                }
-
                 self.middle_mouse_pressed = state.is_pressed();
-
                 false
             }
 
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(_, y) => {
-                    if self.fit {
-                        self.fit = false;
-                        self.send_signal(Signal::SetFit(false));
-                    }
-
                     self.graphics.as_mut().unwrap().zoom(y);
                     false
                 }
                 MouseScrollDelta::PixelDelta(_) => return, // does not support touchpads yet
             },
 
-            WindowEvent::KeyboardInput { event, .. } => match self.handle_key_input(event) {
-                Some(render) => render,
-                None => return,
-            },
+            WindowEvent::KeyboardInput { event, .. } => {
+                match self.handle_key_input(event, event_loop) {
+                    Some(render) => render,
+                    None => return,
+                }
+            }
 
             _ => return,
         };
@@ -613,52 +595,67 @@ impl ApplicationHandler for Gui {
         }
     }
 
-    // only handles mouse movement
-    // but all mouse button presses are handled in windowevent
-    // so we do not have to deal with raw button inputs
+    /// Handles mouse movement.
+    ///
+    /// Does **not** handle any key presses.
+    /// See [`Self::window_event`] implementation for mouse and keyboard key input handling.
     fn device_event(
         &mut self,
         event_loop: &ActiveEventLoop,
         _device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        let graphics = match self.graphics.as_mut() {
-            Some(g) => g,
-            None => return,
-        };
+        if self.graphics.is_none() {
+            return;
+        }
 
         // handle pointer movement here as this is raw data
         match event {
             // prioritize orbiting
             DeviceEvent::MouseMotion { delta } if self.middle_mouse_pressed => {
+                if self.view.is_some() {
+                    // first interaction for oribiting after a preset view
+                    // forfeit current view
+                    self.view = None;
+                    self.send_signal(Signal::SetView(None));
+                }
+
                 let delta = [delta.0 as f32, delta.1.neg() as f32, 0.0];
-                graphics.orbit(delta) // orbiting around x and y
+                self.graphics.as_mut().unwrap().orbit(delta) // orbiting around x and y
             }
 
             DeviceEvent::MouseMotion { delta } if self.right_mouse_pressed => {
+                if self.view.is_some() {
+                    // first interaction for oribiting after a preset view
+                    // forfeit current view
+                    self.view = None;
+                    self.send_signal(Signal::SetView(None));
+                }
+
                 let delta = [0.0, 0.0, delta.1 as f32];
-                graphics.orbit(delta) // orbiting around z
+                self.graphics.as_mut().unwrap().orbit(delta) // orbiting around z
             }
 
             DeviceEvent::MouseMotion { delta } if self.left_mouse_pressed => {
+                if self.fit {
+                    self.fit = false;
+                    self.send_signal(Signal::SetFit(false));
+                }
+
                 let delta = [delta.0 as f32, delta.1.neg() as f32];
-                graphics.pan(delta) // panning
+                self.graphics.as_mut().unwrap().pan(delta) // panning
             }
 
             _ => return,
         };
 
-        if let Err(e) = graphics.render(false) {
+        if let Err(e) = self.graphics.as_mut().unwrap().render(false) {
             self.error = Some(e); // exit on render error
             event_loop.exit()
         }
     }
 
-    /// Handles [`Command`]s sent from the [`Tui`](crate::tui) thread.
-    ///
-    /// Each command alters [`Graphics`] state and draws a new frame or,
-    /// in case of [`Command::Stop`], exits the loop.
-    /// Latest command is always stored at the end.
+    /// Exits the `event_loop` on receiving the first event from user.
     fn user_event(&mut self, event_loop: &ActiveEventLoop, _event: ()) {
         // do not record tui exit event,
         // just exit and report any errors

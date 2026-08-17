@@ -12,10 +12,6 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
-struct Vertex {
-    @location(0) vertex: u32,
-};
-
 struct Instance {
     @location(1) start: vec3<f32>,
     @location(2) end: vec3<f32>,
@@ -39,7 +35,7 @@ const STROKE_WIDTH = 0.005;
 const SMOOTHING = 0.0025; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
-fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
+fn vs_main(@location(0) vertex: u32, instance: Instance) -> VertexOutput {
     var start = uniforms.matrix * vec4<f32>(instance.start.xy, instance.start.z + Z_OFFSET, 1.0);
     var end = uniforms.matrix * vec4<f32>(instance.end.xy, instance.end.z + Z_OFFSET, 1.0);
 
@@ -51,13 +47,13 @@ fn vs_main(quad: Vertex, instance: Instance) -> VertexOutput {
     // vertex: 0,2 = -normal
     // vertex: 1,3 = +normal
     // halfs the normal vector and adds sign to it
-    let side = select(0.5, -0.5, quad.vertex % 2 == 0);
+    let side = select(0.5, -0.5, vertex % 2 == 0);
 
     let offset = normal * STROKE_WIDTH * side;
     // use first two vertex invocations for start side
-    let pos = select(start.xy, end.xy, quad.vertex > 1) + offset;
+    let pos = select(start.xy, end.xy, vertex > 1) + offset;
     // make sure that the toolpath is a little above the stock
-    let depth = select(start.z, end.z, quad.vertex > 1);
+    let depth = select(start.z, end.z, vertex > 1);
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>(pos, depth, 1.0);

@@ -5,6 +5,7 @@
 mod line;
 mod stock;
 mod tool;
+mod transform;
 mod uniforms;
 
 use crate::{
@@ -13,11 +14,12 @@ use crate::{
     geometry::{
         line::{BufferAction, LineInstance, LinesTracker},
         stock::{StockInstance, StockTracker},
-        tools::ToolInstance,
-        uniforms::{Transform, Uniforms},
+        tool::ToolInstance,
+        uniforms::Uniforms,
         view::View,
     },
     points::Point,
+    renderer::transform::Transform,
     speed::Speed,
 };
 use std::{
@@ -73,8 +75,10 @@ pub struct Graphics {
 
     /// Pipeline for rendering the [`ToolInstance`].
     tool_pipeline: wgpu::RenderPipeline,
+    tool_vertex_buffer: wgpu::Buffer,
     /// GPU buffer configured to hold a **single** [`ToolInstance`].
     tool_instance_buffer: wgpu::Buffer,
+    tool_count: u32,
 
     /// Pipeline for rendering [`StockInstance`]s.
     stock_pipeline: wgpu::RenderPipeline,
@@ -225,7 +229,7 @@ impl Graphics {
 
         // show tool
         let tool = ToolInstance::at_point(config.start_pos, config.default_tool);
-        let (tool_pipeline, tool_instance_buffer) =
+        let (tool_pipeline, tool_vertex_buffer, tool_instance_buffer) =
             tool::setup_pipeline(&device, &uniform_bind_group_layout, surface_format);
         queue.write_buffer(&tool_instance_buffer, 0, bytemuck::cast_slice(&[tool]));
 
@@ -263,7 +267,9 @@ impl Graphics {
             lines_offset: 0,
 
             tool_pipeline,
+            tool_vertex_buffer,
             tool_instance_buffer,
+            tool_count: ToolInstance::vertices().len() as u32,
 
             stock_pipeline,
             stock_vertex_buffer,
@@ -546,8 +552,9 @@ impl Graphics {
         // tool
         if self.tool {
             render_pass.set_pipeline(&self.tool_pipeline);
-            render_pass.set_vertex_buffer(0, self.tool_instance_buffer.slice(..));
-            render_pass.draw(0..432, 0..1);
+            render_pass.set_vertex_buffer(0, self.tool_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.tool_instance_buffer.slice(..));
+            render_pass.draw(0..self.tool_count, 0..1);
         }
 
         // lines

@@ -57,7 +57,7 @@
 //! - Every stock dimension **must** be positive and non-zero.
 //! - Each tool `diameter` and `length` **must** be positive and non-zero.
 
-use crate::{FLOAT_VARIANCE, points::Point};
+use crate::points::Point;
 use serde::Deserialize;
 use std::str::FromStr;
 
@@ -124,9 +124,9 @@ impl FromStr for Config {
         let ret: Self = serde_json::from_str(s)?;
 
         // make sure stock size and tool diameter and length are positive and non zero
-        if ret.stock.x < FLOAT_VARIANCE
-            || ret.stock.y < FLOAT_VARIANCE
-            || ret.stock.z < FLOAT_VARIANCE
+        if ret.stock.x.is_sign_negative()
+            || ret.stock.y.is_sign_negative()
+            || ret.stock.z.is_sign_negative()
         {
             return Err(ConfigError::StockNonPositive);
         }
@@ -170,7 +170,7 @@ impl ToolConfig {
     ///
     /// Returns [`ConfigError::ToolNonPositive`] if the tool has zero or negative diameter or length.
     fn validate(&self) -> Result<(), ConfigError> {
-        if self.diameter < FLOAT_VARIANCE || self.length < FLOAT_VARIANCE {
+        if self.diameter.is_sign_negative() || self.length.is_sign_negative() {
             Err(ConfigError::ToolNonPositive(self.number))
         } else {
             Ok(())

@@ -18,8 +18,8 @@
 use crate::{config::ToolConfig, points::Point};
 use std::f32::consts::SQRT_2;
 
-/// Number of voxels ([`StockInstance`]s) on the longer of X & Y axis.
-const STOCK_RESOLUTION: u32 = 1000;
+/// Number of voxels ([`StockInstance`]s) on the longer of X or Y axis.
+const RESOLUTION: u32 = 1000;
 
 /// Directional bit masks.
 const TOP: u32 = 1;
@@ -28,8 +28,6 @@ const RIGHT: u32 = 1 << 2;
 const BOTTOM: u32 = 1 << 3;
 const BACK: u32 = 1 << 4;
 const LEFT: u32 = 1 << 5;
-
-// TODO create a relation between distance travelled per frame and stock resolution
 
 /// A single *height-adjustable* voxel instance, with its base at [`Self::center`].
 ///
@@ -41,8 +39,10 @@ const LEFT: u32 = 1 << 5;
 pub struct StockInstance {
     /// X and Y coordinates of the instance base at Z 0.0.
     center: [f32; 2],
+
     /// Height of the instance to be drawn.
     height: f32,
+
     /// Visible faces of the voxel instance.
     /// First six bits correspond to **TOP, FRONT, RIGHT, BOTTOM, BACK, LEFT** faces respectively.
     faces: u32,
@@ -58,10 +58,12 @@ pub struct StockInstance {
 pub struct StockInstanceVertex {
     /// X and Y coordinates of the instance vertex.
     xy: [f32; 2],
+
     /// Z height flag.
     /// To target base(0 height), set to 0.
     /// To target [`StockInstance::height`], set to 1.
     z: u32,
+
     /// Face the vertex belongs to.
     face: u32,
 }
@@ -93,7 +95,7 @@ impl StockInstance {
         }
     }
 
-    /// Slice of [`StockInstanceVertex`] required to construct all the individual faces of a
+    /// Array of [`StockInstanceVertex`] required to construct all the individual faces of a
     /// [`StockInstance`] independently.
     ///
     /// These faces can be toggled with [`StockInstance::faces`] field.
@@ -258,9 +260,9 @@ impl StockInstance {
         }
     }
 
-    /// Indices of [`Self::vertices`] slice to prevent duplication of vertices for the same face.
+    /// Indices of [`Self::vertices`] array to prevent duplication of vertices for the same face.
     ///
-    /// The indices are ordered in **Counter-clockwise** order for each face.
+    /// The indices are ordered in **counter-clockwise** order for each face.
     pub fn indices() -> [u16; 36] {
         [
             2, 0, 1, 1, 3, 2, // front
@@ -280,37 +282,42 @@ pub struct StockTracker {
     /// A 2D array of voxels.
     /// Each voxel is represented as a [`StockInstance`].
     instances: Vec<StockInstance>,
+
     /// Voxel instance counts along X & Y axis.
     voxel_counts: (usize, usize),
+
     /// Size of the cuboid being represented.
     pub size: Point,
+
     /// Total count of voxel instances. Hidden and visible.
     pub total_count: usize,
+
     /// Index of the first voxel instance whose state changed recently, as a result of
     /// [`Self::cut`], and needs to be reuploaded to the GPU.
     /// Does not have to be index of the first voxel instance that was cut,
     /// and may be the index of its left neighbour.
     start_index: usize,
+
     /// Index of the last voxel instance whose state changed recently, as a result of [`Self::cut`].
     /// This index, along with [`Self::start_index`], makes drawing of stock changes much more
     /// efficient, as compared to reuploading the whole 2D array of instances.
     /// Does not have to be index of the last voxel instance that was cut,
     /// and may be the index of its right neighbour.
     end_index: usize,
+
     /// Extent of each voxel instance in X & Y.
-    /// Calculated once at generation. Depends on [`Self::size`] and [`STOCK_RESOLUTION`].
+    /// Calculated once at generation. Depends on [`Self::size`] and [`RESOLUTION`].
     pub voxel_edge: f32,
 }
 
 impl StockTracker {
     /// Creates a new [`StockTracker`], setup to track a cuboid stock.
-    /// The supplied body **must** be a [`Body::Cuboid`], as [`Body::Cylinder`] is not implemented yet.
     ///
     /// Calculates the [`Self::voxel_edge`] size to be used for each voxel ([`StockInstance`]).
-    /// Only activates the  exposed faces of each [`StockInstance`].
+    /// Only activates the exposed faces of each [`StockInstance`].
     pub fn new(size: Point) -> Self {
         let largest = size.x.max(size.y);
-        let edge = largest / STOCK_RESOLUTION as f32; // edge of each bar
+        let edge = largest / RESOLUTION as f32; // edge of each bar
 
         let start = edge / 2.0;
 
@@ -631,7 +638,7 @@ mod tests {
     #[test]
     fn stock() {
         let size = Point::new(500.0, 250.0, 250.0);
-        let edge = size.x.max(size.y) / STOCK_RESOLUTION as f32; // edge of each cube
+        let edge = size.x.max(size.y) / RESOLUTION as f32; // edge of each cube
 
         let start = edge / 2.0;
 

@@ -5,14 +5,12 @@
 //! - [`PartialPoint`] : Position in 3D, with **optional** axis coordinate for each axis.
 //! - [`PlanarPoint`] : Position in 2D, on a specific [`Plane`].
 
+use crate::machine::Plane;
+use serde::Deserialize;
 use std::{
     fmt::Display,
     ops::{Add, Div, Mul, Sub},
 };
-
-use serde::Deserialize;
-
-use crate::machine::Plane;
 
 /// A 3D point in space.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
