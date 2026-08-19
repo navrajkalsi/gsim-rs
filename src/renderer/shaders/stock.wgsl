@@ -1,6 +1,9 @@
 // Stock
 //
 // Draws a cuboidal stock instance of specified height.
+// For each instance, vertices are duplicated so that each of the 6 faces can be drawn
+// independently.
+// This is done to hide `Vertex.face` at runtime if that bit is not set in `Instance.faces`.
 
 struct Uniforms {
     matrix: mat4x4<f32>,

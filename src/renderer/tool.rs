@@ -2,16 +2,21 @@
 //!
 //! Sets up the GPU resources for rendering [`ToolInstance`]s.
 
-use wgpu::util::DeviceExt;
-
 use crate::geometry::tool::ToolInstance;
+use wgpu::util::DeviceExt;
 
 /// Creates a pipeline for drawing [`ToolInstance`]s.
 ///
-/// The pipeline expects the **instance buffer** at slot `0` in the render pass.
+/// The pipeline expects the following buffers in the render pass:
+/// - **vertex buffer** at slot `0`.
+/// - **instance buffer** at slot `1`.
+///
+/// **Back-face culling** is enabled,
+/// which discards any triangles that are drawn in clockwise order.
 ///
 /// Returns a tuple consisting of:
 /// - Render pipeline.
+/// - Vertex buffer, used to expand a single instance into all vertices required for a tool.
 /// - Instance buffer, for uploading at most a **single** [`ToolInstance`] to the GPU.
 pub fn setup_pipeline(
     device: &wgpu::Device,

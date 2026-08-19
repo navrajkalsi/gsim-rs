@@ -7,7 +7,7 @@
 //! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`].
 //!
 //! The render loop draws endlessly to achieve the [`TARGET_FPS`], terminating on either:
-//! - Receiving `Q` keypress from the user.
+//! - Receiving `q` keypress from the user.
 //! - Receiving `SIGINT`, `SIGTERM` or `SIGHUP` signal from the OS.
 //! - Reading [`Signal::Error`] or [`Signal::Stop`] from the [`Gui`](crate::gui).
 //!
@@ -286,7 +286,7 @@ impl Tui {
     /// Checks if the user pressed exit key in the terminal.
     fn check_exit(&mut self) -> Result<bool, std::io::Error> {
         let exit = match poll_key_press()? {
-            Some(key) => key.code == KeyCode::Char('Q'),
+            Some(key) => key.code == KeyCode::Char('q'),
             None => false,
         };
 
@@ -662,7 +662,7 @@ impl Tui {
     /// [Github](https://github.com/ratatui/ratatui/blob/main/examples/apps/demo2/src/app.rs)
     fn keys_widget(&self) -> Paragraph<'_> {
         let mut spans1 = vec![
-            Span::styled("  Q  ", THEME.key),
+            Span::styled("  q  ", THEME.key),
             Span::styled(" Quit ", THEME.key_desc),
             Span::styled("  v  ", THEME.key),
             Span::styled(" Switch View ", THEME.key_desc),

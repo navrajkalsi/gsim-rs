@@ -1,6 +1,7 @@
 // Line
 //
-// Draws a straight **anti-aliased** line instance of specified color.
+// Draws a straight **anti-aliased** line instance of specified color based on the `move_type` of
+// the line instance.
 //
 // Reference:
 // https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl
@@ -31,7 +32,7 @@ const Z_OFFSET = 0.1;
 const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
 const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
 
-const STROKE_WIDTH = 0.005;
+const STROKE_WIDTH = 0.005; // in ndc
 const SMOOTHING = 0.0025; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex

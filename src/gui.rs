@@ -190,7 +190,7 @@ impl Gui {
         });
 
         if let Some(graphics) = self.graphics.as_mut() {
-            graphics.clear();
+            graphics.reset();
             graphics.window.request_redraw();
         }
     }
@@ -219,7 +219,7 @@ impl Gui {
             // exhausted, execute new block and seed the line tracker
             // in single mode, we reach here if user requested next block
             match self.execute() {
-                Ok(Some(motion)) => self.graphics.as_mut().unwrap().lines_tracker.add(motion),
+                Ok(Some(motion)) => self.graphics.as_mut().unwrap().add_motion(motion),
 
                 Ok(None) => (), // just try again on next redraw
 
@@ -387,8 +387,7 @@ impl Gui {
                 }
 
                 "p" => {
-                    let toolpath = !graphics.toolpath;
-                    graphics.toolpath = toolpath;
+                    let toolpath = graphics.toggle_toolpath();
                     self.send_signal(Signal::SetToolpathVisibility(toolpath));
                     Some(true)
                 }
@@ -399,15 +398,13 @@ impl Gui {
                 }
 
                 "s" => {
-                    let stock = !graphics.stock;
-                    graphics.stock = stock;
+                    let stock = graphics.toggle_stock();
                     self.send_signal(Signal::SetStockVisibility(stock));
                     Some(true)
                 }
 
                 "t" => {
-                    let tool = !graphics.tool;
-                    graphics.tool = tool;
+                    let tool = graphics.toggle_tool();
                     self.send_signal(Signal::SetToolVisibility(tool));
                     Some(true)
                 }
@@ -426,13 +423,13 @@ impl Gui {
                 }
 
                 "+" if self.speed.inc() => {
-                    graphics.speed = self.speed;
+                    graphics.set_speed(self.speed);
                     self.send_signal(Signal::SetSpeed(self.speed));
                     Some(false)
                 }
 
                 "-" if self.speed.dec() => {
-                    graphics.speed = self.speed;
+                    graphics.set_speed(self.speed);
                     self.send_signal(Signal::SetSpeed(self.speed));
                     Some(false)
                 }
@@ -460,7 +457,7 @@ impl ApplicationHandler for Gui {
 
         let window = match event_loop.create_window(
             Window::default_attributes()
-                .with_active(false)
+                .with_active(true)
                 .with_decorations(false)
                 .with_visible(true)
                 .with_title("GSim"),

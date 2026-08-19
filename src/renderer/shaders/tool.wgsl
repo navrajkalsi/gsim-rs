@@ -1,13 +1,6 @@
 // Tool
 //
-// Draws a cylinder whose bottom circular face is centered at `VertexInput.pos`.
-// This is done by drawing 4 triangles per 10 degrees sweep at the axis of the cylinder.
-//
-// Top and bottom faces get one triangle each and the curved face is drawn with a rectangle,
-// built using two triangles.
-// Therefore each 10 degrees of the cylinder is drawing using 12 vertices.
-//
-// The tool is drawn at depth `0.0`, which is the nearest plane.
+// Draws a cylinder whose bottom circular face is centered at `Instance.position`.
 
 struct Uniforms {
     matrix: mat4x4<f32>,

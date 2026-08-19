@@ -18,6 +18,7 @@ use crate::{
         uniforms::Uniforms,
         view::View,
     },
+    machine::MotionSummary,
     points::Point,
     renderer::transform::Transform,
     speed::Speed,
@@ -34,78 +35,101 @@ const MAX_INSTANCES: u64 = 1_000_000;
 
 /// Frames to draw per second.
 pub const TARGET_FPS: u64 = 60;
+
 // approx, due to int division truncation
 const TIME_BETWEEN_FRAMES: Duration = Duration::from_millis(1_000 / TARGET_FPS);
 
-/// GPU state for toothpath simulation.
+/// GPU state for toolpath simulation.
 pub struct Graphics {
     /// Logical connection to a GPU.
     device: wgpu::Device,
+
     /// Command queue for [`Self::device`].
     queue: wgpu::Queue,
+
     /// Rendering surface created from a [`Window`].
     /// Since the surface holds a reference to the [`Window`] it was created from,
     /// the window is kept alive as long as the surface.
     surface: wgpu::Surface<'static>,
+
     /// Description of [`Self::surface`].
     surface_config: wgpu::SurfaceConfiguration,
 
     /// Depth texture configured to [`Self::surface`] size.
     depth_texture: wgpu::Texture,
+
     /// View for [`Self::depth_texture`] to be used in the render pass.
     depth_texture_view: wgpu::TextureView,
+
     /// Multisample anti-aliasing texture configured to [`Self::surface`] size.
     msaa_texture: wgpu::Texture,
+
     /// View for [`Self::msaa_texture`] to be used in the render pass.
     msaa_texture_view: wgpu::TextureView,
 
     /// Pipeline for rendering [`LineInstance`]s.
     lines_pipeline: wgpu::RenderPipeline,
+
     /// GPU buffer for storing all vertices unique to a [`LineInstance`].
     lines_vertex_buffer: wgpu::Buffer,
+
     /// GPU buffer configured to hold [`MAX_INSTANCES`] number of [`LineInstance`]s.
     lines_instance_buffer: wgpu::Buffer,
+
     /// GPU buffer for storing indices of [`Self::lines_vertex_buffer`],
     /// allowing reuse of vertices without duplication.
     lines_index_buffer: wgpu::Buffer,
+
     /// Total number of active [`LineInstance`]s in [`Self::lines_instance_buffer`].
     lines_count: u32,
+
     /// Memory offset to write next toolpath [`LineInstance`] to in [`Self::lines_instance_buffer`].
     lines_offset: u64,
 
     /// Pipeline for rendering the [`ToolInstance`].
     tool_pipeline: wgpu::RenderPipeline,
+
+    /// GPU buffer for storing all vertices required for constructing a [`ToolInstance`].
     tool_vertex_buffer: wgpu::Buffer,
+
     /// GPU buffer configured to hold a **single** [`ToolInstance`].
     tool_instance_buffer: wgpu::Buffer,
+
+    /// Total number of vertices in [`Self::tool_vertex_buffer`] that draw a single [`ToolInstance`].
+    /// This is different from [`Self::lines_count`] and [`Self::stock_count`] as those are instance
+    /// counts.
     tool_count: u32,
 
     /// Pipeline for rendering [`StockInstance`]s.
     stock_pipeline: wgpu::RenderPipeline,
+
     /// GPU buffer for storing all vertices unique to a [`StockInstance`].
     stock_vertex_buffer: wgpu::Buffer,
+
     /// GPU buffer for storing all unique [`StockInstance`]s.
     stock_instance_buffer: wgpu::Buffer,
+
     /// GPU buffer for storing indices of [`Self::stock_vertex_buffer`],
     /// allowing reuse of vertices without duplication.
     stock_index_buffer: wgpu::Buffer,
+
     /// Total number of [`StockInstance`]s in [`Self::stock_instance_buffer`].
     stock_count: u32,
 
     /// Tracks total [`LineInstance`]s drawn and left to be drawn from the latest simulation move.
-    pub lines_tracker: LinesTracker,
+    lines_tracker: LinesTracker,
 
     /// Tracks state changes of [`StockInstance`]s during cutting moves.
     stock_tracker: StockTracker,
 
-    /// Constant data shared across all the pipelines.
-    //
-    // TODO
-    //
+    /// Currently applied 3D tranformations.
+    /// These are communicated to the shaders as [`Uniforms`] using [`Self::uniform_buffer`].
     transform: Transform,
 
-    /// Read-only buffer containing [`Self::uniforms`].
+    /// GPU buffer containing final [`Uniforms`], to be constructed from [`Self::transform`].
+    /// This is constant data to be shared across all the pipelines.
     uniform_buffer: wgpu::Buffer,
+
     /// GPU bind group, with entry bound to [`Self::uniform_buffer`].
     uniform_bind_group: wgpu::BindGroup,
 
@@ -114,19 +138,29 @@ pub struct Graphics {
     configured: bool,
 
     /// [`StockInstance`]s visibility flag.
-    pub stock: bool,
+    stock: bool,
+
     /// [`LineInstance`]s visibility flag.
-    pub toolpath: bool,
+    toolpath: bool,
+
     /// [`ToolInstance`] visibility flag.
-    pub tool: bool,
+    tool: bool,
 
-    pub speed: Speed,
+    /// Simulation speed.
+    speed: Speed,
 
-    tool_config: ToolConfig,
-
-    // speed just batches up frames
+    /// Number of frames skipped between `draw` calls.
+    /// This helps in controlling the simulation speed with [`Self::speed`].
     skipped_frames: u8,
 
+    /// Active tool configuration.
+    tool_config: ToolConfig,
+
+    /// Last frame `draw` call time.
+    /// This is used to control the frame rate of the simulation.
+    ///
+    /// Extremely useful in **preventing lag** when user is interacting with the window.
+    /// Not intended to control the simulation speed.
     last_frame: Instant,
 
     /// [`Arc`] keeps the [`Window`] valid for as long as [`Self::surface`] needs,
@@ -137,13 +171,16 @@ pub struct Graphics {
 impl Graphics {
     /// Constructs a new [`Graphics`] by initializing all GPU resources, including:
     /// - [`Uniforms`] buffer and bind group, to pass constant data to the pipelines.
+    /// - [`Transform`] for tracking 3D tranformations.
     /// - [`LineInstance`] buffers and pipeline.
-    /// - [`ToolInstance`] buffer and pipeline. Creates a [`ToolInstance`],
-    ///   with the tool at [`Config::start_pos`], and writes it to [`Self::tool_instance_buffer`].
+    /// - [`ToolInstance`] buffers and pipeline. Creates a [`ToolInstance`],
+    ///   using [`Config::default_tool`] located at [`Config::start_pos`],
+    ///   and writes it to [`Self::tool_instance_buffer`].
     /// - [`StockInstance`] buffers and pipeline. Creates a stock corresponding to
     ///   [`Config::stock`], and writes it to [`Self::stock_instance_buffer`].
     ///
-    // TODO sets up default tool
+    /// Chooses default values, except for configuring the
+    /// use of [`wgpu::Features::IMMEDIATES`] of size `4` to be used in render pass.
     ///
     /// Returns [`Error`](anyhow::Error) on failure to create any of the GPU resources.
     pub async fn build(
@@ -302,7 +339,7 @@ impl Graphics {
     }
 
     /// Reconfigures [`Self::surface`], [`Self::depth_texture`] and [`Self::msaa_texture`],
-    /// updates & rewrites [`Self::uniforms`] to use the new provided size.
+    /// updates & rewrites [`Self::transform`] to [`Self::uniform_buffer`] to use the new provided size.
     pub fn resize(&mut self, mut new_size: PhysicalSize<u32>) {
         new_size.width = new_size.width.max(1);
         new_size.height = new_size.height.max(1);
@@ -332,11 +369,12 @@ impl Graphics {
     ///   Overwrites the new line instance over the last instance in the buffer, extending it.
     /// - [`BufferAction::Add`]: Appends the new line instance individually to the buffer.
     ///
-    /// Also, depending on the `render` flags of [`BufferAction`],
-    /// updates the position of [`ToolInstance`] in [`Self::tool_instance_buffer`]
-    /// to the new line instance end point.
+    /// Depending on the `render` flags of [`BufferAction`], updates the position of [`ToolInstance`]
+    /// in [`Self::tool_instance_buffer`] to the new line instance end point.
     /// Although a `force_render_tool` flag can be provided to make sure the [`ToolInstance`] is
     /// updated to the new position.
+    ///
+    /// Also, performs any stock manipulation, irrespective of `render` value.
     ///
     /// On success returns a tuple with two `bool`s:
     /// - whether the simulation should proceed to next command.
@@ -347,7 +385,6 @@ impl Graphics {
     pub fn update(&mut self, force_render_tool: bool) -> anyhow::Result<(bool, bool)> {
         let mut new_pos = None;
 
-        // if None, signal has already been sent to retrieve a command from previous block exhaustion
         let (proceed, render) = match self.lines_tracker.next() {
             // update tool if we are going to request redraw
             Some(BufferAction::Overwrite { instance, render }) => {
@@ -418,15 +455,15 @@ impl Graphics {
     /// On failure, returns [`anyhow::Error`] if [`Self::lines_instance_buffer`] overflows on adding the new
     /// [`LineInstance`].
     fn add_instance(&mut self, instance: LineInstance) -> anyhow::Result<()> {
+        if self.lines_count + 1 > MAX_INSTANCES as u32 {
+            anyhow::bail!("lines instance buffer overflow");
+        }
+
         self.queue.write_buffer(
             &self.lines_instance_buffer,
             self.lines_offset,
             bytemuck::cast_slice(&[instance]),
         );
-
-        if self.lines_count + 1 > MAX_INSTANCES as u32 {
-            anyhow::bail!("lines instance buffer overflow");
-        }
 
         self.lines_offset += bytemuck::cast_slice::<LineInstance, u8>(&[instance]).len() as u64;
         self.lines_count += 1;
@@ -434,8 +471,9 @@ impl Graphics {
         Ok(())
     }
 
-    /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_instance_buffer`].
-    pub fn clear(&mut self) {
+    /// Clears all the toolpath [`LineInstance`]s from [`Self::lines_instance_buffer`],
+    /// and resets stock to the original stock specified in the program config.
+    pub fn reset(&mut self) {
         self.lines_count = 0;
         self.lines_offset = 0;
         self.lines_tracker.reset();
@@ -455,9 +493,12 @@ impl Graphics {
     /// and [`Self::stock_instance_buffer`] after checking for [`Self::toolpath`],
     /// [`Self::tool`] and [`Self::stock`] flags respectively.
     ///
+    /// The frame **may be skipped** if the last frame was rendered recently,
+    /// considering the [`TARGET_FPS`].
+    /// This is extremely useful when user is interacting live with the window.
+    ///
     /// # Errors
     /// Returns [`anyhow::Error`] indicating that the surface is lost.
-    // TODO enforces frame rate
     pub fn render(&mut self, force_draw: bool) -> anyhow::Result<()> {
         if !self.configured {
             return Ok(());
@@ -507,7 +548,7 @@ impl Graphics {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                // view: &self.msaa_view,
+                // view: &self.msaa_texture_view,
                 view: &surface_view,
                 depth_slice: None,
                 // resolve_target: Some(&surface_view),
@@ -577,8 +618,37 @@ impl Graphics {
         Ok(())
     }
 
-    /// Sets the active [`View`] in [`Self::uniforms`] and uploads the updated uniforms to
-    /// [`Self::uniform_buffer`].
+    /// Adds the provided `motion` to [`Self::lines_tracker`] which can be simulated on each call to
+    /// [`Self::update`].
+    pub fn add_motion(&mut self, motion: MotionSummary) {
+        self.lines_tracker.add(motion);
+    }
+
+    /// Toggles stock visibility and returns the new visibility.
+    pub fn toggle_stock(&mut self) -> bool {
+        self.stock = !self.stock;
+        self.stock
+    }
+
+    /// Toggles toolpath visibility and returns the new visibility.
+    pub fn toggle_toolpath(&mut self) -> bool {
+        self.toolpath = !self.toolpath;
+        self.toolpath
+    }
+
+    /// Toggles tool visibility and returns the new visibility.
+    pub fn toggle_tool(&mut self) -> bool {
+        self.tool = !self.tool;
+        self.tool
+    }
+
+    /// Changes current speed setting.
+    pub fn set_speed(&mut self, speed: Speed) {
+        self.speed = speed
+    }
+
+    /// Sets the active [`View`] in [`Self::transform`] and uploads
+    /// a new updated [`Uniforms`] to [`Self::uniform_buffer`].
     pub fn set_view(&mut self, view: View) {
         if let Some(set_view) = self.transform.view()
             && set_view == view
@@ -595,6 +665,8 @@ impl Graphics {
         );
     }
 
+    /// Removes any custom scalings and translations, resulting from user input.
+    /// Generates a new updated [`Uniforms`] and uploads it to [`Self::uniform_buffer`].
     pub fn fit_view(&mut self) {
         self.transform.reset_scale();
         self.transform.reset_translations();
@@ -606,18 +678,23 @@ impl Graphics {
         );
     }
 
+    /// Changes the diameter and length of the rendered tool to that of `tool_config`,
+    /// without changing the current tool position.
+    /// Generates a new updated [`Uniforms`] and uploads it to [`Self::uniform_buffer`].
     pub fn set_tool(&mut self, tool_config: ToolConfig) {
         self.tool_config = tool_config;
 
         self.queue.write_buffer(
             &self.tool_instance_buffer,
-            std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+            std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress, // offset ahead of tool pos
             bytemuck::cast_slice(&[tool_config.diameter, tool_config.length]),
         );
     }
 
-    pub fn zoom(&mut self, amount: f32) {
-        self.transform.scale(amount);
+    /// Scales X & Y based on the number of `lines_scrolled`.
+    /// Generates a new updated [`Uniforms`] and uploads it to [`Self::uniform_buffer`].
+    pub fn zoom(&mut self, lines_scrolled: f32) {
+        self.transform.scale(lines_scrolled);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
@@ -626,8 +703,10 @@ impl Graphics {
         );
     }
 
-    pub fn pan(&mut self, amount: [f32; 2]) {
-        self.transform.translate(amount);
+    /// Translates the view by `delta` pixels in X & Y axes.
+    /// Generates a new updated [`Uniforms`] and uploads it to [`Self::uniform_buffer`].
+    pub fn pan(&mut self, delta: [f32; 2]) {
+        self.transform.translate(delta);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
@@ -636,8 +715,10 @@ impl Graphics {
         );
     }
 
-    pub fn orbit(&mut self, amount: [f32; 3]) {
-        self.transform.rotate(amount);
+    /// Rotates the view by `delta` pixels in all three axes.
+    /// Generates a new updated [`Uniforms`] and uploads it to [`Self::uniform_buffer`].
+    pub fn orbit(&mut self, delta: [f32; 3]) {
+        self.transform.rotate(delta);
 
         self.queue.write_buffer(
             &self.uniform_buffer,
@@ -647,7 +728,6 @@ impl Graphics {
     }
 }
 
-// make sure width and height are at least 1
 fn depth_texture(
     device: &wgpu::Device,
     size: PhysicalSize<u32>,
@@ -672,7 +752,6 @@ fn depth_texture(
     (texture, view)
 }
 
-// make sure width and height are at least 1
 fn msaa_texture(
     device: &wgpu::Device,
     size: PhysicalSize<u32>,

@@ -14,6 +14,9 @@ use wgpu::util::DeviceExt;
 /// **Back-face culling** is enabled,
 /// which discards any triangles that are drawn in clockwise order.
 ///
+/// This pipeline is also setup to accept an **intermediate** of size `4`,
+/// which can be changed during each render pass.
+///
 /// Returns a tuple consisting of:
 /// - Render pipeline.
 /// - Vertex buffer, used to expand a single instance into multiple unique vertices.
