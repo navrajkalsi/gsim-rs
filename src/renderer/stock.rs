@@ -14,7 +14,7 @@ use wgpu::util::DeviceExt;
 /// **Back-face culling** is enabled,
 /// which discards any triangles that are drawn in clockwise order.
 ///
-/// This pipeline is also setup to accept an **intermediate** of size `4`,
+/// This pipeline is also setup to accept an **intermediate** of size `4` bytes,
 /// which can be changed during each render pass.
 ///
 /// Returns a tuple consisting of:
@@ -71,7 +71,7 @@ pub fn setup_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: 4,
             mask: !0, // use all
             alpha_to_coverage_enabled: false,
         },

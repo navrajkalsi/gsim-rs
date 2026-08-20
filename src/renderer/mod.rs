@@ -548,11 +548,11 @@ impl Graphics {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                // view: &self.msaa_texture_view,
-                view: &surface_view,
+                view: &self.msaa_texture_view,
+                // view: &surface_view,
                 depth_slice: None,
-                // resolve_target: Some(&surface_view),
-                resolve_target: None,
+                resolve_target: Some(&surface_view),
+                // resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.01,
@@ -740,7 +740,7 @@ fn depth_texture(
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: 4,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -765,7 +765,7 @@ fn msaa_texture(
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: 4,
         dimension: wgpu::TextureDimension::D2,
         format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,

@@ -510,13 +510,38 @@ impl StockTracker {
         )
     }
 
-    /// Reset each voxel instance height back to the same height used at generation.
+    /// Resets each voxel instance height back to the same height used at generation.
+    /// Also hides the faces that would not be visible now, just like at generation.
     pub fn reset(&mut self) {
         self.start_index = 0;
         self.end_index = self.total_count - 1;
 
-        for instance in &mut self.instances {
-            instance.height = self.size.z;
+        for x in 0..self.voxel_counts.0 {
+            for y in 0..self.voxel_counts.1 {
+                let mut faces = TOP | BOTTOM;
+
+                if x == 0 {
+                    faces |= LEFT
+                }
+
+                if x == self.voxel_counts.0 - 1 {
+                    faces |= RIGHT
+                }
+
+                if y == 0 {
+                    faces |= FRONT
+                }
+
+                if y == self.voxel_counts.1 - 1 {
+                    faces |= BACK
+                }
+
+                let index = x * self.voxel_counts.1 + y;
+                let instance = self.instances.get_mut(index).unwrap();
+
+                instance.height = self.size.z;
+                instance.faces = faces;
+            }
         }
     }
 
