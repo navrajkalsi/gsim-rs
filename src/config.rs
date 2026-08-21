@@ -141,10 +141,32 @@ impl FromStr for Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            units: Unit::default(),
+            stock: Point::new(500.0, 250.0, 50.0),
+            zero_pos: Point::zero(),
+            start_pos: Point::new(250.0, 125.0, 100.0),
+            tools: vec![ToolConfig {
+                number: 1,
+                diameter: 20.0,
+                length: 125.0,
+            }],
+            default_tool: ToolConfig {
+                number: 0,
+                diameter: 25.0,
+                length: 100.0,
+            },
+        }
+    }
+}
+
 /// Possible unit standards for dimensional values.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Unit {
+    #[default]
     Metric,
     Imperial,
 }

@@ -54,7 +54,11 @@ pub fn run() -> anyhow::Result<()> {
     display_banner();
 
     let cli = Cli::parse();
-    let config = Config::from_file(cli.config.as_str())?;
+
+    let config = match cli.config {
+        Some(path) => Config::from_file(path.as_str())?,
+        None => Config::default(),
+    };
     let source = match &cli.source {
         Some(path) => Source::from_file(path),
         None => Source::from_stdin(),

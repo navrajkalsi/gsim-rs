@@ -1,6 +1,6 @@
 # GSim-RS
 
-![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
+![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/demo.gif?raw=true)
 
 <div align="center">
 
@@ -9,44 +9,45 @@
 </div>
 
 A G-code simulator written in Rust.
-Parses, interprets, manages machine state and simulates the toolpaths.
-The control interface is built in **Ratatui** and the simulation is done using **WGPU**.
+Parses and interprets G-code. Manages machine state. Volumetrically simulates material-cutting and toolpaths.
+The machine state display is built in **Ratatui** and the simulation is done using **WGPU**.
 
 ---
 
-**G-code** or **Geometric code** is the language used to encode instructions for a CNC
-machine. These instructions cause the machine to move in extremely precise & controlled
+**G-code** or **Geometric code** is the language used to *(among other things)* encode instructions for a CNC machine.
+These instructions cause the machine to move in extremely precise & controlled
 manner to make all types of geometries.
 
-This project aims to simulate **Fanuc** flavour of G-code for a **vertical CNC milling** machine.
+This project aims to simulate the **Fanuc** flavour of G-code for a **vertical CNC milling** machine.
 
 <br>
 
 ## Architecture
 
-I have never done system diagrams for personal projects,
-but I feel like this one warrants one as there are **A LOT** of moving parts.
-
 Here is an **extremely high level** view of the architecture:
-![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/main/media/arch.svg?raw=true)
+![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/arch.svg?raw=true)
 
 <br>
 
 ## Highlights
 
-- **TUI** and **GUI** run on different threads using a feedback cycle, ensuring that both the
-  interfaces are in sync.
-- Smooth simulation of **adaptive** or **dynamic** toolpaths (like the one shown [here](#gsim-rs)) is ensured by batching up tiny moves
-  before rendering them to the frame. This is bypassed on **single mode on** to give the user
-  instant visual feedback, thus rendering each move irrespective of the move length.
-- **Single execution** of blocks is supported, allowing stepping through blocks.
+- **GUI** and **TUI** run on different threads and communicate bi-directionally.
+  GUI handles the parsing, interpretation and simulation rendering, while TUI acts as the user frontend by rendering the current active state.
+
+- Smooth simulation of **adaptive** or **dynamic** toolpaths *(like the one shown [here](#gsim-rs))* is ensured by batching up tiny moves before rendering them to a single frame.
+  This batching is bypassed when **single mode** is on, giving the user instant visual feedback per move, and also allows **stepping** through the program one block at a time.
+
+- **Volumetric** stock simulation is implemented for **cuboidal** stocks. This is done by only doing **partial GPU buffer updates** for each frame,
+  instead of re-uploading the whole stock. The stock size can be changed using the program configuration.
+
 - **Rapid** and **Feed** moves are differentiated visually in the simulation.
-- **Isometric** and **Top** simulation views can be switched between, at runtime.
-- **Machine boundary box** can be activated to visualize the extremes of machine travels.
-- Parsing and interpretation only happen during the first cycle and are **cached**. This makes
-  subsequent cycles more efficient.
-- **Overtravel** is calculated before each move and an error is raised if the move will
-  cause the machine to go off the boundary.
+
+- **Orbiting**, **Panning** and **Zooming** are supported via mouse input, alongside predefined **Isometric**, **Top**, **Front** and **Right** views, which can be switched between at runtime.
+
+- **Tool size** can be changed dynamically during tool change, if the tool is defined in the program configuration, else a default tool is used.
+
+- Runtime **simulation speed** controls are provided.
+
 - Both **metric** & **imperial** units can be used.
 
 <br>
@@ -61,10 +62,13 @@ Here is an **extremely high level** view of the architecture:
 - [anyhow](https://docs.rs/anyhow/latest/anyhow/index.html)
 - [bytemuck](https://docs.rs/bytemuck/latest/bytemuck/)
 - [clap](https://docs.rs/clap/latest/clap/)
+- [ctrlc](https://docs.rs/ctrlc/latest/ctrlc/)
 - [env_logger](https://docs.rs/env_logger/latest/env_logger/)
 - [log](https://docs.rs/log/latest/log/)
 - [pollster](https://docs.rs/pollster/latest/pollster/)
 - [ratatui](https://docs.rs/ratatui/latest/ratatui/)
+- [serde](https://docs.rs/serde/latest/serde/)
+- [serde_json](https://docs.rs/serde_json/latest/serde_json/)
 - [thiserror](https://docs.rs/thiserror/latest/thiserror/)
 - [wgpu](https://docs.rs/wgpu/latest/wgpu/index.html)
 - [winit](https://docs.rs/winit/latest/winit/)
@@ -98,32 +102,73 @@ cargo build --release
 There are two ways to provide the G-code file:
 - **Filepath** argument.
   ```bash
-  gsim-rs FILEPATH # if bin is on PATH
+  gsim-rs SOURCE # if bin is on PATH
   ```
   or
   ```bash
-  cargo run --release -- FILEPATH # from inside the source dir
+  cargo run --release -- SOURCE # from inside the source dir
   ```
 - **Stdin**.
   ```bash
-  cat FILEPATH | gsim-rs # if bin is on PATH
+  cat SOURCE | gsim-rs # if bin is on PATH
   ```
   or
   ```bash
-  cat FILEPATH | cargo run --release # from inside the source dir
+  cat SOURCE | cargo run --release # from inside the source dir
   ```
 
-### Command Line Options
+### JSON Config
 
-The following **flags** can be used to alter the behaviour of the program during startup:
+Here is the **default** program configuration, as a sample:
+``` json
+{
+  "units": "metric",
+  "stock": {
+    "x": 500,
+    "y": 250,
+    "z": 50
+  },
+  "zero_pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "start_pos": {
+    "x": 250,
+    "y": 125,
+    "z": 100
+  },
+  "tools": [
+    {
+      "number": 1,
+      "diameter": 20,
+      "length": 125
+    }
+  ],
+  "default_tool": {
+    "number": 0,
+    "diameter": 25,
+    "length": 100
+  }
+}
+```
+This configuration is used if no *config* path is provided via the [command line](#command-line-options), and:
+  - Treats every dimension in the *metric* system.
+  - Creates a cuboid shaped stock measuring *500mm*, *250mm* & *50mm*.
+  - Does not offset the reference-point of the stock, and sets it as the `zero_pos`.
+  - Starts the simulation at `start_pos`, which is at middle of X and Y
+    and *50mm above* the stock.
+  - Creates one tool(numbered *1*), with diameter *20mm* and length *125mm*.
+  - Creates a default tool config, with diameter *25mm* and length *100mm*.
 
-| **Flag** | **Description** | **Default** | **Max** | **Min** |
-| :-: | :-: | :-: | :-: | :-: |
-| -x | Maximum travel of the machine in X axis | 500 | 1500 | 150 |
-| -y | Maximum travel of the machine in Y axis | 250 | 1000 | 100 |
-| -z | Maximum travel of the machine in Z axis | 250 | 1000 | 100 |
-| -h | Print help | | | |
-| -V | Print version | | | |
+A custom configuration can also be provided with a JSON file:
+```bash
+gsim-rs SOURCE -c CONFIG # if bin is on PATH
+```
+or
+```bash
+cargo run --release -- SOURCE -c CONFIG # from inside the source dir
+```
 
 ### Runtime Commands
 
@@ -131,13 +176,14 @@ The following **key commands** can be used to control the simulation at **runtim
 
 | **Key** | **Description** | **Default** |
 | :-: | :-: | :-: |
-| **Q** | Quit | |
-| **v** | Switch b/w Isometric and Top **views** | Isometric |
-| **s** | Toggle **single** block execution | Off |
+| **q** | Quit | |
+| **v** | Switch b/w Isometric, Top, Front, Right **views** | Isometric |
+| **+** | Speed **Up** | |
+| **-** | Slow **Down** | |
+| **Space** | Toggle **single** block execution | Off |
+| **s** | Toggle **stock** visibility | On |
+| **p** | Toggle **toolpath** visibility | On |
 | **t** | Toggle **tool** visibility | On |
-| **g** | Toggle **grid** on XY plane | On |
-| **o** | Toggle **origin** with axis indicators | On |
-| **b** | Toggle **machine bounding box** | Off |
 
 If **single block** execution is set to **On**, the following command is then made available:
 
@@ -152,15 +198,15 @@ gsim-rs FILEPATH
 
 By default:
 - Reads the file at *FILEPATH* for G-code.
-- Constructs a machine with maximum X, Y & Z axis travels of 500, 250 & 250 units respectively.
+- Sets up program using [default config](#json-config).
 
 ### Additional Usage
 ```bash
-curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adaptive.gcode | gsim-rs -x 1000 -y 750 -z 800
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive.gcode | gsim-rs
 ```
 
 - Reads G-code source from `stdin`.
-- Constructs a machine with maximum X, Y & Z axis travels of 1000, 750 & 800 units respectively.
+- Sets up program using [default config](#json-config).
 
 <br>
 
@@ -236,52 +282,18 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 </div></div>
 
 ### Notes
-- Default value for **G54** offset is **half of each machine axis travel**. Therefore each absolute move
-  will be shifted to middle of the machine if activated.
+- **Offsetting** can be applied using `zero_pos` in the [config](#json-config). This is **not** to be confused with **G54** offset as this offset is applied always.
 - **G04 (Dwell)** does not block the threads and is ignored silently.
 - **Cutter and Tool Length Compensations** do not alter the simulation and are thus ignored.
 - Unsupported codes produce an error at runtime telling exactly what is invalid, the **aplhabetic** prefix or the **numeric** suffix.
 
 <br>
 
-## Other Demos
-
-### Note
-**Each demo G-code file, in the [*gcodes*](https://github.com/navrajkalsi/gsim-rs/blob/main/gcodes) directory, says what max travels that file on the first line.
-These need to be provided to the program via command line args.**
-
----
-
-### With **Filepath** argument
-
-```bash
-gsim-rs CLONED_REPO/gcodes/keyboard.gcode -x 850 -y 425 -z 425
-```
-
-#### Isometric
-![GSim demo, drawing a keyboard from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_iso.png?raw=true)
-
-#### Top
-![GSim demo, drawing a keyboard from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_top.png?raw=true)
-
----
-
-### From **Stdin**
-
-```bash
-curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/outline.gcode | gsim-rs
-```
-
-#### Isometric
-![GSim demo, drawing GSim logo from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_iso.png?raw=true)
-
-#### Top
-![GSim demo, drawing GSim logo from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_top.png?raw=true)
-
 ## References
 
 **Most importantly**: [WGPU tutorial](https://sotrh.github.io/learn-wgpu/)
 
+- 3D Math: [WebGPU Fundamentals](https://webgpufundamentals.org/webgpu/lessons/webgpu-orthographic-projection.html)
 - Math for arc: [Math Stack Exchange](https://math.stackexchange.com/questions/1781438/finding-the-center-of-a-circle-given-two-points-and-a-radius-algebraically)
 - Line vertex shader: [Github](https://github.com/KaNaDaAT/vega-webgpu/blob/main/src/shaders/line.wgsl)
 - Points on an arc: [FreeMathHelp](https://www.freemathhelp.com/forum/threads/xy-points-on-an-arc.130791/)
@@ -290,4 +302,3 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/outlin
 - Angle between two points on an arc: [Stackoverflow]( https://stackoverflow.com/questions/2994669/how-do-i-calculate-arc-angle-between-two-points-on-a-circle)
 - Ratatui: [Docs](https://docs.rs/ratatui/latest/ratatui/)
 - WGPU: [Docs](https://docs.rs/wgpu/latest/wgpu/)
-

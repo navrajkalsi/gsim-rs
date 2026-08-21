@@ -412,7 +412,9 @@ impl Gui {
                 "v" => {
                     let new_view = match self.view {
                         Some(View::Isometric) => View::Top,
-                        Some(View::Top) => View::Isometric,
+                        Some(View::Top) => View::Front,
+                        Some(View::Front) => View::Right,
+                        Some(View::Right) => View::Isometric,
                         None => View::default(),
                     };
 
