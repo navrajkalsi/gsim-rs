@@ -14,10 +14,10 @@ pub enum View {
     /// Simulate `X` & `Y` axes, from **top view**.
     Top,
 
-    /// Simulate `X` & `Z` axes, from **top view**.
+    /// Simulate `X` & `Z` axes, from **front view**.
     Front,
 
-    /// Simulate `Y` & `Z` axes, from **top view**.
+    /// Simulate `Y` & `Z` axes, from **right view**.
     Right,
 }
 

@@ -10,11 +10,12 @@
 
 A G-code simulator written in Rust.
 Parses and interprets G-code. Manages machine state. Volumetrically simulates material-cutting and toolpaths.
-The machine state display is built in **Ratatui** and the simulation is done using **WGPU**.
+
+The simulation is done using **WGPU** and the machine state display is built in **Ratatui**.
 
 ---
 
-**G-code** or **Geometric code** is the language used to *(among other things)* encode instructions for a CNC machine.
+**G-code** or **Geometric code** is the language used to, *among other things*, encode instructions for a CNC machine.
 These instructions cause the machine to move in extremely precise & controlled
 manner to make all types of geometries.
 
@@ -32,19 +33,21 @@ Here is an **extremely high level** view of the architecture:
 ## Highlights
 
 - **GUI** and **TUI** run on different threads and communicate bi-directionally.
-  GUI handles the parsing, interpretation and simulation rendering, while TUI acts as the user frontend by rendering the current active state.
+  GUI handles the parsing, interpretation and simulation rendering, while TUI acts as the user frontend by rendering the active state.
 
 - Smooth simulation of **adaptive** or **dynamic** toolpaths *(like the one shown [here](#gsim-rs))* is ensured by batching up tiny moves before rendering them to a single frame.
-  This batching is bypassed when **single mode** is on, giving the user instant visual feedback per move, and also allows **stepping** through the program one block at a time.
+  This batching is bypassed when **single-block mode** is on, giving the user instant visual feedback per move, and also allows **stepping** through the program one block at a time.
 
 - **Volumetric** stock simulation is implemented for **cuboidal** stocks. This is done by only doing **partial GPU buffer updates** for each frame,
-  instead of re-uploading the whole stock. The stock size can be changed using the program configuration.
+  instead of re-uploading the whole stock. The stock size can be changed using the program [configuration](#json-config).
+
+- Inward-facing voxel faces are **hidden** at startup, and are revealed as neighbouring voxels are *removed* during a cutting move.
 
 - **Rapid** and **Feed** moves are differentiated visually in the simulation.
 
 - **Orbiting**, **Panning** and **Zooming** are supported via mouse input, alongside predefined **Isometric**, **Top**, **Front** and **Right** views, which can be switched between at runtime.
 
-- **Tool size** can be changed dynamically during tool change, if the tool is defined in the program configuration, else a default tool is used.
+- **Tool size** can be changed dynamically during tool change, if the tool is defined in the program [configuration](#json-config), else the default tool is used.
 
 - Runtime **simulation speed** controls are provided.
 
@@ -102,19 +105,19 @@ cargo build --release
 There are two ways to provide the G-code file:
 - **Filepath** argument.
   ```bash
-  gsim-rs SOURCE # if bin is on PATH
+  gsim-rs SOURCE_PATH # if bin is on PATH
   ```
   or
   ```bash
-  cargo run --release -- SOURCE # from inside the source dir
+  cargo run --release -- SOURCE_PATH # from inside the source dir
   ```
 - **Stdin**.
   ```bash
-  cat SOURCE | gsim-rs # if bin is on PATH
+  cat SOURCE_PATH | gsim-rs # if bin is on PATH
   ```
   or
   ```bash
-  cat SOURCE | cargo run --release # from inside the source dir
+  cat SOURCE_PATH | cargo run --release # from inside the source dir
   ```
 
 ### JSON Config
@@ -152,7 +155,7 @@ Here is the **default** program configuration, as a sample:
   }
 }
 ```
-This configuration is used if no *config* path is provided via the [command line](#command-line-options), and:
+This configuration is used if **no** *config path* is provided via the command line. Config details:
   - Treats every dimension in the *metric* system.
   - Creates a cuboid shaped stock measuring *500mm*, *250mm* & *50mm*.
   - Does not offset the reference-point of the stock, and sets it as the `zero_pos`.
@@ -163,11 +166,11 @@ This configuration is used if no *config* path is provided via the [command line
 
 A custom configuration can also be provided with a JSON file:
 ```bash
-gsim-rs SOURCE -c CONFIG # if bin is on PATH
+gsim-rs SOURCE_PATH -c CONFIG_PATH # if bin is on PATH
 ```
 or
 ```bash
-cargo run --release -- SOURCE -c CONFIG # from inside the source dir
+cargo run --release -- SOURCE_PATH -c CONFIG_PATH # from inside the source dir
 ```
 
 ### Runtime Commands
@@ -282,10 +285,10 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 </div></div>
 
 ### Notes
-- **Offsetting** can be applied using `zero_pos` in the [config](#json-config). This is **not** to be confused with **G54** offset as this offset is applied always.
+- **Offsetting** can be applied using `zero_pos` in the [config](#json-config). This is **not** to be confused with **G54** offset as this offset is always applied.
 - **G04 (Dwell)** does not block the threads and is ignored silently.
 - **Cutter and Tool Length Compensations** do not alter the simulation and are thus ignored.
-- Unsupported codes produce an error at runtime telling exactly what is invalid, the **aplhabetic** prefix or the **numeric** suffix.
+- Unsupported codes produce an error at runtime telling exactly what is invalid, the **alphabetic** prefix or the **numeric** suffix.
 
 <br>
 
