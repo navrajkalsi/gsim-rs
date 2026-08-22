@@ -15,12 +15,12 @@ use crate::{
     interpreter::{Interpreter, InterpreterError, Interrupt},
     machine::MotionSummary,
     renderer::Graphics,
-    signal::Signal,
+    signal::{CycleSignal, UserSignal},
     speed::Speed,
 };
 use std::{
     ops::Neg,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc::Sender},
 };
 use winit::{
     application::ApplicationHandler,
@@ -55,8 +55,17 @@ pub struct Gui {
     /// Consumed on [`Gui::run`] call.
     event_loop: Option<EventLoop<()>>,
 
-    /// An [`Arc`][`Mutex`] that can be altered to send [`Signal`]s to the [`Tui`](crate::tui).
-    signal: Arc<Mutex<Signal>>,
+    /// An [`Arc`][`Mutex`] that can be altered to send [`CycleSignal`]s to the [`Tui`](crate::tui),
+    /// that occur due to G-code interpretation.
+    ///
+    /// See [`crate::signal`] for information on why this is different from [`Self::user_signal`].
+    cycle_signal: Arc<Mutex<CycleSignal>>,
+
+    /// Producer end of a [`mpsc::channel`](std::sync::mpsc::channel) for sending [`UserSignal`]s to the [`Tui`](crate::tui),
+    /// that occur due to user input.
+    ///
+    /// See [`crate::signal`] for information on why this is different from [`Self::cycle_signal`].
+    user_signal: Sender<UserSignal>,
 
     /// Parsed source loaded [`Interpreter`], ready for iteration.
     interpreter: Interpreter,
@@ -110,10 +119,15 @@ pub struct Gui {
 
 impl Gui {
     /// Constructs a new [`Gui`],
-    /// initializing the [`EventLoop`] ready to begin G-code execution and send [`Signal`]s.
+    /// initializing the [`EventLoop`] ready to begin G-code execution and send [`Signal`](crate::signal)s.
     ///
     /// The event loop is configured to block and wait until a new (user or OS) event arrives.
-    pub fn new(config: Config, signal: Arc<Mutex<Signal>>, interpreter: Interpreter) -> Self {
+    pub fn new(
+        config: Config,
+        interpreter: Interpreter,
+        cycle_signal: Arc<Mutex<CycleSignal>>,
+        user_signal: Sender<UserSignal>,
+    ) -> Self {
         let event_loop = EventLoop::builder()
             .build()
             .expect("constructing on the main thread");
@@ -124,7 +138,8 @@ impl Gui {
             config,
             graphics: None,
             error: None,
-            signal,
+            cycle_signal,
+            user_signal,
             interpreter,
             interrupt: Some(Interrupt::Start),
             event_loop: Some(event_loop),
@@ -148,12 +163,12 @@ impl Gui {
 
     /// Starts the [`Gui`] by running the [`EventLoop`].
     ///
-    /// Always sends a [`Signal::Stop`] to the [`Tui`](crate::tui) while exiting.
+    /// Always sends a [`CycleSignal::Stop`] to the [`Tui`](crate::tui) while exiting.
     pub fn run(mut self) -> anyhow::Result<()> {
         let event_loop = self.event_loop.take().unwrap();
         let res = event_loop.run_app(&mut self);
 
-        self.send_signal(Signal::Stop);
+        self.send_cycle_signal(CycleSignal::Stop);
 
         if let Some(e) = self.error {
             Err(e)
@@ -162,11 +177,16 @@ impl Gui {
         }
     }
 
-    /// Obtains the lock for [`Self::signal`] and updates it to match the new provided `signal`.
-    fn send_signal(&self, new_signal: Signal) {
-        if let Ok(mut signal) = self.signal.lock() {
+    /// Obtains the lock for [`Self::cycle_signal`] and updates it to match the new provided `signal`.
+    fn send_cycle_signal(&self, new_signal: CycleSignal) {
+        if let Ok(mut signal) = self.cycle_signal.lock() {
             *signal = new_signal
         }
+    }
+
+    /// Queues a new [`UserSignal`] in the channel that can be read by the [`Tui`](crate::tui) in order.
+    fn send_user_signal(&self, new_signal: UserSignal) {
+        let _ = self.user_signal.send(new_signal);
     }
 
     /// Requests redraw for [`Self::graphics`] window.
@@ -176,14 +196,14 @@ impl Gui {
 
     /// Reloads internals of [`Gui`] to begin rendering again from the first block.
     ///
-    /// Sends [`Signal::Pause`] with an [`Interrupt::Start`] to the [`Tui`](crate::tui).
+    /// Sends [`CycleSignal::Pause`] with an [`Interrupt::Start`] to the [`Tui`](crate::tui).
     /// After this, the program will require user input to resume.
     ///
     /// Removes any drawn toolpaths and resets the stock.
     fn reload(&mut self) {
         self.interrupt = Some(Interrupt::Start);
         self.interpreter.reload();
-        self.send_signal(Signal::Pause {
+        self.send_cycle_signal(CycleSignal::Pause {
             interrupt: Interrupt::Start,
             machine: *self.interpreter.machine(),
             index: 0,
@@ -228,7 +248,7 @@ impl Gui {
                     // we have to provide the index of previous block, that caused this error
                     let index = self.interpreter.source().index().saturating_sub(1);
 
-                    self.send_signal(Signal::Error {
+                    self.send_cycle_signal(CycleSignal::Error {
                         error,
                         machine: *self.interpreter.machine(),
                         index,
@@ -257,7 +277,7 @@ impl Gui {
     }
 
     /// Retrieves [`MotionSummary`] from [`Interpreter::execute`],
-    /// and sends the appropriate [`Signal`] to the [`Tui`](crate::tui).
+    /// and sends the appropriate [`CycleSignal`] to the [`Tui`](crate::tui).
     ///
     /// If no summary is found, on exhaustion of blocks,
     /// [`Interrupt::End`] is activated and also sent to the tui.
@@ -278,7 +298,7 @@ impl Gui {
 
                 (
                     block.motion,
-                    Signal::Run {
+                    CycleSignal::Run {
                         summary: block.clone(),
                         machine,
                         index: current,
@@ -291,7 +311,7 @@ impl Gui {
 
                 (
                     block.motion,
-                    Signal::Pause {
+                    CycleSignal::Pause {
                         interrupt: self
                             .interrupt
                             .expect("it has been checked that this block causes an interrupt"),
@@ -303,7 +323,7 @@ impl Gui {
 
             (current, machine, Some(block)) => (
                 block.motion,
-                Signal::Run {
+                CycleSignal::Run {
                     summary: block.clone(),
                     machine,
                     index: current,
@@ -315,7 +335,7 @@ impl Gui {
                 self.interrupt = Some(Interrupt::End);
                 (
                     None,
-                    Signal::Pause {
+                    CycleSignal::Pause {
                         interrupt: Interrupt::End,
                         machine,
                         index: current,
@@ -324,12 +344,11 @@ impl Gui {
             }
         };
 
-        self.send_signal(signal);
+        self.send_cycle_signal(signal);
 
         Ok(motion)
     }
 
-    // some means key event was recorded
     /// Handles a **keypress**.
     ///
     /// Returns:
@@ -337,7 +356,7 @@ impl Gui {
     /// - `Some(true)`: The event was handled and a new frame needs to be rendered.
     /// - `Some(false)`: The event was handled but a new frame does not need to be rendered.
     ///
-    /// On handling the event, sends appropriate [`Signal`] to the [`Tui`](crate::tui).
+    /// On handling the event, sends appropriate [`UserSignal`] to the [`Tui`](crate::tui).
     fn handle_key_input(&mut self, key: KeyEvent, event_loop: &ActiveEventLoop) -> Option<bool> {
         if key.state.is_pressed() {
             return None; // only consider release events
@@ -362,7 +381,7 @@ impl Gui {
                 self.single = !self.single;
                 self.next_requested = false;
 
-                self.send_signal(Signal::SetSingle(self.single));
+                self.send_user_signal(UserSignal::SetSingle(self.single));
 
                 if !self.single {
                     self.redraw(); // resume simulation
@@ -376,7 +395,7 @@ impl Gui {
                     graphics.fit_view();
 
                     self.fit = true;
-                    self.send_signal(Signal::SetFit(true));
+                    self.send_user_signal(UserSignal::SetFit(true));
                     Some(true)
                 }
 
@@ -388,7 +407,7 @@ impl Gui {
 
                 "p" => {
                     let toolpath = graphics.toggle_toolpath();
-                    self.send_signal(Signal::SetToolpathVisibility(toolpath));
+                    self.send_user_signal(UserSignal::SetToolpathVisibility(toolpath));
                     Some(true)
                 }
 
@@ -399,13 +418,13 @@ impl Gui {
 
                 "s" => {
                     let stock = graphics.toggle_stock();
-                    self.send_signal(Signal::SetStockVisibility(stock));
+                    self.send_user_signal(UserSignal::SetStockVisibility(stock));
                     Some(true)
                 }
 
                 "t" => {
                     let tool = graphics.toggle_tool();
-                    self.send_signal(Signal::SetToolVisibility(tool));
+                    self.send_user_signal(UserSignal::SetToolVisibility(tool));
                     Some(true)
                 }
 
@@ -420,19 +439,19 @@ impl Gui {
 
                     self.view = Some(new_view);
                     graphics.set_view(new_view);
-                    self.send_signal(Signal::SetView(self.view));
+                    self.send_user_signal(UserSignal::SetView(self.view));
                     Some(true)
                 }
 
                 "+" if self.speed.inc() => {
                     graphics.set_speed(self.speed);
-                    self.send_signal(Signal::SetSpeed(self.speed));
+                    self.send_user_signal(UserSignal::SetSpeed(self.speed));
                     Some(false)
                 }
 
                 "-" if self.speed.dec() => {
                     graphics.set_speed(self.speed);
-                    self.send_signal(Signal::SetSpeed(self.speed));
+                    self.send_user_signal(UserSignal::SetSpeed(self.speed));
                     Some(false)
                 }
 
@@ -616,7 +635,7 @@ impl ApplicationHandler for Gui {
                     // first interaction for oribiting after a preset view
                     // forfeit current view
                     self.view = None;
-                    self.send_signal(Signal::SetView(None));
+                    self.send_user_signal(UserSignal::SetView(None));
                 }
 
                 let delta = [delta.0 as f32, delta.1.neg() as f32, 0.0];
@@ -628,7 +647,7 @@ impl ApplicationHandler for Gui {
                     // first interaction for oribiting after a preset view
                     // forfeit current view
                     self.view = None;
-                    self.send_signal(Signal::SetView(None));
+                    self.send_user_signal(UserSignal::SetView(None));
                 }
 
                 let delta = [0.0, 0.0, delta.1 as f32];
@@ -638,7 +657,7 @@ impl ApplicationHandler for Gui {
             DeviceEvent::MouseMotion { delta } if self.left_mouse_pressed => {
                 if self.fit {
                     self.fit = false;
-                    self.send_signal(Signal::SetFit(false));
+                    self.send_user_signal(UserSignal::SetFit(false));
                 }
 
                 let delta = [delta.0 as f32, delta.1.neg() as f32];

@@ -4,12 +4,13 @@
 //! and houses its render loop and event handling.
 //!
 //! The `Tui` is drawn to [`Stdout`] and uses [`Crossterm`](CrosstermBackend) as its backend.
-//! Before drawing each frame, [`Tui::signal`] is refreshed to fetch new [`Signal`].
+//! Before drawing **each frame**, [`Tui::cycle_signal`] is refreshed to fetch any new [`CycleSignal`].
+//! In addition to this, [`Tui::user_signal`] is also checked for any new [`UserSignal`].
 //!
 //! The render loop draws endlessly to achieve the [`TARGET_FPS`], terminating on either:
 //! - Receiving `q` keypress from the user.
 //! - Receiving `SIGINT`, `SIGTERM` or `SIGHUP` signal from the OS.
-//! - Reading [`Signal::Error`] or [`Signal::Stop`] from the [`Gui`](crate::gui).
+//! - Reading [`CycleSignal::Error`] or [`CycleSignal::Stop`] from the [`Gui`](crate::gui).
 //!
 //! While exiting, always sends an event to the [`Gui`](crate::gui) to terminate it as well.
 //!
@@ -22,7 +23,7 @@ use crate::{
     geometry::view::View,
     interpreter::{BlockSummary, InterpreterError, Interrupt},
     machine::{CircularDirection, FeedMode, Machine, Motion, Plane, Positioning},
-    signal::Signal,
+    signal::{CycleSignal, UserSignal},
     source::Source,
     speed::Speed,
 };
@@ -44,12 +45,13 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc::Receiver,
     },
     time::{Duration, Instant},
 };
 use winit::event_loop::EventLoopProxy;
 
-/// Frames to draw per second. This also decides how often [`Tui::signal`] should be refreshed.
+/// Frames to draw per second. This also decides how often [`Tui::cycle_signal`] & [`Tui::user_signal`] should be refreshed.
 pub const TARGET_FPS: u64 = 30;
 
 // approx, due to int division truncation
@@ -106,14 +108,23 @@ pub struct Tui {
     /// Simulation speed.
     speed: Speed,
 
-    /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`](crate::gui) to send [`Signal`]s.
-    signal: Arc<Mutex<Signal>>,
+    /// An [`Arc`][`Mutex`] that can be altered by the [`Gui`](crate::gui) to send [`CycleSignal`]s,
+    /// which the [`Tui`] can read.
+    ///
+    /// See [`crate::signal`] for information on why this is different from [`Self::user_signal`].
+    cycle_signal: Arc<Mutex<CycleSignal>>,
 
-    /// [`Interrupt`] received from a [`Signal::Pause`].
-    /// This is only cleared on receiving a [`Signal::Run`].
+    /// Consumer end of a [`mpsc::channel`](std::sync::mpsc::channel) for receiving [`UserSignal`]s from the [`Gui`](crate::gui),
+    /// that occur due to user input.
+    ///
+    /// See [`crate::signal`] for information on why this is different from [`Self::cycle_signal`].
+    user_signal: Receiver<UserSignal>,
+
+    /// [`Interrupt`] received from a [`CycleSignal::Pause`].
+    /// This is only cleared on receiving a [`CycleSignal::Run`].
     interrupt: Option<Interrupt>,
 
-    /// Error from the latest [`Signal::Error`].
+    /// Error from the latest [`CycleSignal::Error`].
     /// This is never cleared and the user can only exit after this.
     ///
     /// This error is **G-code specific** and not related to the simulation.
@@ -121,14 +132,14 @@ pub struct Tui {
     /// and are instead printed to the `stderr` during program exit.
     error: Option<InterpreterError>,
 
-    /// [`BlockSummary`] received from a [`Signal::Run`].
+    /// [`BlockSummary`] received from a [`CycleSignal::Run`].
     /// Rendered only if [`Self::interrupt`] and [`Self::error`] are [`None`].
     summary: Option<Arc<BlockSummary>>,
 
-    /// Current state of the [`Machine`] after the latest [`Signal`].
+    /// Current state of the [`Machine`] after the latest [`CycleSignal`].
     machine: Machine,
 
-    /// Index of the block that lead to the latest [`Signal`].
+    /// Index of the block that lead to the latest [`CycleSignal`].
     index: usize,
 }
 
@@ -137,9 +148,14 @@ impl Tui {
     ///
     /// The [`Self::view`] is set to [`View::default`],
     /// and [`Self::speed`] to [`Speed::default`].
-    pub fn new(proxy: EventLoopProxy<()>, source: Source, signal: Arc<Mutex<Signal>>) -> Self {
-        let (interrupt, machine, index) = match &*signal.lock().unwrap() {
-            Signal::Pause {
+    pub fn new(
+        proxy: EventLoopProxy<()>,
+        source: Source,
+        cycle_signal: Arc<Mutex<CycleSignal>>,
+        user_signal: Receiver<UserSignal>,
+    ) -> Self {
+        let (interrupt, machine, index) = match &*cycle_signal.lock().unwrap() {
+            CycleSignal::Pause {
                 interrupt,
                 machine,
                 index,
@@ -157,7 +173,8 @@ impl Tui {
             toolpath: defaults::TOOLPATH,
             stock: defaults::STOCK,
             speed: Speed::default(),
-            signal,
+            cycle_signal,
+            user_signal,
             interrupt: Some(interrupt),
             error: None,
             summary: None,
@@ -197,8 +214,8 @@ impl Tui {
 
     /// Frame draw loop.
     ///
-    /// Before drawing each new frame, [`Self::signal`] is refreshed to get a potential new
-    /// [`Signal`], exit key press is `polled` and OS exit signals are checked.
+    /// Before drawing each new frame, [`Self::cycle_signal`] & [`Self::user_signal`] are refreshed to get any new
+    /// [`CycleSignal`] & [`UserSignal`] respectively, exit key press is `polled` and OS exit signals are checked.
     fn start_loop<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> anyhow::Result<()>
     where
         anyhow::Error: From<B::Error>,
@@ -216,8 +233,8 @@ impl Tui {
                 return Ok(());
             }
 
-            match self.refresh_signal() {
-                Signal::Run {
+            match self.refresh_cycle_signal() {
+                CycleSignal::Run {
                     summary,
                     machine,
                     index,
@@ -228,7 +245,7 @@ impl Tui {
                     self.interrupt = None;
                 }
 
-                Signal::Pause {
+                CycleSignal::Pause {
                     interrupt,
                     machine,
                     index,
@@ -238,7 +255,7 @@ impl Tui {
                     self.index = index;
                 }
 
-                Signal::Error {
+                CycleSignal::Error {
                     error,
                     machine,
                     index,
@@ -249,22 +266,26 @@ impl Tui {
                     return Err(self.error.unwrap().into());
                 }
 
-                Signal::SetView(view) => self.view = view,
-
-                Signal::SetSingle(single) => self.single = single,
-
-                Signal::SetToolVisibility(tool) => self.tool = tool,
-
-                Signal::SetToolpathVisibility(toolpath) => self.toolpath = toolpath,
-
-                Signal::SetStockVisibility(stock) => self.stock = stock,
-
-                Signal::SetSpeed(speed) => self.speed = speed,
-
-                Signal::SetFit(fit) => self.fit = fit,
-
-                Signal::Stop => return Ok(()),
+                CycleSignal::Stop => return Ok(()),
             };
+
+            if let Some(user_signal) = self.refresh_user_signal() {
+                match user_signal {
+                    UserSignal::SetView(view) => self.view = view,
+
+                    UserSignal::SetSingle(single) => self.single = single,
+
+                    UserSignal::SetToolVisibility(tool) => self.tool = tool,
+
+                    UserSignal::SetToolpathVisibility(toolpath) => self.toolpath = toolpath,
+
+                    UserSignal::SetStockVisibility(stock) => self.stock = stock,
+
+                    UserSignal::SetSpeed(speed) => self.speed = speed,
+
+                    UserSignal::SetFit(fit) => self.fit = fit,
+                }
+            }
 
             if time_tracker.elapsed() > TIME_BETWEEN_FRAMES {
                 terminal.draw(|frame| self.draw(frame))?;
@@ -276,11 +297,16 @@ impl Tui {
         Ok(())
     }
 
-    /// Obtains the lock for [`Self::signal`], copies the [`Signal`] and returns it.
+    /// Obtains the lock for [`Self::cycle_signal`], copies the [`CycleSignal`] and returns it.
     ///
-    /// This [`Signal`] may or may not be different from the one used for previous frame.
-    fn refresh_signal(&mut self) -> Signal {
-        self.signal.lock().unwrap().clone()
+    /// This [`CycleSignal`] may or may not be different from the one used for previous frame.
+    fn refresh_cycle_signal(&mut self) -> CycleSignal {
+        self.cycle_signal.lock().unwrap().clone()
+    }
+
+    /// Checks [`Self::user_signal`] for any new [`UserSignal`].
+    fn refresh_user_signal(&mut self) -> Option<UserSignal> {
+        self.user_signal.try_recv().ok()
     }
 
     /// Checks if the user pressed exit key in the terminal.

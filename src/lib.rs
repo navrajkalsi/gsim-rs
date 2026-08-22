@@ -22,12 +22,12 @@ use crate::{
     lexer::Lexer,
     machine::Machine,
     parser::Parser,
-    signal::Signal,
+    signal::{CycleSignal, UserSignal},
     source::Source,
     tui::Tui,
 };
 use clap::Parser as _;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 /// Allowed variance when comparing floating points.
 const FLOAT_VARIANCE: f32 = 1e-5;
@@ -49,7 +49,7 @@ fn display_banner() {
 ///
 /// Sets up [`Gui`] in the **main thread**, and [`Tui`] in a **new thread**.
 /// Sets up bidirectional communication between both the threads,
-/// using an [`Arc<Mutex<Signal>>`] and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
+/// using an [`Arc<Mutex<CycleSignal>>`], [`mpsc::channel<UserSignal>`], and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {
     display_banner();
 
@@ -65,14 +65,19 @@ pub fn run() -> anyhow::Result<()> {
     }?;
     let machine = Machine::new(config.units, config.zero_pos, config.start_pos);
     let interpreter = Interpreter::new(Parser::new(Lexer::new(source.clone())), machine);
-    let signal = Arc::new(Mutex::new(Signal::Pause {
+
+    // start cycle with interrupt
+    let cycle = Arc::new(Mutex::new(CycleSignal::Pause {
         interrupt: Interrupt::Start,
         machine,
         index: 0,
     }));
 
-    let gui = Gui::new(config, signal.clone(), interpreter);
-    let tui = Tui::new(gui.create_proxy(), source, signal.clone());
+    // setup usersignal channel
+    let (user_sender, user_receiver) = mpsc::channel::<UserSignal>();
+
+    let gui = Gui::new(config, interpreter, cycle.clone(), user_sender);
+    let tui = Tui::new(gui.create_proxy(), source, cycle.clone(), user_receiver);
 
     let child = std::thread::Builder::new()
         .name("TUI".to_string())
