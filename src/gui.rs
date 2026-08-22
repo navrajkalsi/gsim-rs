@@ -10,6 +10,7 @@
 
 use crate::{
     config::Config,
+    cursor::{CursorShape, Cursors},
     defaults,
     geometry::view::View,
     interpreter::{Interpreter, InterpreterError, Interrupt},
@@ -115,6 +116,9 @@ pub struct Gui {
     /// While this is set to `true` any mouse movement is recorded and used for
     /// **rotation around X and Y axes** of the window.
     middle_mouse_pressed: bool,
+
+    /// Custom cursors for panning, rotating and orbiting.
+    cursors: Cursors,
 }
 
 impl Gui {
@@ -122,19 +126,23 @@ impl Gui {
     /// initializing the [`EventLoop`] ready to begin G-code execution and send [`Signal`](crate::signal)s.
     ///
     /// The event loop is configured to block and wait until a new (user or OS) event arrives.
-    pub fn new(
+    ///
+    /// Returns error on failing to construct custom cursors.
+    pub fn build(
         config: Config,
         interpreter: Interpreter,
         cycle_signal: Arc<Mutex<CycleSignal>>,
         user_signal: Sender<UserSignal>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let event_loop = EventLoop::builder()
             .build()
             .expect("constructing on the main thread");
 
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-        Self {
+        let cursors = Cursors::build(&event_loop)?;
+
+        Ok(Self {
             config,
             graphics: None,
             error: None,
@@ -151,7 +159,8 @@ impl Gui {
             left_mouse_pressed: false,
             right_mouse_pressed: false,
             middle_mouse_pressed: false,
-        }
+            cursors,
+        })
     }
 
     /// Returns an [`EventLoopProxy`] for sending events to the [`Gui`] from other threads.
@@ -461,6 +470,16 @@ impl Gui {
             _ => None,
         }
     }
+
+    /// Changes cursor to the new provided [`CursorShape`].
+    /// Caller must ensure that [`Self::graphics`] is valid.
+    fn set_cursor(&mut self, shape: CursorShape) {
+        self.graphics
+            .as_mut()
+            .unwrap()
+            .window
+            .set_cursor(self.cursors.get(shape))
+    }
 }
 
 impl ApplicationHandler for Gui {
@@ -503,6 +522,8 @@ impl ApplicationHandler for Gui {
         };
 
         self.graphics = Some(graphics);
+
+        self.set_cursor(CursorShape::Default);
     }
 
     /// Handles [`WindowEvent`]s sent by the OS.
@@ -567,7 +588,14 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.left_mouse_pressed = state.is_pressed();
+                if state.is_pressed() {
+                    self.left_mouse_pressed = true;
+                    self.set_cursor(CursorShape::Pan);
+                } else {
+                    self.left_mouse_pressed = false;
+                    self.set_cursor(CursorShape::Default);
+                }
+
                 false
             }
 
@@ -576,7 +604,14 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Right,
                 ..
             } => {
-                self.right_mouse_pressed = state.is_pressed();
+                if state.is_pressed() {
+                    self.right_mouse_pressed = true;
+                    self.set_cursor(CursorShape::Rotate);
+                } else {
+                    self.right_mouse_pressed = false;
+                    self.set_cursor(CursorShape::Default);
+                }
+
                 false
             }
 
@@ -585,7 +620,14 @@ impl ApplicationHandler for Gui {
                 button: MouseButton::Middle,
                 ..
             } => {
-                self.middle_mouse_pressed = state.is_pressed();
+                if state.is_pressed() {
+                    self.middle_mouse_pressed = true;
+                    self.set_cursor(CursorShape::Orbit);
+                } else {
+                    self.middle_mouse_pressed = false;
+                    self.set_cursor(CursorShape::Default);
+                }
+
                 false
             }
 

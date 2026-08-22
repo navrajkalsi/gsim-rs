@@ -35,6 +35,7 @@ bytemuck = { version = "1.24", features = ["derive"] }
 clap = { version = "4.6.0", features = ["derive"] }
 ctrlc = { version = "3.5", features = ["termination"] }
 env_logger = "0.11.10"
+image = "0.25.10"
 log = "0.4.30"
 pollster = "0.4.0"
 ratatui = "0.30.0"

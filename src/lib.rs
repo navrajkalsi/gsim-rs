@@ -1,5 +1,6 @@
 mod cli;
 pub mod config;
+mod cursor;
 mod defaults;
 pub mod geometry;
 mod gui;
@@ -76,7 +77,7 @@ pub fn run() -> anyhow::Result<()> {
     // setup usersignal channel
     let (user_sender, user_receiver) = mpsc::channel::<UserSignal>();
 
-    let gui = Gui::new(config, interpreter, cycle.clone(), user_sender);
+    let gui = Gui::build(config, interpreter, cycle.clone(), user_sender)?;
     let tui = Tui::new(gui.create_proxy(), source, cycle.clone(), user_receiver);
 
     let child = std::thread::Builder::new()
