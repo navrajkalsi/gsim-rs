@@ -29,11 +29,11 @@ struct VertexOutput {
 // useful for fighting floating precision
 const Z_OFFSET = 0.1;
 
-const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.1, 0.1);
-const FEED_MOVE_COLOR = vec3<f32>(0.1, 1.0, 0.1);
+const RAPID_MOVE_COLOR = vec3<f32>(1.0, 0.0, 0.0);
+const FEED_MOVE_COLOR = vec3<f32>(0.0, 1.0, 0.0);
 
-const STROKE_WIDTH = 0.005; // in ndc
-const SMOOTHING = 0.0025; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
+const STROKE_WIDTH = 0.006; // in ndc
+const SMOOTHING = 0.003; // width of are on each side of line that is used to fade the line, ie, the area with alpha changes
 
 @vertex
 fn vs_main(@location(0) vertex: u32, instance: Instance) -> VertexOutput {

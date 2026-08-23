@@ -10,6 +10,11 @@ use winit::{
 /// Width and height of each icon image in pixels.
 const ICON_SIZE: u16 = 32;
 
+const CIRCLE: &[u8] = include_bytes!("../assets/circle.png");
+const ROTATE: &[u8] = include_bytes!("../assets/rotate.png");
+const PAN: &[u8] = include_bytes!("../assets/pan.png");
+const ORBIT: &[u8] = include_bytes!("../assets/orbit.png");
+
 /// Icon image to choose for [`Cursor`] construction.
 pub enum CursorShape {
     /// Default pointer.
@@ -34,10 +39,10 @@ impl Cursors {
     /// Returns error, on failure to either `open` any asset or create a [`CustomCursor`] from the
     /// asset.
     pub fn build(event_loop: &EventLoop<()>) -> anyhow::Result<Self> {
-        let circle = image::open("assets/circle.png")?;
-        let rotate = image::open("assets/rotate.png")?;
-        let pan = image::open("assets/pan.png")?;
-        let orbit = image::open("assets/orbit.png")?;
+        let circle = image::load_from_memory(CIRCLE)?;
+        let rotate = image::load_from_memory(ROTATE)?;
+        let pan = image::load_from_memory(PAN)?;
+        let orbit = image::load_from_memory(ORBIT)?;
 
         Ok(Self([
             cursor_from_rgba(circle.into_rgba8().into_raw(), event_loop)?,
