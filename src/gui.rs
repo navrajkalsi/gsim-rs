@@ -5,7 +5,7 @@
 //! Drives G-code interpretation with each new frame draw.
 //! Handles **both** mouse and keyboard input from the user.
 //!
-//! Sends [`Signal`]s to the [`Tui`](crate::tui) thread to change the tui frontend,
+//! Sends [`signal`](crate::signal)s to the [`Tui`](crate::tui) thread to change the tui frontend,
 //! reflecting the new active state.
 
 use crate::{
@@ -508,6 +508,8 @@ impl ApplicationHandler for Gui {
                 return event_loop.exit();
             }
         };
+
+        eprintln!("{}", window.scale_factor());
 
         let graphics = match pollster::block_on(Graphics::build(
             event_loop.owned_display_handle(),

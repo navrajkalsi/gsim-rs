@@ -1,8 +1,8 @@
 # Source
 ## 1 > 2
 
-. Merged two different `map`s for splitting into one, removing an additional allocation.
-. Tried `filter_map`, but found the performance to be **~5%** worse than separate `map` and `filter`.
+- Merged two different `map`s for splitting into one, removing an additional allocation.
+- Tried `filter_map`, but found the performance to be **~5%** worse than separate `map` and `filter`.
 
 ``` diff
      pub fn from_lines(lines: Lines) -> Self {
@@ -56,7 +56,7 @@ Found 9 outliers among 100 measurements (9.00%)
 # Lexer
 ## 1 > 2
 
-. Removed `String` allocation by using a **slice**.
+- Removed `String` allocation by using a **slice**.
 
 ``` diff
 diff --git a/src/lexer.rs b/src/lexer.rs
@@ -88,7 +88,7 @@ Found 6 outliers among 100 measurements (6.00%)
 # Parser
 ## 1 > 2
 
-. Removed `block.clone()` call and instead save the G and M codes in a `Vec` and parse them later.
+- Removed `block.clone()` call and instead save the G and M codes in a `Vec` and parse them later.
 
 
 ``` diff
@@ -152,7 +152,7 @@ Found 5 outliers among 100 measurements (5.00%)
 # Geometry
 ## 1 > 2
 
-. Removed equality check for every loop.
+- Removed equality check for every loop.
 
 ``` diff
 diff --git a/src/geometry.rs b/src/geometry.rs
