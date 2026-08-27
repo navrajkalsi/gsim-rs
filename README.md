@@ -2,6 +2,10 @@
 
 ![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/demo.gif?raw=true)
 
+<div align="center" style="font-size: 0.8em;">
+<i>GIF is capped at 15fps. Actual simulation runs smoother.</i>
+</div>
+
 <div align="center">
 
 [![Crates](https://img.shields.io/crates/v/gsim-rs?logo=Rust&color=%23ffaa00)](https://crates.io/crates/gsim-rs) [![Github](https://img.shields.io/badge/navrajkalsi%2Fgsim-rs?logo=GitHub&label=repo&color=%234444ff)](https://github.com/navrajkalsi/gsim-rs) [![Docs](https://img.shields.io/docsrs/gsim-rs?logo=Rust)](https://docs.rs/gsim-rs/latest/gsim_rs/)
@@ -214,10 +218,9 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 <br>
 
 ## Supported Codes
+<details>
+<summary><b>G Codes</b></summary>
 
-<div style="display:flex; flex-direction: row;"><div style="margin: 10px;">
-
-### G Codes
 | **Code** | **Description** |
 | :-: | :-: |
 | **G00** | Rapid Move |
@@ -246,9 +249,13 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 | **G98** | Initial Level Return |
 | **G99** | Retract Level Return |
 
-</div><div style="margin: 10px;">
+</details>
 
-### M Codes
+<br>
+
+<details>
+<summary><b>M Codes</b></summary>
+
 | **Code** | **Description** |
 | :-: | :-: |
 | **M00** | Cycle Pause |
@@ -261,9 +268,13 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 | **M09** | Coolant Off |
 | **M30** | Program End |
 
-</div><div style="margin: 10px;">
+</details>
 
-### Auxiliary Codes
+<br>
+
+<details>
+<summary><b>Auxiliary Codes</b></summary>
+
 | **Code** | **Description** |
 | :-: | :-: |
 | **D__** | Diameter Offset Register for **G40** & **G41** |
@@ -282,9 +293,11 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 | **Y__** | Y Axis Position for **G00**, **G01**, **G02**, **G03** & **G53** |
 | **Z__** | Z Axis Position for **G00**, **G01**, **G02**, **G03** & **G53** |
 
-</div></div>
+</details>
 
-### Notes
+<br>
+
+## Notes
 - **Offsetting** can be applied using `zero_pos` in the [config](#json-config). This is **not** to be confused with **G54** offset as this offset is always applied.
 - **G04 (Dwell)** does not block the threads and is ignored silently.
 - **Cutter and Tool Length Compensations** do not alter the simulation and are thus ignored.
@@ -292,8 +305,16 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 
 <br>
 
-## References
+## Limitations
+- Only **cuboidal** stock shapes are supported.
+- No runtime **offsetting** is supported, with G54-59 codes.
+- Only **flat-end cylindrical** tools are supported.
+- **Canned** cycles are parsed but not simulated.
+- **Backtracking** of G-code is not available.
 
+<br>
+
+## References
 **Most importantly**: [WGPU tutorial](https://sotrh.github.io/learn-wgpu/)
 
 - 3D Math: [WebGPU Fundamentals](https://webgpufundamentals.org/webgpu/lessons/webgpu-orthographic-projection.html)

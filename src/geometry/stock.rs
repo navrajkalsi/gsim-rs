@@ -15,7 +15,10 @@
 //! a [`StockInstance`] is **not** an actual *voxel* in the traditional sense.
 //! It is **not** a cube but rather a bar placed in the Z direction, whose height can be changed.
 
-use crate::{config::ToolConfig, points::Point};
+use crate::{
+    config::{Size, ToolConfig},
+    points::Point,
+};
 use std::f32::consts::SQRT_2;
 
 /// Number of voxels ([`StockInstance`]s) on the longer of X or Y axis.
@@ -287,7 +290,7 @@ pub struct StockTracker {
     voxel_counts: (usize, usize),
 
     /// Size of the cuboid being represented.
-    pub size: Point,
+    pub size: Size,
 
     /// Total count of voxel instances. Hidden and visible.
     pub total_count: usize,
@@ -315,7 +318,7 @@ impl StockTracker {
     ///
     /// Calculates the [`Self::voxel_edge`] size to be used for each voxel ([`StockInstance`]).
     /// Only activates the exposed faces of each [`StockInstance`].
-    pub fn new(size: Point) -> Self {
+    pub fn new(size: Size) -> Self {
         let largest = size.x.max(size.y);
         let edge = largest / RESOLUTION as f32; // edge of each bar
 
@@ -443,7 +446,7 @@ impl StockTracker {
 
         for x_index in min_x_index..=max_x_index {
             for y_index in min_y_index..=max_y_index {
-                let index = self.voxel_counts.1 * x_index + y_index;
+                let index = count_y * x_index + y_index;
 
                 let target = &mut self.instances[index];
 
@@ -652,7 +655,7 @@ mod tests {
                 },
             ],
             voxel_counts: (3, 3),
-            size: Point::new(30.0, 30.0, 30.0),
+            size: Size::new(30.0, 30.0, 30.0),
             total_count: 9,
             start_index: 0,
             end_index: 8,
@@ -662,7 +665,7 @@ mod tests {
 
     #[test]
     fn stock() {
-        let size = Point::new(500.0, 250.0, 250.0);
+        let size = Size::new(500.0, 250.0, 250.0);
         let edge = size.x.max(size.y) / RESOLUTION as f32; // edge of each cube
 
         let start = edge / 2.0;

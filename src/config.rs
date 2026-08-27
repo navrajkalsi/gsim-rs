@@ -61,6 +61,9 @@ use crate::points::Point;
 use serde::Deserialize;
 use std::str::FromStr;
 
+/// Since size is just a collection for 3 axis coordinates, [`Point`] can be used to encode size.
+pub type Size = Point;
+
 /// Program configuration at start.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -70,7 +73,7 @@ pub struct Config {
     pub units: Unit,
 
     /// Stock dimensions.
-    pub stock: Point,
+    pub stock: Size,
 
     /// Work offset zero position.
     /// This is relative to a **stock reference point**.
