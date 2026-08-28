@@ -355,7 +355,7 @@ impl StockTracker {
                 instances.push(StockInstance {
                     center: [current_x, current_y],
                     height: size.z,
-                    faces: u32::MAX,
+                    faces,
                 });
 
                 current_y += edge;
