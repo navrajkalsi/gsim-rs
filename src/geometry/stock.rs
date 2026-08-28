@@ -22,7 +22,7 @@ use crate::{
 use std::f32::consts::SQRT_2;
 
 /// Number of voxels ([`StockInstance`]s) on the longer of X or Y axis.
-const RESOLUTION: u32 = 1;
+const RESOLUTION: u32 = 10;
 
 /// Directional bit masks.
 const TOP: u32 = 1;
@@ -319,8 +319,8 @@ impl StockTracker {
     /// Calculates the [`Self::voxel_edge`] size to be used for each voxel ([`StockInstance`]).
     /// Only activates the exposed faces of each [`StockInstance`].
     pub fn new(size: Size) -> Self {
-        let largest = size.x.max(size.y);
-        let edge = largest / RESOLUTION as f32; // edge of each bar
+        let longest = size.x.max(size.y);
+        let edge = longest / RESOLUTION as f32; // X and Y edge of each voxel
 
         let start = edge / 2.0;
 
@@ -355,7 +355,7 @@ impl StockTracker {
                 instances.push(StockInstance {
                     center: [current_x, current_y],
                     height: size.z,
-                    faces,
+                    faces: u32::MAX,
                 });
 
                 current_y += edge;
