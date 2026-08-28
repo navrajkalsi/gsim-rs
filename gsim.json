@@ -1,9 +1,9 @@
 {
   "units": "metric",
   "stock": {
-    "x": 500,
+    "x": 5,
     "y": 5,
-    "z": 5
+    "z": 500
   },
   "zero_pos": {
     "x": 0,

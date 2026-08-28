@@ -22,7 +22,7 @@ use crate::{
 use std::f32::consts::SQRT_2;
 
 /// Number of voxels ([`StockInstance`]s) on the longer of X or Y axis.
-const RESOLUTION: u32 = 100;
+const RESOLUTION: u32 = 1;
 
 /// Directional bit masks.
 const TOP: u32 = 1;
