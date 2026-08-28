@@ -221,8 +221,8 @@ impl Graphics {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Device"),
-                // required_features: wgpu::Features::POLYGON_MODE_LINE | wgpu::Features::IMMEDIATES,
-                required_features: wgpu::Features::IMMEDIATES,
+                required_features: wgpu::Features::POLYGON_MODE_LINE | wgpu::Features::IMMEDIATES,
+                // required_features: wgpu::Features::IMMEDIATES,
                 required_limits: limits,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
