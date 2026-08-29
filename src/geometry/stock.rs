@@ -462,6 +462,9 @@ impl StockTracker {
                 } else {
                     tool_pos.z
                 };
+
+                // check which neighbours have changed
+                let neighbours = self.show_neighbours(index, tool_pos.z); // checks for bounds
             }
         }
         true
