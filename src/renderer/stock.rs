@@ -60,7 +60,7 @@ pub fn setup_pipeline(
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: Some(wgpu::Face::Back), // hide back faces
             unclipped_depth: false,
-            polygon_mode: wgpu::PolygonMode::Line,
+            polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
         depth_stencil: Some(wgpu::DepthStencilState {
