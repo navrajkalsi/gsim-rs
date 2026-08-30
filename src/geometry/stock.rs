@@ -441,6 +441,8 @@ impl StockTracker {
         // possible distance
         let max_dist = rad + (edge / 2.0) * SQRT_2;
         let count_y = self.voxel_counts.1;
+        let mut start_index = None;
+        let mut end_index = 0;
 
         for x_index in min_x_index..=max_x_index {
             for y_index in min_y_index..=max_y_index {
@@ -465,9 +467,36 @@ impl StockTracker {
 
                 // check which neighbours have changed
                 let neighbours = self.show_neighbours(index, tool_pos.z); // checks for bounds
+
+                // voxel refresh indices depends on the neighbouring voxel too
+                if start_index.is_none() {
+                    start_index = if neighbours & LEFT != 0 {
+                        Some(index - count_y)
+                    } else if neighbours & FRONT != 0 {
+                        Some(index - 1)
+                    } else {
+                        Some(index)
+                    };
+                }
+
+                end_index = if neighbours & RIGHT != 0 {
+                    index + count_y
+                } else if neighbours & BACK != 0 {
+                    index + 1
+                } else {
+                    index
+                };
             }
         }
-        true
+
+        match start_index {
+            Some(start_index) => {
+                self.start_index = start_index;
+                self.end_index = end_index;
+                true
+            }
+            None => false, // no voxel change
+        }
     }
 
     /// Returns a continuous slice of all the changed voxel instances from the last call to
