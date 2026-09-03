@@ -1,0 +1,35 @@
+{
+  "units": "metric",
+  "stock": {
+    "x": 500,
+    "y": 500,
+    "z": 250
+  },
+  "zero_pos": {
+    "x": 250,
+    "y": 250,
+    "z": 0
+  },
+  "start_pos": {
+    "x": 250,
+    "y": 250,
+    "z": 300
+  },
+  "tools": [
+    {
+      "number": 1,
+      "diameter": 150,
+      "length": 300
+    },
+    {
+      "number": 2,
+      "diameter": 50,
+      "length": 300
+    }
+  ],
+  "default_tool": {
+    "number": 0,
+    "diameter": 150,
+    "length": 300
+  }
+}

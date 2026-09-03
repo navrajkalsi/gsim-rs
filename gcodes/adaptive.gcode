@@ -1,3 +1,4 @@
+; Default config is suitable for this program.
 ; Stock size: 500, 250, 50
 
 %

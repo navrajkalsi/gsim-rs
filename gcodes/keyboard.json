@@ -1,0 +1,24 @@
+{
+  "units": "metric",
+  "stock": {
+    "x": 850,
+    "y": 425,
+    "z": 100
+  },
+  "zero_pos": {
+    "x": 0,
+    "y": 0,
+    "z": 95
+  },
+  "start_pos": {
+    "x": 875,
+    "y": 0,
+    "z": 105
+  },
+  "tools": [],
+  "default_tool": {
+    "number": 0,
+    "diameter": 5,
+    "length": 25
+  }
+}

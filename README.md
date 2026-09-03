@@ -3,8 +3,10 @@
 ![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/demo.gif?raw=true)
 
 <div align="center" style="font-size: 0.8em;">
-<i>GIF is capped at 15fps. Actual simulation runs smoother.</i>
+<i>Demo GIF is capped at 15fps. Actual simulation runs smoother.</i>
 </div>
+
+<br>
 
 <div align="center">
 
@@ -32,28 +34,33 @@ This project aims to simulate the **Fanuc** flavour of G-code for a **vertical C
 Here is an **extremely high level** view of the architecture:
 ![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/arch.svg?raw=true)
 
+**For more information on stock simulation, read this blog: [navrajkalsi.com](https://navrajkalsi.com/blogs/gsim-rs).**
+
 <br>
 
 ## Highlights
-
-- **GUI** and **TUI** run on different threads and communicate bi-directionally.
-  GUI handles the parsing, interpretation and simulation rendering, while TUI acts as the user frontend by rendering the active state.
-
-- Smooth simulation of **adaptive** or **dynamic** toolpaths *(like the one shown [here](#gsim-rs))* is ensured by batching up tiny moves before rendering them to a single frame.
-  This batching is bypassed when **single-block mode** is on, giving the user instant visual feedback per move, and also allows **stepping** through the program one block at a time.
 
 - **Volumetric** stock simulation is implemented for **cuboidal** stocks. This is done by only doing **partial GPU buffer updates** for each frame,
   instead of re-uploading the whole stock. The stock size can be changed using the program [configuration](#json-config).
 
 - Inward-facing voxel faces are **hidden** at startup, and are revealed as neighbouring voxels are *removed* during a cutting move.
 
-- **Rapid** and **Feed** moves are differentiated visually in the simulation.
+- **GUI** and **TUI** run on different threads and communicate bi-directionally.
+  GUI handles the parsing, interpretation and simulation rendering, while TUI acts as the user frontend by rendering the active state.
+
+- State changes flow from **GUI** to **TUI** using two methods: an `Arc<Mutex>` for skippable data,
+  and a `mpsc::channel` for data that must not be dropped.
+
+- Smooth simulation of **adaptive** or **dynamic** toolpaths *(like the one shown [here](#gsim-rs))* is ensured by batching up tiny moves before rendering them to a single frame.
+  This batching is bypassed when **single-block mode** is on, giving the user instant visual feedback per move, and also allows **stepping** through the program one block at a time.
 
 - **Orbiting**, **Panning** and **Zooming** are supported via mouse input, alongside predefined **Isometric**, **Top**, **Front** and **Right** views, which can be switched between at runtime.
 
+- Runtime **simulation speed** controls are provided.
+
 - **Tool size** can be changed dynamically during tool change, if the tool is defined in the program [configuration](#json-config), else the default tool is used.
 
-- Runtime **simulation speed** controls are provided.
+- **Rapid** and **Feed** moves are differentiated visually in the simulation.
 
 - Both **metric** & **imperial** units can be used.
 
@@ -184,7 +191,7 @@ The following **key commands** can be used to control the simulation at **runtim
 | **Key** | **Description** | **Default** |
 | :-: | :-: | :-: |
 | **q** | Quit | |
-| **v** | Switch b/w Isometric, Top, Front, Right **views** | Isometric |
+| **v** | Switch between Isometric, Top, Front, Right **views** | Isometric |
 | **+** | Speed **Up** | |
 | **-** | Slow **Down** | |
 | **Space** | Toggle **single** block execution | Off |
@@ -294,6 +301,54 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v2/gcodes/adaptive
 | **Z__** | Z Axis Position for **G00**, **G01**, **G02**, **G03** & **G53** |
 
 </details>
+
+<br>
+
+## Demos
+
+### Adaptive Toolpath
+
+Showcases high-speed adaptive machining capability. Same as the one shown [here](#gsim-rs).
+
+*This demo uses the [default config](#json-config). Therefore we don't have to provide the config file.*
+
+![Adaptive toolpath demo](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/adaptive.gif?raw=true)
+
+```shell
+cargo run --release -- gcodes/adaptive.gcode # from inside the cloned repo
+# or
+gsim-rs CLONED_REPO/gcodes/adaptive.gcode # if bin is on PATH
+```
+
+### Keyboard
+
+Demonstrates an engraving program with custom configuration.
+
+![Keyboard outline demo](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/keyboard.gif?raw=true)
+
+```shell
+cargo run --release -- gcodes/keyboard.gcode -c gcodes/keyboard.json # from inside the cloned repo
+# or
+gsim-rs CLONED_REPO/gcodes/keyboard.gcode -c CLONED_REPO/gcodes/keyboard.json # if bin is on PATH
+```
+
+### Cone
+
+Demonstrates arc simulation in 3D with custom configuration.
+
+![Cone 3D demo](https://github.com/navrajkalsi/gsim-rs/blob/v2/media/cone.gif?raw=true)
+
+```shell
+cargo run --release -- gcodes/cone.gcode -c gcodes/cone.json # from inside the cloned repo
+# or
+gsim-rs CLONED_REPO/gcodes/cone.gcode -c CLONED_REPO/gcodes/cone.json # if bin is on PATH
+```
+
+<br>
+
+## Benchmarks
+
+Benchmarks for **G-code parsing** and **stock construction** are available [here](https://github.com/navrajkalsi/gsim-rs/blob/v2/BENCHMARK.md).
 
 <br>
 

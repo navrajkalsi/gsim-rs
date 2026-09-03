@@ -418,10 +418,10 @@ impl StockTracker {
         } else {
             let ret = max_x / self.voxel_edge;
             let floored = ret.floor();
-            if ret - floored > 0.1 {
+            if ret - floored > f32::EPSILON {
                 floored as usize // beyond boundary, hide this cell
             } else {
-                floored as usize - 1 // on the boundary, hide previous cell
+                (floored as usize).saturating_sub(1) // on the boundary, hide previous cell
             }
         };
         let max_y_index = if max_y > self.size.y {
@@ -429,10 +429,10 @@ impl StockTracker {
         } else {
             let ret = max_y / self.voxel_edge;
             let floored = ret.floor();
-            if ret - floored > 0.1 {
+            if ret - floored > f32::EPSILON {
                 floored as usize // beyond boundary, hide this cell
             } else {
-                floored as usize - 1 // on the boundary, hide previous cell
+                (floored as usize).saturating_sub(1) // on the boundary, hide previous cell
             }
         };
 
