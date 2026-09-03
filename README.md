@@ -1,6 +1,6 @@
 # GSim-RS
 
-![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/main/media/demo.gif?raw=true)
+![GSim Demo, simulating an Adaptive toolpath](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/demo.gif?raw=true)
 
 <div align="center">
 
@@ -26,7 +26,7 @@ I have never done system diagrams for personal projects,
 but I feel like this one warrants one as there are **A LOT** of moving parts.
 
 Here is an **extremely high level** view of the architecture:
-![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/main/media/arch.svg?raw=true)
+![An extremely high level architecture diagram of GSim](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/arch.svg?raw=true)
 
 <br>
 
@@ -154,7 +154,7 @@ By default:
 
 ### Additional Usage
 ```bash
-curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adaptive.gcode | gsim-rs -x 1000 -y 750 -z 800
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v1/gcodes/adaptive.gcode | gsim-rs -x 1000 -y 750 -z 800
 ```
 
 - Reads G-code source from `stdin`.
@@ -245,7 +245,7 @@ curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/adapti
 ## Other Demos
 
 ### Note
-**Each demo G-code file, in the [*gcodes*](https://github.com/navrajkalsi/gsim-rs/blob/main/gcodes) directory, says what max travels that file on the first line.
+**Each demo G-code file, in the [*gcodes*](https://github.com/navrajkalsi/gsim-rs/blob/v1/gcodes) directory, says what max travels that file on the first line.
 These need to be provided to the program via command line args.**
 
 ---
@@ -257,24 +257,24 @@ gsim-rs CLONED_REPO/gcodes/keyboard.gcode -x 850 -y 425 -z 425
 ```
 
 #### Isometric
-![GSim demo, drawing a keyboard from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_iso.png?raw=true)
+![GSim demo, drawing a keyboard from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/keyboard_iso.png?raw=true)
 
 #### Top
-![GSim demo, drawing a keyboard from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/keyboard_top.png?raw=true)
+![GSim demo, drawing a keyboard from Top view](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/keyboard_top.png?raw=true)
 
 ---
 
 ### From **Stdin**
 
 ```bash
-curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/main/gcodes/outline.gcode | gsim-rs
+curl -k https://raw.githubusercontent.com/navrajkalsi/gsim-rs/v1/gcodes/outline.gcode | gsim-rs
 ```
 
 #### Isometric
-![GSim demo, drawing GSim logo from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_iso.png?raw=true)
+![GSim demo, drawing GSim logo from Isometric view](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/outline_iso.png?raw=true)
 
 #### Top
-![GSim demo, drawing GSim logo from Top view](https://github.com/navrajkalsi/gsim-rs/blob/main/media/outline_top.png?raw=true)
+![GSim demo, drawing GSim logo from Top view](https://github.com/navrajkalsi/gsim-rs/blob/v1/media/outline_top.png?raw=true)
 
 ## References
 
