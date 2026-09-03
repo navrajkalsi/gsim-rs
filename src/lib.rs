@@ -48,7 +48,7 @@ fn display_banner() {
 
 /// Main entry point for the program.
 ///
-/// Sets up [`Gui`] in the **main thread**, and [`Tui`] in a **new thread**.
+/// Sets up `Gui` in the **main thread**, and `Tui` in a **new thread**.
 /// Sets up bidirectional communication between both the threads,
 /// using an [`Arc<Mutex<CycleSignal>>`], [`mpsc::channel<UserSignal>`], and an [`EventLoopProxy`](winit::event_loop::EventLoopProxy).
 pub fn run() -> anyhow::Result<()> {

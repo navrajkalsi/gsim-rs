@@ -22,7 +22,7 @@ use crate::{
 use std::f32::consts::SQRT_2;
 
 /// Number of voxels ([`StockInstance`]s) on the longer of X or Y axis.
-const RESOLUTION: u32 = 1000;
+pub const RESOLUTION: u32 = 1000;
 
 /// Directional bit masks.
 const TOP: u32 = 1;
@@ -32,9 +32,9 @@ const BOTTOM: u32 = 1 << 3;
 const BACK: u32 = 1 << 4;
 const LEFT: u32 = 1 << 5;
 
-/// A single *height-adjustable* voxel instance, with its base at [`Self::center`].
+/// A single *height-adjustable* voxel instance, with its base at its `center`.
 ///
-/// Each instance has an unsigned integer [`Self::faces`], whose first 6 bits can be used to
+/// Each instance has an unsigned integer `faces` bitmask, whose first 6 bits can be used to
 /// activate or deactivate faces of the instance in the shader.
 /// Instance can be hidden by making the height `0.0`.
 #[repr(C)]
@@ -64,7 +64,7 @@ pub struct StockInstanceVertex {
 
     /// Z height flag.
     /// To target base(0 height), set to 0.
-    /// To target [`StockInstance::height`], set to 1.
+    /// To target the heigth of a [`StockInstance`], set to 1.
     z: u32,
 
     /// Face the vertex belongs to.
@@ -101,9 +101,9 @@ impl StockInstance {
     /// Array of [`StockInstanceVertex`] required to construct all the individual faces of a
     /// [`StockInstance`] independently.
     ///
-    /// These faces can be toggled with [`StockInstance::faces`] field.
+    /// These faces can be toggled with `StockInstance::faces` field.
     /// Z height of the instance is not encoded into this slice and depends on
-    /// [`StockInstance::height`].
+    /// the height of a specific [`StockInstance`].
     pub fn vertices(stock: &StockTracker) -> [StockInstanceVertex; 24] {
         let half_edge = stock.voxel_edge / 2.0;
         [
@@ -381,7 +381,7 @@ impl StockTracker {
     /// Returns `true` if at least one voxel instance was shortened,
     /// and `false` to signal no change to instances.
     ///
-    /// In case a change is detected, updates [`Self::start_index`] and [`Self::end_index`] to
+    /// In case a change is detected, updates internal slice indices to
     /// reflect the first and last of the changed instances. These can be retrieved as a slice of
     /// [`StockInstance`]s with [`Self::instances`].
     pub fn cut(&mut self, tool: ToolConfig, tool_pos: Point) -> bool {

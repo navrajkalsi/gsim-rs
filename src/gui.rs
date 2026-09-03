@@ -539,7 +539,7 @@ impl ApplicationHandler for Gui {
     /// On receiving [`WindowEvent::RedrawRequested`], if no [`Self::error`] and [`Self::interrupt`]
     /// are detected, [`updates`](Self::update) the simulation by either: executing a new G-code block
     /// or continuing to render a block already in process. During this,
-    /// appropriate [`Signal`]s are sent to the [`Tui`](crate::tui), to reflect the changes.
+    /// appropriate [`Signal`](crate::signal)s are sent to the [`Tui`](crate::tui), to reflect the changes.
     ///
     /// Calls [`Graphics::render`] if a new frame is to be drawn.
     /// On failure to `render` stores the error and exits the event loop.

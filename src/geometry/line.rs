@@ -97,7 +97,7 @@ impl LineInstance {
     }
 
     /// Creates a single [`LineInstance`] from `start` to `end`,
-    /// configured as a [`RAPID`] move.
+    /// configured as a rapid move.
     pub fn rapid_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x, start.y, start.z],
@@ -107,7 +107,7 @@ impl LineInstance {
     }
 
     /// Creates a single [`LineInstance`] from `start` to `end`,
-    /// configured as a [`FEED`] move.
+    /// configured as a feed move.
     pub fn feed_move(start: Point, end: Point) -> Self {
         Self {
             start: [start.x, start.y, start.z],
@@ -120,8 +120,8 @@ impl LineInstance {
 /// Represents an iterator of [`LineInstance`]s based on the geometry type.
 ///
 /// The geometry type is used to determine how the new line instances are added to
-/// the GPU [`buffer`](crate::renderer::Graphics::lines_instance_buffer);
-enum LineInstances {
+/// the GPU `lines_instance_buffer`.
+pub enum LineInstances {
     /// A single straight line.
     /// Rendered by adding and updating only one new instance to the GPU buffer, in order to save memory.
     Linear(Box<dyn Iterator<Item = LineInstance>>),
@@ -313,14 +313,14 @@ pub enum BufferAction {
     Overwrite {
         /// Overwrite the last instance inside the buffer with this new one.
         instance: LineInstance,
-        /// Render if the last frame render happened more than [`LinesTracker::resolution`] units of travel ago.
+        /// Render if the last frame render happened more than `LinesTracker::resolution` units of travel ago.
         render: bool,
     },
 
     Add {
         /// Add this new instance to the buffer.
         instance: LineInstance,
-        /// Render if the last frame render happened more than [`LinesTracker::resolution`] units of travel ago.
+        /// Render if the last frame render happened more than `LinesTracker::resolution` units of travel ago.
         render: bool,
     },
 }
@@ -363,7 +363,7 @@ impl LinesTracker {
         }
     }
 
-    /// Loads a new [`LineInstances`] into [`Self::instances`] and sets [`Self::first`].
+    /// Loads in a new [`LineInstances`].
     /// Any previous instances must be drained before this as those will be lost.
     pub fn add(&mut self, summary: MotionSummary) {
         self.instances = Some(LineInstances::new(summary, self));
@@ -382,18 +382,19 @@ impl LinesTracker {
 impl Iterator for LinesTracker {
     type Item = BufferAction;
 
-    /// Iterates [`Self::instances`] and returns a [`BufferAction`] depending on state of `self`.
+    /// Iterates the stored [`LineInstance`]s and returns a [`BufferAction`] depending on state of `self`.
     ///
     /// - After [`Self::add`] the first call always returns [`BufferAction::Add`],
-    ///   this is checked with [`Self::first`] flag.
+    ///   this is checked with an internal flag.
     /// - Subsequent calls return [`BufferAction::Overwrite`],
-    ///   if [`Self::instances`] is [`LineInstances::Linear`].
+    ///   if stored instances are [`LineInstances::Linear`].
     /// - Subsequent calls return [`BufferAction::Add`],
-    ///   if [`Self::instances`] is [`LineInstances::Arc`].
+    ///   if stored instances are [`LineInstances::Arc`].
     /// - Exhaustion of instances returns [`None`].
     ///
     /// In case of [`BufferAction::Overwrite`] & [`BufferAction::Add`],
-    /// `render` flag is determined on comparing [`Self::len`] with [`Self::resolution`].
+    /// `render` flag is determined on comparing the sum of each returned [`LineInstance`] since the
+    /// last render with the internal resolution for splitting a [`MotionSummary`].
     fn next(&mut self) -> Option<Self::Item> {
         let instance = match self.instances.as_mut()? {
             LineInstances::Linear(lines) => lines.next(),

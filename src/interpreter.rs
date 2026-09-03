@@ -47,8 +47,8 @@ impl Display for Interrupt {
 /// A summary of consumed a [`CodeBlock`](crate::parser::CodeBlock).
 ///
 /// Contains all the information required by:
-/// - The [`Gui`](crate::gui) to simulate the block.
-/// - The [`Tui`](crate::tui) to render the new [`Machine`] state.
+/// - The `Gui` to simulate the block.
+/// - The `Tui` to render the new [`Machine`] state.
 #[derive(Debug, Clone)]
 pub struct BlockSummary {
     /// Parsed [`GCode`]s from the block.
@@ -342,7 +342,7 @@ pub enum InterpreterError {
     #[error("machine rejected the last block")]
     Machine(#[from] MachineError),
 
-    /// Parsing the next [`CodeBlock`] failed.
+    /// Parsing the next [`CodeBlock`](crate::parser::CodeBlock) failed.
     #[error("parsing block failed")]
     Parser(#[from] ParserError),
 

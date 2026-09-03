@@ -4,7 +4,7 @@
 
 use crate::geometry::math::Matrix;
 
-/// The cumulation of all [`tranformations`](crate::renderer::tranform) to be applied to the
+/// The cumulation of all **tranformations** to be applied to the
 /// simulation, represented as a single [`Matrix`].
 ///
 /// Multiplying a position vector (in **machine units**) with this matrix,

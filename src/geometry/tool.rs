@@ -16,7 +16,7 @@ const RESOLUTION: u8 = 10;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ToolInstance {
     /// Position of the center of the bottom face of tool.
-    position: [f32; 3],
+    pub position: [f32; 3],
 
     /// Diameter of the tool.
     diameter: f32,
